@@ -61,7 +61,7 @@ check_links() {
   done < <(grep -oE '\]\([^)]+\)' "$file" | sed -E 's/^\]\(//; s/\)$//')
   return $broken
 }
-for md in README.md docs/GUIDE.md CONTRIBUTING.md; do
+for md in README.md docs/GUIDE.md CONTRIBUTING.md examples/README.md; do
   it "relative links resolve: $md"
   if check_links "$ROOT/$md"; then pass "$md"; else fail "broken link(s) in $md"; fi
 done
