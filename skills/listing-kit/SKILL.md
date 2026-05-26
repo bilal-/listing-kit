@@ -72,6 +72,8 @@ Persist each Maestro flow — it is the rerunnable navigation recipe for next ti
 ### 9. Capture — screenshot at required dimensions
 Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Default: capture the largest required size per device family and let the store derive the rest, unless the user wants explicit per-size captures.
 
+**Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit (`magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png`), and crop to satisfy Play's ≤2:1 aspect. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
+
 ### 10. Validate — check everything against store rules
 Validate every asset and metadata field against `references/stores/*.md`: character-limit overflows, dimension/format/aspect violations, missing required assets (e.g. Play feature graphic). If previous screenshots exist, produce a **visual diff** to flag regressions.
 

@@ -34,10 +34,11 @@ else
   exit 3
 fi
 
+# Play requires a 24-bit PNG (8-bit depth, RGB, NO alpha). Force all three.
 "${IM[@]}" -size 1024x500 "gradient:${color_a}-${color_b}" \
   \( "$icon" -resize 300x300 \) -gravity center -composite \
   -background white -alpha remove -alpha off \
-  -define png:color-type=2 \
-  "$out"
+  -depth 8 -define png:color-type=2 \
+  "PNG24:$out"
 
 echo "Wrote feature graphic: $out (1024x500, no alpha)."

@@ -19,8 +19,26 @@
 uploaded set. Default strategy: capture the **largest required size per family**
 and let the store fill the rest, unless the user wants explicit per-size captures.
 
-**Format:** PNG or JPEG, RGB, no transparency, no rounded corners/device frame
-required (raw screen content is fine and preferred for regeneration).
+**Format (Validate must enforce):** PNG or JPEG, **RGB, flattened, no alpha/
+transparency**. Raw `xcrun simctl … screenshot` output is **32-bit RGBA** and must
+be flattened before upload:
+`magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png`.
+No rounded corners/device frame needed (raw screen content is preferred for
+regeneration). Max ~500 MB/file (not a practical concern).
+
+## Detecting iPad support (whether iPad screenshots are REQUIRED)
+
+If the app runs on iPad, **iPad 13"/12.9" screenshots are required to submit** — a
+common, easy-to-miss rejection. Detect it before deciding to capture:
+- **Expo / React Native:** `ios.supportsTablet: true` in `app.json`/`app.config`.
+- **Native iOS:** `TARGETED_DEVICE_FAMILY` includes `2` (1=iPhone, 2=iPad), or
+  `UIDeviceFamily` in `Info.plist` includes `2`. "Designed for iPad" / universal.
+- **Flutter:** iOS runner's `TARGETED_DEVICE_FAMILY` (same as native).
+
+When supported, install the same build on an **iPad Pro 13-inch** simulator and
+capture at **2064×2752** (or 12.9" at 2048×2732). Place under the same
+`fastlane/screenshots/<locale>/` with an iPad-distinct filename prefix; deliver
+assigns device by image dimensions.
 
 ## Metadata fields (per locale)
 
