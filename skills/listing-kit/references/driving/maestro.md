@@ -18,6 +18,31 @@ curl -fsSL "https://get.maestro.mobile.dev" | bash
 maestro --version
 ```
 
+## Selecting the device (multi-device machines)
+Maestro auto-picks the first available device. On a machine running **both** an
+Android emulator and iOS simulators it will likely pick the wrong one (and fail to
+launch the app, which isn't installed there). **Always pass the target explicitly:**
+```sh
+maestro --device <udid-or-serial> test flow.yaml
+```
+- iOS: the simulator UDID from `xcrun simctl list devices`.
+- Android: the emulator serial from `adb devices` (e.g. `emulator-5554`).
+
+The same applies to capture: `xcrun simctl ... <udid>` / `adb -s <serial> ...`.
+
+## Capture from a RELEASE build, not a debug/dev build
+Build the app in **release/standalone** configuration for the Run + Drive + Capture
+steps — not a debug or Expo dev-client build:
+- `launchApp: clearState: true` **wipes a dev client's saved Metro URL**, so a debug
+  build can no longer load its JS and every flow fails at the first `assertVisible`.
+  A release build embeds the JS bundle, so `clearState` works and gives each flow a
+  clean starting state.
+- Release builds also drop the dev menu / debug banner from screenshots.
+- Expo: `npx expo run:ios --configuration Release` / `npx expo run:android --variant release`.
+  Native: build the Release configuration.
+- If you must drive a debug/dev build, **omit `clearState`** and reach screens by
+  deep-linking the already-running app (back-stack labels may be imperfect).
+
 ## Authoring a flow per screen
 Prefer the most direct route:
 1. **Deep link / URL scheme** if the app registers one (fastest, most stable):
