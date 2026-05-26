@@ -30,7 +30,7 @@ patterns=(
 found=0
 while IFS= read -r -d '' file; do
   for pat in "${patterns[@]}"; do
-    if grep -Eil "$pat" "$file" >/dev/null 2>&1; then
+    if grep -Eil -e "$pat" "$file" >/dev/null 2>&1; then
       echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
       found=1
     fi

@@ -44,12 +44,24 @@ There's no build step — the skill is markdown + shell. To work on it:
 git clone https://github.com/bilal-/listing-kit
 cd listing-kit
 
+# Run the test suite (zero dependencies — just bash + python3):
+bash tests/run.sh
+
 # After editing SKILL.md or plugin.json, regenerate the non-Claude manifests:
 bash skills/listing-kit/scripts/package/generate-manifests.sh
 
 # Syntax-check shell helpers:
 for f in $(find skills/listing-kit/scripts -name '*.sh'); do bash -n "$f"; done
 ```
+
+### Tests
+`tests/` is a zero-dependency bash suite (no bats, no installs) run by
+`bash tests/run.sh` and in CI on Linux + macOS. It covers the scripts (via PATH
+stubs, so no real simulators/devices are needed), manifest generation, and repo
+invariants (valid JSON, name consistency, no broken references or doc links,
+manifests in sync with the generator). **Please add a test with any script or
+manifest change**, and make sure the suite is green before opening a PR. New test
+files go in `tests/{unit,integration,structure}/` and end in `.test.sh`.
 
 ### Generated files
 `AGENTS.md` and `gemini-extension.json` are **emitted** by
