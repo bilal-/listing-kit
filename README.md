@@ -110,6 +110,12 @@ one. New stacks or stores are added by writing a module, not editing the core.
 Full walkthrough: **[docs/GUIDE.md](docs/GUIDE.md)**. Design rationale:
 **[docs/superpowers/specs/2026-05-25-listing-kit-design.md](docs/superpowers/specs/2026-05-25-listing-kit-design.md)**.
 
+## See it in action
+
+[`examples/expo-recipe-box`](examples/expo-recipe-box) is a complete, automation-friendly
+Expo app you can run listing-kit against. See [`examples/`](examples/) for the full set
+(native iOS, Android, and Flutter examples are planned).
+
 ## Your repo stays clean
 
 The committed tree is the source of truth **for non-secrets only**. Listing copy,
