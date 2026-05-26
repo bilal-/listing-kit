@@ -1,5 +1,9 @@
 # listing-kit local state — NEVER commit secrets (see skill §9.1 secrets boundary)
 .listing-kit/
+# ...but DO track the Maestro flows shipped with example apps (recipes, not secrets)
+!examples/expo-recipe-box/.listing-kit/
+!examples/expo-recipe-box/.listing-kit/flows/
+!examples/expo-recipe-box/.listing-kit/flows/**
 *.local
 secrets.local
 

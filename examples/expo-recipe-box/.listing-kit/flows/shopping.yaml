@@ -1,0 +1,5 @@
+appId: dev.bilalahmad.recipebox
+---
+- openLink: recipebox://shopping
+- assertVisible:
+    id: "Shopping list"

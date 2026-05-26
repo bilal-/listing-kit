@@ -1,0 +1,4 @@
+appId: dev.bilalahmad.recipebox
+---
+- openLink: recipebox://recipe/1
+- assertVisible: "Ingredients"
