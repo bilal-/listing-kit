@@ -1,0 +1,12 @@
+Recipe Box keeps your favorite recipes and your grocery shopping in one simple, fast app.
+
+BROWSE YOUR RECIPES
+Flip through a clean list of recipes — each with cook time, ingredients, and step-by-step instructions. Tap any recipe to see the full method.
+
+BUILD YOUR SHOPPING LIST
+Check off what you already have and see what's left to buy. Your list is always a tap away.
+
+SIMPLE BY DESIGN
+No accounts, no clutter, no noise. Recipe Box opens straight to your recipes and gets out of your way.
+
+This is a demo app shipped with listing-kit (https://github.com/bilal-/listing-kit) to show the kind of App Store and Google Play listing the tool generates directly from a repo.
