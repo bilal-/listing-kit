@@ -484,7 +484,7 @@ verifying against current store documentation when uncertain.
 - **E. Device frames / captions.** ✅ **Resolved:** Out of scope for v1.
 - **F. Repeatability.** ✅ **Resolved:** Maestro flows are the rerunnable recipes.
 - **G. Watch/Wear depth.** ✅ **Resolved:** Detect-and-prompt only in v1.
-- **H. Metadata tree location.** ✅ **Resolved:** Default to **`fastlane/`** root.
+- **H. Metadata tree location.** ✅ **Resolved:** Default to a **`fastlane/`** tree rooted at the **mobile app's directory** (the repo root for single-app repos; a subdirectory like `apps/mobile/` in a monorepo) — never assumed at the repo root. See `references/metadata/fastlane-layout.md` §Where the tree lives.
 - **I. Desired state expression.** ✅ **Resolved:** Use **Free Text**; AI reasons about the UI hierarchy to reach the state.
 - **J. Kiro support.** ✅ **Resolved:** Best-effort steering wrapper (re-verify installer at build time; see §14).
 - **K. Generator scope.** ✅ **Resolved:** Emit-only in v1.

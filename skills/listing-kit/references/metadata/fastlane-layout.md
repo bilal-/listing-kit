@@ -4,6 +4,24 @@ listing-kit writes to fastlane's `deliver` (iOS) and `supply` (Android) trees so
 existing publishing tooling works without translation. Keep a single internal
 notion of "the listing" and write **both** layouts from it.
 
+## Where the tree lives: the APP ROOT, not the repo root
+
+`fastlane/` (and `.listing-kit/`) live at the **mobile app's root directory** — the
+directory that holds the app manifest the Detect step found (`app.json`/`package.json`
+for RN/Expo, `pubspec.yaml` for Flutter, the `*.xcodeproj`/`*.xcworkspace` for native
+iOS, `build.gradle` for native Android). All paths below are **relative to that app
+root.**
+
+- **Single-app repo:** the app root *is* the repo root → `./fastlane/`.
+- **Monorepo:** the app root is a subdirectory → e.g. `apps/mobile/fastlane/`,
+  `packages/app/fastlane/`. Do **not** write to the repo root.
+- **Multiple apps** in one repo: each app gets its own `fastlane/` under its own root;
+  confirm which app(s) to target during Detect/Plan.
+
+`fastlane`'s own `deliver`/`supply` also expect to be run from the app directory, so
+this keeps the output directly usable. (This repo's own example follows the rule:
+`examples/expo-recipe-box/fastlane/` is at the *app* root, not the repo root.)
+
 ## iOS — `fastlane/metadata/`
 ```
 fastlane/metadata/

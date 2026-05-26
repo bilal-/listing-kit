@@ -29,8 +29,10 @@ detect → doctor → discover → plan → configure → run → drive → capt
 
 Run these in order. Each step has a reference doc; load it when you reach the step.
 
-### 1. Detect — classify the stack
+### 1. Detect — classify the stack and locate the app root
 Identify the stack from manifest signals. See `references/stacks/` (each stack doc opens with its detection signatures). A repo may be cross-platform (RN/Flutter) or contain both a native iOS and native Android project. **Report what you found and ask the user to confirm targets.**
+
+**Record the app root** — the directory that holds the manifest (`app.json`/`package.json`, `pubspec.yaml`, `*.xcodeproj`, `build.gradle`). This is the repo root for a single-app repo, but a **subdirectory in a monorepo** (e.g. `apps/mobile/`). All output — `fastlane/` and `.listing-kit/` — is written relative to the app root, never assumed at the repo root. If multiple apps are found, ask which to target; each gets its own `fastlane/` under its own root.
 
 ### 2. Doctor — pre-flight the environment
 Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`. Report **optional** tools and what their absence degrades to:
@@ -78,7 +80,7 @@ Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out sc
 Validate every asset and metadata field against `references/stores/*.md`: character-limit overflows, dimension/format/aspect violations, missing required assets (e.g. Play feature graphic). If previous screenshots exist, produce a **visual diff** to flag regressions.
 
 ### 11. Assemble — write the fastlane tree, then assert the secrets boundary
-Write everything into the fastlane layout (`references/metadata/fastlane-layout.md`). Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting). **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
+Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting). **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 
