@@ -77,7 +77,7 @@ Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out sc
 **Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit (`magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png`), and crop to satisfy Play's ≤2:1 aspect. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
 
 ### 10. Validate — check everything against store rules
-Validate every asset and metadata field against `references/stores/*.md`: character-limit overflows, dimension/format/aspect violations, missing required assets (e.g. Play feature graphic). If previous screenshots exist, produce a **visual diff** to flag regressions.
+Run `scripts/validate/validate-listing.sh` (pass the app root) — it checks every asset and metadata field against `references/stores/*.md`: character-limit overflows, screenshot dimensions vs. recognized device sizes, format (RGB/no-alpha/24-bit), Play's ≤2:1 aspect + 8MB, required assets (≥1 iPhone size; iPad screenshots when `supportsTablet`; Play feature graphic + icon), and runs the secret scan. It exits non-zero on any failure. Also produce a **visual diff** if previous screenshots exist.
 
 ### 11. Assemble — write the fastlane tree, then assert the secrets boundary
 Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting). **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
@@ -107,4 +107,5 @@ Then produce a **report**: per platform/locale, what exists vs. required vs. mis
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
+| `scripts/validate/validate-listing.sh` | Validate the listing tree against App Store + Play rules (Validate step) |
 | `scripts/package/generate-manifests.sh` | Emit per-AI-platform install manifests from this canonical skill |
