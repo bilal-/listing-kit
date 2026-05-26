@@ -9,7 +9,7 @@ export default function ShoppingScreen() {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, checked: !it.checked } : it)));
 
   return (
-    <View style={styles.container} accessibilityLabel="Shopping list">
+    <View style={styles.container} accessibilityLabel="Shopping list" testID="Shopping list">
       <FlatList
         data={items}
         keyExtractor={(i) => i.id}

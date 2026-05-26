@@ -4,7 +4,7 @@ import { recipes } from "../data/recipes";
 
 export default function RecipesScreen() {
   return (
-    <View style={styles.container} accessibilityLabel="Recipes list">
+    <View style={styles.container} accessibilityLabel="Recipes list" testID="Recipes list">
       <View style={styles.toolbar}>
         <Link href="/shopping" asChild>
           <Pressable accessibilityRole="button" accessibilityLabel="Open shopping list">

@@ -5,7 +5,7 @@ export default function SettingsScreen() {
   const [dark, setDark] = useState(false);
 
   return (
-    <View style={styles.container} accessibilityLabel="Settings">
+    <View style={styles.container} accessibilityLabel="Settings" testID="Settings">
       <View style={styles.row}>
         <Text style={styles.label}>Dark theme</Text>
         <Switch value={dark} onValueChange={setDark} accessibilityLabel="Toggle dark theme" />

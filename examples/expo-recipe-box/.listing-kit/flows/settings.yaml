@@ -1,5 +1,7 @@
 appId: dev.bilalahmad.recipebox
 ---
+- launchApp:
+    clearState: true
 - openLink: recipebox://settings
 - assertVisible:
     id: "Settings"

@@ -1,4 +1,6 @@
 appId: dev.bilalahmad.recipebox
 ---
+- launchApp:
+    clearState: true
 - openLink: recipebox://recipe/1
 - assertVisible: "Ingredients"

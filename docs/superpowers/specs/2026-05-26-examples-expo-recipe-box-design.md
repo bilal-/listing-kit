@@ -44,7 +44,7 @@ believable 5-screenshot listing, no more.
 
 | Screen | Deep link | Demo state (populated, no login) |
 |---|---|---|
-| Recipes (list) | `recipebox://recipes` | several sample recipes with images |
+| Recipes (list) | `recipebox://` | several sample recipes with images |
 | Recipe detail | `recipebox://recipe/:id` | a full recipe, ingredients + steps |
 | Shopping list | `recipebox://shopping` | a few checked / unchecked items |
 | Settings | `recipebox://settings` | theme + about (lightweight 4th screen) |
