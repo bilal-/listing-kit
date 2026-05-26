@@ -1,0 +1,79 @@
+# Contributing to listing-kit
+
+Thanks for being here — contributions are genuinely welcome, from typo fixes to
+whole new stack modules. This project gets better every time someone runs it
+against a real app and tells us what broke.
+
+## Ways to help
+
+- **Keep store specs current.** Apple and Google change sizes and limits often. If
+  the table in `skills/listing-kit/references/stores/*.md` is stale, a one-line PR
+  is hugely valuable.
+- **Deepen a stack module.** Add detection signals, build/launch commands, or
+  discovery heuristics for frameworks and edge cases in
+  `skills/listing-kit/references/stacks/*.md`.
+- **Improve Maestro recipes.** Better flow patterns for auth bypass, deep links,
+  and reaching populated states.
+- **Sharpen the scripts.** More robust status-bar/permission handling, secret
+  patterns, or feature-graphic styles.
+- **File issues.** A clear bug report against a real repo (stack, OS, what you
+  expected, what happened) is a contribution.
+
+## Project shape
+
+```
+.claude-plugin/        Claude Code plugin + marketplace manifests (hand-maintained)
+skills/listing-kit/
+  SKILL.md             the orchestration core (the pipeline)
+  references/          pluggable modules: stores/, stacks/, driving/, metadata/, platforms/
+  scripts/             portable POSIX shell helpers (capture/, generate/, lib/, package/)
+  assets/              optional device frames (future)
+docs/                  user guide + design spec
+AGENTS.md, gemini-extension.json   GENERATED — do not hand-edit (see below)
+```
+
+**Architecture rule:** the core (`SKILL.md`) never contains stack- or
+store-specific commands. Those live in `references/` modules. Add a new stack or
+store by writing a module, not by editing the core.
+
+## Local development
+
+There's no build step — the skill is markdown + shell. To work on it:
+
+```sh
+git clone https://github.com/bilal-/listing-kit
+cd listing-kit
+
+# After editing SKILL.md or plugin.json, regenerate the non-Claude manifests:
+bash skills/listing-kit/scripts/package/generate-manifests.sh
+
+# Syntax-check shell helpers:
+for f in $(find skills/listing-kit/scripts -name '*.sh'); do bash -n "$f"; done
+```
+
+### Generated files
+`AGENTS.md` and `gemini-extension.json` are **emitted** by
+`scripts/package/generate-manifests.sh` from `.claude-plugin/plugin.json`. Don't
+edit them by hand — change the source and regenerate, so manifests never drift.
+
+### Shell conventions
+- POSIX-friendly `bash`, `set -euo pipefail`, clear `Usage:` on bad args.
+- Degrade gracefully: a missing optional tool should fall back (and say so), not
+  crash. See `feature-graphic.sh` (exit 3 → prompt) for the pattern.
+- Never write secrets to disk in a committed path. If you touch the listing tree,
+  keep `secret-scan.sh` honest.
+
+## Pull requests
+
+1. Fork and branch from `main` (`feat/...`, `fix/...`, `docs/...`).
+2. Keep PRs focused; explain the *why*, and which stack/store/platform you tested against.
+3. If you changed the skill or plugin metadata, run the generator and commit the result.
+4. Be kind in review — see the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+By contributing, you agree your work is licensed under the project's
+[MIT License](LICENSE).
+
+## Questions
+
+Open a [Discussion or Issue](https://github.com/bilal-/listing-kit/issues).
+Happy to help you land your first PR.

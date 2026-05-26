@@ -1,0 +1,15 @@
+# listing-kit local state — NEVER commit secrets (see skill §9.1 secrets boundary)
+.listing-kit/
+*.local
+secrets.local
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Build/scratch output that may appear when running against a repo
+*.log
+.maestro/

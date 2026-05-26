@@ -1,0 +1,26 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "listing-kit",
+  "version": "0.1.0",
+  "description": "Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing (copy, metadata, graphics) into the repo as the source of truth — fastlane-compatible, cross-stack, cross-AI.",
+  "author": {
+    "name": "Bilal Ahmad",
+    "url": "https://bilalahmad.dev"
+  },
+  "homepage": "https://github.com/bilal-/listing-kit",
+  "repository": "https://github.com/bilal-/listing-kit",
+  "license": "MIT",
+  "keywords": [
+    "app-store",
+    "google-play",
+    "screenshots",
+    "fastlane",
+    "mobile",
+    "ios",
+    "android",
+    "flutter",
+    "react-native",
+    "maestro",
+    "skill"
+  ]
+}

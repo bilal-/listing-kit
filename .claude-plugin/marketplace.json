@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "listing-kit",
+  "description": "App-store presence, in your repo. A free, open-source skill that captures store-compliant screenshots and assembles full App Store + Google Play listings.",
+  "owner": {
+    "name": "Bilal Ahmad",
+    "url": "https://bilalahmad.dev"
+  },
+  "plugins": [
+    {
+      "name": "listing-kit",
+      "description": "Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing into the repo as the source of truth. Cross-stack (native iOS/Android, Flutter, React Native/Expo) and cross-AI.",
+      "author": {
+        "name": "Bilal Ahmad"
+      },
+      "category": "productivity",
+      "source": "./",
+      "homepage": "https://github.com/bilal-/listing-kit",
+      "license": "MIT",
+      "keywords": ["app-store", "google-play", "screenshots", "fastlane", "mobile"]
+    }
+  ]
+}
