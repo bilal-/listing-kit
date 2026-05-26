@@ -1,7 +1,7 @@
 Recipe Box keeps your favorite recipes and your grocery shopping in one simple, fast app.
 
 BROWSE YOUR RECIPES
-Flip through a clean list of recipes — each with cook time, ingredients, and step-by-step instructions. Tap any recipe to see the full method.
+Flip through a clean list of recipes, each with cook time, ingredients, and step-by-step instructions. Tap any recipe to see the full method.
 
 BUILD YOUR SHOPPING LIST
 Check off what you already have and see what's left to buy. Your list is always a tap away.

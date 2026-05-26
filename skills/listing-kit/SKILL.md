@@ -57,6 +57,8 @@ Ask which stores to target, then device classes. Detect hints (iPad support in `
 ### 6. Configure — inputs, credentials, seed data
 Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). Detect **Auth/Demo modes** (`mock_data.json`, `--demo` flags, demo build configs). **Secrets never enter the committed tree** — store them in a git-ignored `.listing-kit/secrets.local` or environment variables and reference (don't inline) them in Maestro flows.
 
+**Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would. **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
+
 ### 7. Run — build, launch, sanitize
 Bootstrap dependencies, build, and launch on each required simulator/emulator (see the per-stack doc for exact commands). Then:
 - **Sanitize status bars** to 9:41 AM, full battery/signal: run `scripts/capture/sanitize-status-bar.sh`.

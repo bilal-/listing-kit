@@ -11,7 +11,7 @@ export default function SettingsScreen() {
         <Switch value={dark} onValueChange={setDark} accessibilityLabel="Toggle dark theme" />
       </View>
       <View style={styles.divider} />
-      <Text style={styles.about}>Recipe Box — a listing-kit example app</Text>
+      <Text style={styles.about}>Recipe Box, a listing-kit example app</Text>
       <Text style={styles.version}>v1.0.0</Text>
     </View>
   );
