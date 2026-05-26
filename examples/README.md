@@ -7,7 +7,7 @@ demo-data mode (populated screens, no login wall).
 
 | Example | Stack | Status |
 |---|---|---|
-| [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | app ✅ · generated listing ⏳ (Phase B) |
+| [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | app ✅ · iOS listing ✅ ([report](expo-recipe-box/LISTING-REPORT.md)) · Android ⏳ |
 | _native iOS (SwiftUI)_ | — | planned |
 | _native Android (Compose)_ | — | planned |
 | _Flutter_ | — | planned |
