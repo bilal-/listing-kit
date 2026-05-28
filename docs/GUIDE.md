@@ -102,7 +102,7 @@ fastlane/
   metadata/                 # iOS copy (name, subtitle, description, keywords, URLs…)
     android/                # Android copy + images/ (screenshots, featureGraphic, icon)
   screenshots/<locale>/     # iOS screenshots, ordered 01_, 02_, …
-listing-review.html        # open in a browser: copy buttons, screenshots, validation
+listing-review.html         # open in a browser: copy buttons, screenshots, validation
 .listing-kit/               # git-ignored: flows + secrets (NOT committed)
 ```
 
