@@ -61,7 +61,7 @@ stubs, so no real simulators/devices are needed), manifest generation, and repo
 invariants (valid JSON, name consistency, no broken references or doc links,
 manifests in sync with the generator). **Please add a test with any script or
 manifest change**, and make sure the suite is green before opening a PR. New test
-files go in `tests/{unit,integration,structure}/` and end in `.test.sh`.
+files go in `tests/{unit,integration,structure}/` and end in `.test.sh`. The newest script, `build-review.sh`, is covered by `tests/unit/build-review.test.sh`, which builds the page against the example app and asserts its key contents.
 
 ### Generated files
 `AGENTS.md`, `gemini-extension.json`, and `.kiro/steering/listing-kit.md` are

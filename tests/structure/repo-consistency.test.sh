@@ -32,7 +32,7 @@ done
 # ---- all scripts exist and are executable ----
 for s in capture/sanitize-status-bar capture/grant-permissions \
          generate/feature-graphic lib/secret-scan package/generate-manifests \
-         validate/validate-listing validate/visual-diff; do
+         validate/validate-listing validate/visual-diff package/build-review; do
   it "script present + executable: $s.sh"
   assert_exec "$SKILL_DIR/scripts/$s.sh"
 done

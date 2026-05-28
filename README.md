@@ -123,6 +123,8 @@ screenshots, and graphics get committed; **credentials and seed secrets never
 do** — they live in a git-ignored `.listing-kit/` or environment variables, and
 the Assemble step runs a secret scan that **fails the run** if anything leaked.
 
+After a run, open `listing-review.html` at the app root to review all copy (with copy buttons), screenshots, and validation in one page.
+
 ## Contributing
 
 Contributions are very welcome — especially deepening a stack module or keeping a
