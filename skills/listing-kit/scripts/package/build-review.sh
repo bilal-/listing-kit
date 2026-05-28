@@ -5,7 +5,7 @@
 # output embedded verbatim. Open the file in any browser; no server needed.
 #
 # Usage: build-review.sh [<app-root>]    (default: current directory)
-# Exit:  0 = wrote listing-review.html, 2 = usage / no fastlane / no python3.
+# Exit:  0 = wrote listing-review.html, 1 = generation failed, 2 = usage / no fastlane / no python3.
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
@@ -27,7 +27,7 @@ else
 fi
 
 OUT="$ROOT/listing-review.html"
-python3 - "$ROOT" "$VAL_TXT" "$OUT" <<'PY'
+python3 - "$ROOT" "$VAL_TXT" "$OUT" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
 import sys, os, glob, struct, html
 
 root, val_txt, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -161,7 +161,7 @@ def render_graphics(graphics):
 tabs, panels, app_name = [], [], ""
 for i, (plat, data) in enumerate(platforms.items()):
     on = " on" if i == 0 else ""
-    tabs.append(f'<button class="tab{on}" data-p="{plat}" onclick="show(\'{plat}\')">{plat}</button>')
+    tabs.append(f'<button class="tab{on}" data-p="{esc(plat)}" onclick="show(\'{esc(plat)}\')">{esc(plat)}</button>')
     body = []
     for L in data["locales"]:
         left = "".join(render_field(r) for r in L["fields"]) + "".join(render_field(r) for r in data["applevel"])

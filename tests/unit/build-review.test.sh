@@ -18,15 +18,20 @@ assert_eq 0 "$RC"
 assert_file "$T/listing-review.html"
 PAGE="$(cat "$T/listing-review.html")"
 
-it "renders an iOS/Android toggle, copy buttons, char counts, screenshots, and the validator output"
+it "renders the iOS/Android toggle and copy buttons"
 assert_contains "$PAGE" 'data-p="iOS"'
 assert_contains "$PAGE" 'data-p="Android"'
 assert_contains "$PAGE" 'onclick="cp(this)"'          # copy button
+
+it "renders char counts, screenshots, and graphics"
 assert_contains "$PAGE" '23/30'                        # name: "Recipe Box: Cook & Shop"
 assert_contains "$PAGE" 'fastlane/screenshots/en-US/'  # relative screenshot link (iOS)
 assert_contains "$PAGE" 'phoneScreenshots'             # android screenshot link
 assert_contains "$PAGE" 'iPhone 6.9'                   # device-class grouping (note: " is HTML-escaped)
+assert_not_contains "$PAGE" 'iPhone 6.9"'   # the " must be HTML-escaped (&quot;), never literal
 assert_contains "$PAGE" 'Feature graphic'              # generated graphic
+
+it "embeds the validator output"
 assert_contains "$PAGE" 'LISTING VALID'                # embedded validator banner
 
 it "is read-only — does not create or modify anything under fastlane/"
