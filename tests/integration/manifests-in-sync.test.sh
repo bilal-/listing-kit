@@ -24,5 +24,12 @@ else
   fail "stale — run: bash skills/listing-kit/scripts/package/generate-manifests.sh"
 fi
 
+it "committed .kiro/steering/listing-kit.md is in sync with the generator"
+if diff -u "$ROOT/.kiro/steering/listing-kit.md" "$T/.kiro/steering/listing-kit.md" >/dev/null; then
+  pass "in sync"
+else
+  fail "stale — run: bash skills/listing-kit/scripts/package/generate-manifests.sh"
+fi
+
 rm -rf "$T"
 summary

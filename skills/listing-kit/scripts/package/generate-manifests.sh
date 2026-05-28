@@ -4,8 +4,9 @@
 #
 # Reads .claude-plugin/plugin.json (the source of truth for name/version/desc)
 # and writes, at the repo root:
-#   - gemini-extension.json   (Gemini CLI)
-#   - AGENTS.md               (Codex / Copilot CLI discovery)
+#   - gemini-extension.json          (Gemini CLI)
+#   - AGENTS.md                      (Codex / Copilot CLI discovery)
+#   - .kiro/steering/listing-kit.md  (Kiro steering-doc wrapper — best-effort)
 #
 # The Claude Code manifests (.claude-plugin/{plugin,marketplace}.json) are the
 # hand-maintained source and are NOT regenerated here.
@@ -62,5 +63,27 @@ follow its pipeline. All work is plain shell-outs; see
 equivalents on your platform.
 EOF
 echo "wrote AGENTS.md"
+
+# --- Kiro steering doc (best-effort: Kiro has no confirmed plugin installer) ---
+mkdir -p "$root/.kiro/steering"
+cat > "$root/.kiro/steering/$name.md" <<EOF
+---
+inclusion: manual
+---
+
+# $name (v$version)
+
+$description
+
+This is a Kiro **steering-doc wrapper**. Kiro has no confirmed plugin/skill
+installer, so load the canonical skill below as context and follow its pipeline.
+
+**Skill instructions:** [\`$skill_md\`](../../$skill_md)
+
+All work is plain shell-outs; see
+\`skills/listing-kit/references/platforms/tool-mapping.md\` for tool-name
+equivalents on your platform.
+EOF
+echo "wrote .kiro/steering/$name.md"
 
 echo "Done. (Emit-only: no install performed.)"
