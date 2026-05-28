@@ -71,7 +71,8 @@ Driving is a **shared capability via Maestro** (one YAML flow language across al
 1. Confirm it exists at runtime (`maestro studio` / UI snapshot) and reconcile against the static inventory.
 2. Author a Maestro flow, preferring deep links/URL schemes, else tap-by-accessibility-label.
 3. Reach the desired state via demo mode / mock data / mock-auth; prioritize bypass routes for social logins (they often fail on simulators).
-4. **Manual-assist fallback** when Maestro can't reach a state (canvas/game UIs, missing semantics, unscriptable auth). Under `--non-interactive`, skip and mark the screen **Missing**.
+4. **Reject empty states before capturing.** A deep link or fresh launch lands on whatever state the app currently has, which is often empty ("No notes yet", an empty list, a zero-results screen) — the most common weak store screenshot. Confirm the screen is actually **populated** before you capture it; if it isn't, seed/mock data to fill it, go to a populated instance, or drop/replace the screen back in Curate. Don't ship an empty screen just because the route resolved.
+5. **Manual-assist fallback** when Maestro can't reach a state (canvas/game UIs, missing semantics, unscriptable auth). Under `--non-interactive`, skip and mark the screen **Missing**.
 
 Persist each Maestro flow — it is the rerunnable navigation recipe for next time.
 

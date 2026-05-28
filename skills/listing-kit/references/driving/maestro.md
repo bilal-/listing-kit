@@ -66,6 +66,7 @@ Use `maestro studio` to inspect the live hierarchy and discover labels/ids while
 - **Demo / mock mode:** if the app supports it (`--demo`, a mock-data JSON), enable it so screens are populated, not empty.
 - **Mock auth / bypass:** social logins (Google/Apple) often fail on simulators — prioritize a mock-auth or bypass route where one exists. Reference secrets from `.listing-kit/secrets.local` or env; **never inline credentials into a committed flow.**
 - **Permissions:** pre-grant before driving (`scripts/capture/grant-permissions.sh`); dismiss any residual dialog inside the flow.
+- **Reject empty states before capturing.** A deep link or fresh launch lands on *whatever state the app currently has* — which is often empty ("No notes yet", an empty list/cart, a zero-results search). An empty/zero screen is the single most common weak store screenshot. After driving to a screen and **before capturing it**, confirm it is actually populated (assert a content element is visible, e.g. `assertVisible` on a real item, not the empty-state text). If it's empty: seed/mock data to fill it, navigate to a populated instance instead, or drop/replace the screen during Curate. Don't ship the empty state just because the route resolved.
 
 ## Persisted flows = rerunnable recipes
 Save each flow (e.g. `.listing-kit/flows/<screen>.yaml`). This is what makes
