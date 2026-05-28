@@ -12,7 +12,10 @@ set -euo pipefail
 
 platform="${1:-}"
 app="${2:-}"
-[ -z "$platform" ] || [ -z "$app" ] && { echo "Usage: $0 {ios|android} <app-id> [device|serial]" >&2; exit 2; }
+if [ -z "$platform" ] || [ -z "$app" ]; then
+  echo "Usage: $0 {ios|android} <app-id> [device|serial]" >&2
+  exit 2
+fi
 
 case "$platform" in
   ios)

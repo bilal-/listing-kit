@@ -25,4 +25,8 @@ done
 it "found the expected four flows"
 assert_eq 4 "$flows"
 
+it "committed example flows contain no inlined secrets"
+OUT="$(bash "$SCRIPTS/lib/secret-scan.sh" "$APP/.listing-kit/flows" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "flows are secret-clean"
+
 summary

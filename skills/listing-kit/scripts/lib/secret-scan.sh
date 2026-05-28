@@ -15,6 +15,10 @@ if [ ! -d "$dir" ]; then
 fi
 
 # Known secret patterns (extend as needed). Case-insensitive.
+# NOTE: the last (generic keyword=value) pattern can occasionally false-positive on
+# marketing copy or a long URL that directly follows a word like "token"/"password".
+# It errs toward caution by design — review a flagged line; if it's genuinely public
+# copy, reword it slightly. Better a false alarm than a leaked credential.
 patterns=(
   'AKIA[0-9A-Z]{16}'                                   # AWS access key id
   'aws_secret_access_key'

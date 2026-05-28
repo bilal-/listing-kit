@@ -10,10 +10,13 @@
 
 | Device class | Required? | Accepted pixel sizes (portrait / landscape) | Max count |
 |---|---|---|---|
-| iPhone 6.9" / 6.7" | Yes — at least one iPhone size required | 1290×2796 / 2796×1290, 1284×2778 / 2778×1284 | 10 |
-| iPhone 6.5" | Acceptable alternative | 1242×2688 / 2688×1242 | 10 |
+| iPhone 6.9" | Yes — at least one iPhone size required | 1320×2868 / 2868×1320 (iPhone 17/16 Pro Max), 1290×2796 / 2796×1290 | 10 |
+| iPhone 6.7" / 6.5" | Acceptable alternative | 1284×2778 / 2778×1284, 1242×2688 / 2688×1242 | 10 |
 | iPad 13" / 12.9" | Required **iff** the app supports iPad | 2064×2752 / 2752×2064, 2048×2732 / 2732×2048 | 10 |
 | Apple Watch | Required **iff** the app has a watchOS target | per watch series | 10 |
+
+`validate-listing.sh` recognizes all of the above (its `apple_size()` table is the
+machine-readable copy of this row); keep the two in sync when Apple changes sizes.
 
 **Derivation:** App Store Connect derives some smaller sizes from a larger
 uploaded set. Default strategy: capture the **largest required size per family**
