@@ -17,3 +17,6 @@ Thumbs.db
 # Build/scratch output that may appear when running against a repo
 *.log
 .maestro/
+
+# Brainstorming visual-companion scratch
+.superpowers/
