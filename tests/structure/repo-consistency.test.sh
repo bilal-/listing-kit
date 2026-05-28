@@ -67,4 +67,8 @@ for md in README.md docs/GUIDE.md CONTRIBUTING.md examples/README.md; do
   if check_links "$ROOT/$md"; then pass "$md"; else fail "broken link(s) in $md"; fi
 done
 
+it "SKILL.md states the never-fabricate rule for URLs/copyright/category"
+SK="$(cat "$SKILL_DIR/SKILL.md")"
+assert_contains "$SK" "Never fabricate"
+
 summary
