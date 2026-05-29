@@ -1,6 +1,6 @@
 {
   "name": "listing-kit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing (copy, metadata, graphics) into the repo as the source of truth — fastlane-compatible, cross-stack, cross-AI.",
   "contextFileName": "skills/listing-kit/SKILL.md"
 }
