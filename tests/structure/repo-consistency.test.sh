@@ -32,7 +32,8 @@ done
 # ---- all scripts exist and are executable ----
 for s in capture/sanitize-status-bar capture/grant-permissions \
          generate/feature-graphic lib/secret-scan package/generate-manifests \
-         validate/validate-listing validate/visual-diff package/build-review; do
+         validate/validate-listing validate/visual-diff package/build-review \
+         package/install-review-hook; do
   it "script present + executable: $s.sh"
   assert_exec "$SKILL_DIR/scripts/$s.sh"
 done
@@ -70,5 +71,14 @@ done
 it "SKILL.md states the never-fabricate rule for URLs/copyright/category"
 SK="$(cat "$SKILL_DIR/SKILL.md")"
 assert_contains "$SK" "Never fabricate"
+
+it "SKILL.md states reruns preserve existing fastlane listings"
+assert_contains "$SK" "Preserve existing listings on reruns"
+assert_contains "$SK" "treat it as the baseline"
+assert_contains "$SK" "Do not rewrite a good description"
+
+it "SKILL.md states git repos install the review refresh hook"
+assert_contains "$SK" 'run `scripts/package/install-review-hook.sh`'
+assert_contains "$SK" 'whenever staged `fastlane/**` files change'
 
 summary

@@ -21,17 +21,18 @@ VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 # build on a validator non-zero exit — we embed whatever it reported.
 VAL_TXT="$(mktemp)"; trap 'rm -f "$VAL_TXT"' EXIT
 if [ -f "$VALIDATOR" ]; then
-  bash "$VALIDATOR" "$ROOT" 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' > "$VAL_TXT" || true
+  (cd "$ROOT" && bash "$VALIDATOR" .) 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' > "$VAL_TXT" || true
 else
   echo "(validate-listing.sh not found; validation section omitted)" > "$VAL_TXT"
 fi
 
 OUT="$ROOT/listing-review.html"
 python3 - "$ROOT" "$VAL_TXT" "$OUT" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
-import sys, os, glob, struct, html
+import sys, os, glob, struct, html, datetime
 
 root, val_txt, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 FL = os.path.join(root, "fastlane")
+generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 def read(p):
     try:
@@ -183,6 +184,7 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
 header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e6e1d6;padding:14px 20px;z-index:5}
 header h1{margin:0;font-size:16px}
 header .app{color:#7a7468;font-size:13px;margin-top:2px}
+header .meta{color:#9a948a;font-size:12px;margin-top:2px}
 .tabs{margin-top:10px;display:flex;gap:8px}
 .tab{padding:6px 14px;border:1px solid #ddd6c8;background:#faf8f3;border-radius:8px;cursor:pointer;font:inherit}
 .tab.on{background:#A69060;color:#fff;border-color:#A69060}
@@ -227,6 +229,8 @@ page = (f'<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">'
         f'<title>Listing review — {esc(app_name)}</title><style>{CSS}</style></head><body>'
         f'<header><h1>Listing review</h1><div class="app">{esc(app_name)}</div>'
+        f'<div class="meta">Generated {esc(generated_at)} from fastlane metadata .txt files. '
+        f'Rerun build-review.sh after editing copy.</div>'
         f'<div class="tabs">{"".join(tabs)}</div></header>'
         f'<div class="val"><pre>{esc(val_output)}</pre></div>'
         f'{"".join(panels)}'

@@ -31,6 +31,12 @@ code (PRs, diffs, history). Screenshots become **regenerable**, not hand-curated
 one-offs. And because everything is written in the **fastlane** convention,
 existing publishing tooling can pick it up with zero translation.
 
+If a repo already has `fastlane/` metadata, listing-kit uses it as the baseline.
+Reruns should make focused edits for new features, missing fields, screenshots,
+or validation failures, not rewrite good store copy just because the model can.
+In git repos, listing-kit installs a pre-commit rule so any commit that stages
+`fastlane/**` changes also refreshes and stages `listing-review.html`.
+
 > **This is not "a screenshot tool."** Screenshots are one artifact among
 > several. The unit of value is a complete, version-controlled listing that
 > stays in sync with the running app.

@@ -58,6 +58,10 @@ support or a Wear module), and locale (`en-US` default). Default is **5 hero
 screens** per device class.
 
 ### Configure — secrets stay out of the repo
+If the app already has `fastlane/` metadata, the agent reads it first and treats
+it as the baseline. A rerun should preserve good copy and make small edits for
+new features, changed screens, missing fields, or validation failures.
+
 If your app has a **demo mode** or accepts **mock data**, the agent uses it to
 populate screens. Any credentials needed go in a git-ignored
 `.listing-kit/secrets.local` or environment variables — **never** in committed
@@ -91,6 +95,9 @@ dimensions, missing required assets like the Play **feature graphic**, which the
 agent generates as an icon-on-gradient placeholder). Everything is written into
 the fastlane layout, ordered by numeric filename prefix. Finally, a **secret
 scan** runs over the committed tree and **fails the run** if anything leaked.
+If the app is in a git repo, Assemble also installs a pre-commit hook so commits
+that stage `fastlane/**` changes automatically refresh and stage
+`listing-review.html`.
 
 You get a **report**: per store/locale, what exists vs. required vs. missing,
 with next actions.
@@ -106,8 +113,11 @@ listing-review.html         # open in a browser: copy buttons, screenshots, vali
 .listing-kit/               # git-ignored: flows + secrets (NOT committed)
 ```
 
-Commit `fastlane/`. Review the copy like code. Re-run any time the app changes —
-the saved Maestro flows make it repeatable.
+Commit `fastlane/`. Review the copy like code. Re-run any time the app changes.
+Existing copy is the baseline on reruns, so the expected output is a focused diff,
+not a fresh rewrite. In git repos, changes under `fastlane/**` refresh
+`listing-review.html` at commit time. The saved Maestro flows make screenshot
+capture repeatable.
 
 ## 5. Re-running & CI
 

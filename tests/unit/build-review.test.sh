@@ -48,4 +48,16 @@ OUT="$(bash "$SUT" "$T" 2>&1)"
 assert_contains "$(cat "$T/listing-review.html")" "missing"
 rm -rf "$T"
 
+it "rebuilds from edited metadata txt files"
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+bash "$SUT" "$T" >/dev/null 2>&1
+assert_not_contains "$(cat "$T/listing-review.html")" "Edited copy from txt"
+printf 'Edited copy from txt\n' > "$T/fastlane/metadata/en-US/description.txt"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" "Edited copy from txt"
+assert_contains "$PAGE" "Generated "
+assert_contains "$PAGE" "from fastlane metadata .txt files"
+rm -rf "$T"
+
 summary
