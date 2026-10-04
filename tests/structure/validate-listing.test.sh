@@ -367,4 +367,11 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "changelogs/42: 501/500 chars OVER LIMIT"
 rm -rf "$T"
 
+it "hidden folders (metadata/.backup) are not treated as locales"
+apple_only; mkdir -p "$T/fastlane/metadata/.backup"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_not_contains "$OUT" "locale .backup"
+rm -rf "$T"
+
 summary

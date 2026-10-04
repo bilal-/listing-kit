@@ -17,7 +17,8 @@ NOT_LOCALES = {"android", "default", "review_information", "trade_representative
 
 def _subdirs(d):
     try:
-        return sorted(e for e in os.listdir(d) if os.path.isdir(os.path.join(d, e)))
+        return sorted(e for e in os.listdir(d)
+                      if not e.startswith(".") and os.path.isdir(os.path.join(d, e)))
     except OSError:
         return []
 
@@ -48,7 +49,8 @@ def images(d):
         names = sorted(os.listdir(d))
     except OSError:
         return []
-    return [os.path.join(d, n) for n in names if os.path.isfile(os.path.join(d, n)) and is_image(n)]
+    return [os.path.join(d, n) for n in names
+            if not n.startswith(".") and os.path.isfile(os.path.join(d, n)) and is_image(n)]
 
 
 if __name__ == "__main__":

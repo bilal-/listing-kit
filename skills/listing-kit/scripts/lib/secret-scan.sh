@@ -23,7 +23,6 @@ fi
 # ("task-management-...") can't match "sk-...".
 B='(^|[^A-Za-z0-9_])'
 patterns=(
-  "${B}(AKIA|ASIA)[0-9A-Z]{16}"                         # AWS access key id
   'aws_secret_access_key'
   "${B}gh[pousr]_[A-Za-z0-9_]{36,}"                     # GitHub tokens (PAT, OAuth, app incl. ghs_APPID_JWT, refresh)
   'github_pat_[A-Za-z0-9_]{22,}'                        # GitHub fine-grained PAT
@@ -36,30 +35,42 @@ patterns=(
   '"(private_key_id|private_key)"[[:space:]]*:'         # Google service-account JSON
   "${B}ey[A-Za-z0-9_-]{8,}\.ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"   # JWT ('{"' and '{ ' both encode to "ey")
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'                  # private key block
+  "${B}bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}"        # Authorization: Bearer <token>
+)
+# Case-sensitive patterns (grep without -i): AWS key ids are upper-case, and
+# matching "asia..." in an ordinary URL would be a false alarm.
+cs_patterns=(
+  "${B}(AKIA|ASIA)[0-9A-Z]{16}([^A-Za-z0-9]|$)"         # AWS access key id
 )
 
-# Generic "keyword = value" credentials. Needs an explicit : or = and a value of 12+
-# characters containing a digit, so copy like "Password synchronization" or
-# "Secret: ingredient tips" stays clean. Matches are filtered by awk below.
+# Generic "keyword = value" credentials: an explicit : or = and a value of 12+
+# characters that either contains a digit (filtered by awk below) or ends the
+# assignment (end of line, quote, comma, semicolon). So "password: Correct
+# HorseBatteryStaple" on its own line is caught, while copy like "Password:
+# synchronization made easy" (more words follow) stays clean.
 generic_kw='(api[_-]?key|client[_-]?secret|secret|password|passwd|token|bearer)'
 generic="${generic_kw}[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/_+.=-]{12,}"
+patterns+=("${generic}([\"',;}]|[[:space:]]*$)")
 
 # Text files only — screenshots and other binaries are never scanned.
 includes=(--include='*.txt' --include='*.json' --include='*.yaml' --include='*.yml' --include='*.md')
 
 found=0
-for pat in "${patterns[@]}"; do
-  rc=0; hits="$(grep -rEil "${includes[@]}" -e "$pat" "$dir")" || rc=$?
+scan_pattern(){ # grep-flags pattern
+  local rc=0 hits
+  hits="$(grep -rEl"$1" "${includes[@]}" -e "$2" "$dir")" || rc=$?
   case "$rc" in
     0) while IFS= read -r file; do
-         echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
+         echo "POTENTIAL SECRET in committed listing: $file (pattern: $2)" >&2
        done <<<"$hits"
        found=1 ;;
     1) ;;   # no match
     *) echo "ERROR: secret scan could not read '$dir' (grep exit $rc); refusing to report clean." >&2
        exit 2 ;;
   esac
-done
+}
+for pat in "${patterns[@]}"; do scan_pattern i "$pat"; done
+for pat in "${cs_patterns[@]}"; do scan_pattern "" "$pat"; done
 
 # Generic rule: grep -o the candidates, keep only values with a digit.
 rc=0; hits="$(grep -rEioH "${includes[@]}" -e "$generic" "$dir")" || rc=$?

@@ -74,7 +74,10 @@ for k in \
   "whsec""_Ab3dEf6hIj9kLm2nOp5qRs8tUv1" \
   "ey""IHsiYWxnIjoi.eyAic3ViIjog.abcdefghijkl" \
   "api_key""=abc123def456ghi==" \
-  "DB_PASSWORD: s3cr3t""Value99xx"; do
+  "DB_PASSWORD: s3cr3t""Value99xx" \
+  "password: CorrectHorse""BatteryStaple" \
+  "token=abcdefghijkl""mnopqrstuvwxyz" \
+  "Authorization: Bearer abcdef12345""67890abcdef"; do
   it "fails on ${k:0:16}…"
   mktree; printf '%s\n' "$k" > "$TREE/en-US/description.txt"
   OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
@@ -88,7 +91,8 @@ for c in \
   "Track your password strength" \
   "Tokens of appreciation: share recipes" \
   "Password synchronization across devices" \
-  "Password: synchronization made easy"; do
+  "Password: synchronization made easy" \
+  "Plan trips at https://asiatraveladventures.example today"; do
   it "store copy is clean: ${c:0:28}…"
   mktree; printf '%s\n' "$c" > "$TREE/en-US/description.txt"
   OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
