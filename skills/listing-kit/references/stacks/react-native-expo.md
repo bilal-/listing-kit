@@ -38,6 +38,12 @@ npx react-native run-ios --mode Release --simulator "iPhone 17 Pro Max"
 npx react-native run-android --mode release
 ```
 
+## Status bar style (Android)
+Recent Expo/RN Android templates draw edge-to-edge with **light** status-bar icons
+by default. On a light-themed screen they're invisible, so the sanitized 9:41 bar
+comes out blank. If the app doesn't set a style, ask before adding
+`<StatusBar style="dark" />` (from `expo-status-bar`) to the root layout.
+
 ## Sanitize, permissions & capture
 Same as the underlying platform — use the **platform** SDK tooling
 (`xcrun simctl` / `adb`) for status bar, permissions, and capture. See

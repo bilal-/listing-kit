@@ -42,31 +42,48 @@ self-contained, so the dev-client problem below doesn't apply.)
 - Release builds also drop the dev menu / debug banner from screenshots.
 - Expo: `npx expo run:ios --configuration Release` / `npx expo run:android --variant release`.
   Native: build the Release configuration.
+- `npx expo run:ios` finishes by opening an `expo-development-client` URL, which
+  leaves the same "Open in app?" alert on the simulator even for a Release build.
+  Reboot the simulator before capturing (`xcrun simctl shutdown <udid> && xcrun simctl boot <udid>`),
+  or build with `xcodebuild … -configuration Release` and `simctl install` the `.app`.
 - If you must drive a debug/dev build, **omit `clearState`** and reach screens by
   deep-linking the already-running app (back-stack labels may be imperfect).
 
 ## Authoring a flow per screen
-Prefer the most direct route:
-1. **Deep link / URL scheme** if the app registers one (fastest, most stable):
+Prefer the most direct route that doesn't trigger system UI:
+1. **Deep link / URL scheme** if the app registers one, **on Android**. On iOS,
+   opening a custom-scheme link from outside the app (`openLink`, `simctl openurl`)
+   shows a system **"Open in "App"?"** alert that Maestro can't dismiss reliably
+   (the tap reports success and the alert stays). On iOS, or for flows shared by
+   both platforms, prefer option 2:
    ```yaml
    appId: com.example.app
    ---
    - openLink: "example://library"
    ```
-2. **Tap by accessibility label** otherwise:
+2. **Tap by accessibility label** (works the same on iOS and Android, and gives
+   a natural back stack, e.g. a "‹ Library" back button):
    ```yaml
    appId: com.example.app
    ---
-   - launchApp
+   - launchApp:
+       clearState: true
    - tapOn: "Library"
    - assertVisible: "My Books"
    ```
+   Assert on real content (an item's label), not just a container id, so an empty
+   or wrong screen fails the flow instead of being captured.
 
 Use `maestro studio` to inspect the live hierarchy and discover labels/ids while authoring.
 
 ## Reaching the desired state
 - **Demo / mock mode:** if the app supports it (`--demo`, a mock-data JSON), enable it so screens are populated, not empty.
 - **Mock auth / bypass:** social logins (Google/Apple) often fail on simulators — prioritize a mock-auth or bypass route where one exists. Reference secrets from `.listing-kit/secrets.local` or env; **never inline credentials into a committed flow.**
+- **iPad (iPadOS 26+):** in the default *Windowed Apps* mode every app shows a
+  resize grabber in its bottom-right corner, which ends up in the screenshot. Switch
+  the simulator to **Settings → Multitasking & Gestures → Full Screen Apps** before
+  capturing (a three-step Maestro flow against `com.apple.Preferences` does it), and
+  relaunch your app afterwards so the status bar doesn't show a "◂ Settings" link.
 - **Permissions:** pre-grant before driving (`scripts/capture/grant-permissions.sh`); dismiss any residual dialog inside the flow.
 - **Reject empty states before capturing.** A deep link or fresh launch lands on *whatever state the app currently has* — which is often empty ("No notes yet", an empty list/cart, a zero-results search). An empty/zero screen is the single most common weak store screenshot. After driving to a screen and **before capturing it**, confirm it is actually populated (assert a content element is visible, e.g. `assertVisible` on a real item, not the empty-state text). If it's empty: seed/mock data to fill it, navigate to a populated instance instead, or drop/replace the screen during Curate. Don't ship the empty state just because the route resolved.
 
