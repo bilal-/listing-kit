@@ -67,7 +67,14 @@ for k in \
   '"private_key''_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"' \
   "ghs""_Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3d" \
   "glpat""-Ab3dEf6hIj9kLm2nOp5q" \
-  "ASIA""IOSFODNN7EXAMPLE"; do
+  "ASIA""IOSFODNN7EXAMPLE" \
+  "ghs""_123456_Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3dEf_Ab" \
+  "xapp""-1-A0123456789-0123456789-abcdef0123" \
+  "xoxe""-1-Ab3dEf6hIj9kLm2nOp5q" \
+  "whsec""_Ab3dEf6hIj9kLm2nOp5qRs8tUv1" \
+  "ey""IHsiYWxnIjoi.eyAic3ViIjog.abcdefghijkl" \
+  "api_key""=abc123def456ghi==" \
+  "DB_PASSWORD: s3cr3t""Value99xx"; do
   it "fails on ${k:0:16}…"
   mktree; printf '%s\n' "$k" > "$TREE/en-US/description.txt"
   OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
@@ -79,7 +86,9 @@ for c in \
   "The best task-management-for-every-busy-family app" \
   "Use our desk-organizer-and-planner-for-students-and-teachers" \
   "Track your password strength" \
-  "Tokens of appreciation: share recipes"; do
+  "Tokens of appreciation: share recipes" \
+  "Password synchronization across devices" \
+  "Password: synchronization made easy"; do
   it "store copy is clean: ${c:0:28}…"
   mktree; printf '%s\n' "$c" > "$TREE/en-US/description.txt"
   OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?

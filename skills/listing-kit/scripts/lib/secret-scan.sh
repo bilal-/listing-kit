@@ -25,18 +25,24 @@ B='(^|[^A-Za-z0-9_])'
 patterns=(
   "${B}(AKIA|ASIA)[0-9A-Z]{16}"                         # AWS access key id
   'aws_secret_access_key'
-  "${B}gh[pousr]_[A-Za-z0-9]{36,}"                      # GitHub tokens (PAT, OAuth, app, refresh)
+  "${B}gh[pousr]_[A-Za-z0-9_]{36,}"                     # GitHub tokens (PAT, OAuth, app incl. ghs_APPID_JWT, refresh)
   'github_pat_[A-Za-z0-9_]{22,}'                        # GitHub fine-grained PAT
   "${B}glpat-[A-Za-z0-9_-]{20,}"                        # GitLab PAT
-  "${B}xox[abposr]-[A-Za-z0-9-]{10,}"                   # Slack token
+  "${B}(xox[abposre]|xapp|xwfp)-[A-Za-z0-9-]{10,}"     # Slack bot/user/app/refresh/workflow tokens
   "${B}sk-(proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}"     # OpenAI / Anthropic / generic sk- keys
   "${B}(sk|rk)_(live|test)_[A-Za-z0-9]{16,}"            # Stripe secret / restricted key
+  "${B}whsec_[A-Za-z0-9]{24,}"                          # Stripe webhook signing secret
   'AIza[0-9A-Za-z_-]{35}'                               # Google API key
   '"(private_key_id|private_key)"[[:space:]]*:'         # Google service-account JSON
-  "${B}eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"   # JWT
+  "${B}ey[A-Za-z0-9_-]{8,}\.ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"   # JWT ('{"' and '{ ' both encode to "ey")
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'                  # private key block
-  '(api[_-]?key|secret|password|passwd|token|bearer)["'"'"' :=]+[A-Za-z0-9/_+.=-]{12,}'
 )
+
+# Generic "keyword = value" credentials. Needs an explicit : or = and a value of 12+
+# characters containing a digit, so copy like "Password synchronization" or
+# "Secret: ingredient tips" stays clean. Matches are filtered by awk below.
+generic_kw='(api[_-]?key|client[_-]?secret|secret|password|passwd|token|bearer)'
+generic="${generic_kw}[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/_+.=-]{12,}"
 
 # Text files only — screenshots and other binaries are never scanned.
 includes=(--include='*.txt' --include='*.json' --include='*.yaml' --include='*.yml' --include='*.md')
@@ -54,6 +60,21 @@ for pat in "${patterns[@]}"; do
        exit 2 ;;
   esac
 done
+
+# Generic rule: grep -o the candidates, keep only values with a digit.
+rc=0; hits="$(grep -rEioH "${includes[@]}" -e "$generic" "$dir")" || rc=$?
+case "$rc" in
+  0) flagged="$(printf '%s\n' "$hits" | awk '{ f=$0; sub(/:.*/, "", f); m=substr($0, length(f) + 2); v=substr(m, match(m, /[:=]/) + 1); if (v ~ /[0-9]/) print f }' | sort -u)"
+     if [ -n "$flagged" ]; then
+       while IFS= read -r file; do
+         echo "POTENTIAL SECRET in committed listing: $file (generic keyword = value)" >&2
+       done <<<"$flagged"
+       found=1
+     fi ;;
+  1) ;;
+  *) echo "ERROR: secret scan could not read '$dir' (grep exit $rc); refusing to report clean." >&2
+     exit 2 ;;
+esac
 
 if [ "$found" -ne 0 ]; then
   echo "FAIL: secrets must never be committed (see skill §9.1). Move them to .listing-kit/secrets.local or env, then re-run." >&2
