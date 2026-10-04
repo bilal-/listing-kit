@@ -26,10 +26,10 @@ if [ -t 1 ]; then G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; B=$'\033[1m'; Z=$
 
 # ImageMagick gives pixel-level diffs; set LK_NO_IMAGEMAGICK=1 to force the
 # byte-compare fallback (e.g. for a quick check or in a constrained environment).
-if [ -n "${LK_NO_IMAGEMAGICK:-}" ]; then HAVE_IM=0
-elif command -v magick >/dev/null 2>&1; then COMPARE=(magick compare); IDENTIFY=(magick identify); HAVE_IM=1
-elif command -v compare >/dev/null 2>&1; then COMPARE=(compare); IDENTIFY=(identify); HAVE_IM=1
-else HAVE_IM=0; fi
+# Helpers live in ../lib; parameter expansion (not dirname) so this works on a bare PATH.
+_here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
+. "$_here/../lib/imagemagick.sh"
+if im_resolve; then HAVE_IM=1; else HAVE_IM=0; fi
 
 # relative paths of every PNG under a dir
 list(){ (cd "$1" && find . -type f -name '*.png' | sed 's#^\./##' | sort); }
@@ -38,13 +38,13 @@ list(){ (cd "$1" && find . -type f -name '*.png' | sed 's#^\./##' | sort); }
 diff_pixels(){
   local a="$1" b="$2"
   local da db
-  da=$("${IDENTIFY[@]}" -format '%wx%h' "$a" 2>/dev/null || echo "?")
-  db=$("${IDENTIFY[@]}" -format '%wx%h' "$b" 2>/dev/null || echo "?")
+  da=$("${IM_IDENTIFY[@]}" -format '%wx%h' "$a" 2>/dev/null || echo "?")
+  db=$("${IM_IDENTIFY[@]}" -format '%wx%h' "$b" 2>/dev/null || echo "?")
   [ "$da" != "$db" ] && { echo "dim:$da->$db"; return; }
   # compare writes the metric to stderr; null: discards the diff image. AE prints
   # as "<count>" or "<count>(<normalized>)" depending on the build — keep the count.
   # IM7 may print a float ("1.12957e+06"); round it to a whole pixel count.
-  local out; out=$("${COMPARE[@]}" -metric AE "$a" "$b" null: 2>&1 | tr -d ' \n')
+  local out; out=$("${IM_COMPARE[@]}" -metric AE "$a" "$b" null: 2>&1 | tr -d ' \n')
   awk -v n="${out%%(*}" 'BEGIN { if (n ~ /^[0-9.eE+-]+$/) printf "%.0f\n", n; else print n }'
 }
 

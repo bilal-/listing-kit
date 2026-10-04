@@ -23,12 +23,10 @@ if [ ! -f "$icon" ]; then
   exit 2
 fi
 
-# Resolve the ImageMagick binary (v7 'magick', v6 'convert').
-if command -v magick >/dev/null 2>&1; then
-  IM=(magick)
-elif command -v convert >/dev/null 2>&1; then
-  IM=(convert)
-else
+# Helpers live in ../lib; parameter expansion (not dirname) so this works on a bare PATH.
+_here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
+. "$_here/../lib/imagemagick.sh"
+if ! im_resolve; then
   echo "ImageMagick not found. Cannot auto-generate the feature graphic." >&2
   echo "FALLBACK: ask the user to supply a 1024x500 PNG/JPEG (no alpha), or install ImageMagick (brew install imagemagick)." >&2
   exit 3

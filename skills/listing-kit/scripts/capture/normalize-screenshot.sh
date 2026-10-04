@@ -21,10 +21,10 @@ if [ -z "$in" ] || [ -z "$out" ] || { [ -n "$mode" ] && [ "$mode" != "--play" ];
 fi
 [ -f "$in" ] || { echo "Input not found: $in" >&2; exit 2; }
 
-# Resolve the ImageMagick binary (v7 'magick', v6 'convert').
-if command -v magick >/dev/null 2>&1; then IM=(magick)
-elif command -v convert >/dev/null 2>&1; then IM=(convert)
-else
+# Helpers live in ../lib; parameter expansion (not dirname) so this works on a bare PATH.
+_here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
+. "$_here/../lib/imagemagick.sh"
+if ! im_resolve; then
   echo "ImageMagick not found; cannot flatten screenshots to RGB (both stores reject alpha)." >&2
   echo "Install it (brew install imagemagick / apt install imagemagick) and rerun." >&2
   exit 3
@@ -32,8 +32,7 @@ fi
 
 crop=()
 if [ "$mode" = "--play" ]; then
-  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  info="$(python3 "$SELF_DIR/../lib/imginfo.py" "$in")" || { echo "Could not read image size: $in" >&2; exit 1; }
+  info="$(python3 "$_here/../lib/imginfo.py" "$in")" || { echo "Could not read image size: $in" >&2; exit 1; }
   IFS=$'\t' read -r w h _ <<<"$info"
   [ "${w:-0}" -gt 0 ] && [ "${h:-0}" -gt 0 ] || { echo "Not a PNG/JPEG image: $in" >&2; exit 1; }
   if [ "$h" -gt $((w * 2)) ]; then crop=(-crop "${w}x$((w * 2))+0+0" +repage)
