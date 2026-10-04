@@ -1,1 +1,1 @@
-https://bilal.sh/privacy/recipe-box
+https://github.com/bilal-/listing-kit/blob/main/examples/expo-recipe-box/PRIVACY.md

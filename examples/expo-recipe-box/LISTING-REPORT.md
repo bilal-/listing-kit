@@ -30,7 +30,7 @@ the Phase-B output described in [`../README.md`](../README.md). Last full captur
 | Play feature graphic | 1 | 1024×500, RGB 24-bit no-alpha, `images/featureGraphic.png` | ✅ |
 | Play icon | 1 | 512×512, 32-bit PNG (alpha is allowed for the icon), `images/icon.png` | ✅ |
 | App Store + Play copy | — | within all limits | ✅ |
-| Privacy policy | — | <https://bilal.sh/privacy/recipe-box> | ✅ |
+| Privacy policy | — | [`PRIVACY.md`](PRIVACY.md), linked from `privacy_url.txt` | ✅ |
 | App icon artwork | — | Expo placeholder | ⚠️ replace before a real submission |
 
 Every screenshot went through `normalize-screenshot.sh` (raw `simctl`/`adb` output
