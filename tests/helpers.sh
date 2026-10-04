@@ -32,7 +32,9 @@ json_valid()    { python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$1"
 json_path()     { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));exec('print('+sys.argv[2]+')')" "$1" "d$2"; }
 
 # --- command stubbing: shim a binary onto PATH and record its invocations ---
-new_stubdir() { STUB_BIN="$(mktemp -d)"; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; }
+STUB_DIRS=()
+new_stubdir() { STUB_BIN="$(mktemp -d)"; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; STUB_DIRS+=("$STUB_BIN"); }
+trap 'for d in ${STUB_DIRS[@]+"${STUB_DIRS[@]}"}; do rm -rf "$d"; done' EXIT
 stub() {
   local name="$1" code="${2:-0}"
   cat > "$STUB_BIN/$name" <<EOF
