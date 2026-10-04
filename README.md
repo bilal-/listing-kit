@@ -114,7 +114,7 @@ never holds stack- or store-specific commands; those live in
 cross-platform, which collapses four per-stack automation implementations into
 one. New stacks or stores are added by writing a module, not editing the core.
 
-Full walkthrough: **[docs/GUIDE.md](docs/GUIDE.md)**. Design rationale:
+Full walkthrough: **[docs/GUIDE.md](docs/GUIDE.md)**. Original design rationale (May 2026; where it differs, the skill and scripts are current):
 **[docs/superpowers/specs/2026-05-25-listing-kit-design.md](docs/superpowers/specs/2026-05-25-listing-kit-design.md)**.
 
 ## See it in action

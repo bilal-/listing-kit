@@ -119,6 +119,8 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
+| `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
+| `scripts/lib/apple-screenshot-sizes.tsv` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |
 | `scripts/lib/listing.py` | Which locales and images a fastlane tree contains (shared by validate and review) |

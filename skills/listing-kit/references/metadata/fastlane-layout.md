@@ -62,7 +62,7 @@ sort order**. Encode the curated order (Curate step) as a numeric prefix:
 `01_home.png`, `02_library.png`, `03_reader.png`, … This is what makes "the first
 screenshot matters most" actually hold on the store.
 
-## Secrets boundary (§9.1) — READ THIS
+## Secrets boundary — READ THIS
 The committed tree is the source of truth **for non-secrets only**.
 
 - **Committed:** copy, keywords, URLs, copyright, screenshots, generated graphics

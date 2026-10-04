@@ -79,6 +79,9 @@ it needs simulators and may lag the latest store sizes. Don't block a PR on it.
   crash. See `feature-graphic.sh` (exit 3 → prompt) for the pattern.
 - Never write secrets to disk in a committed path. If you touch the listing tree,
   keep `secret-scan.sh` honest.
+- Logic that's awkward in bash (image headers, field limits, locale discovery)
+  lives in `scripts/lib/*.py`: Python 3.8+, standard library only, shared by the
+  scripts that need it rather than copied into heredocs.
 
 ## Pull requests
 

@@ -1,5 +1,7 @@
 # Listing Review Page Implementation Plan
 
+> **Historical document.** Written during the original build (May 2026) and kept as a record. Where it differs from `skills/listing-kit/SKILL.md`, `references/`, or the scripts, those are current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `build-review.sh` script that emits a single static `listing-review.html` at the app root — store copy with copy buttons + char counts, screenshots grouped by device class, generated graphics, and the validator's output embedded verbatim — plus a "never fabricate metadata" rule in the skill.

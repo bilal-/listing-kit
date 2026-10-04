@@ -1,5 +1,7 @@
 # Examples: Expo Recipe Box (Phase A) Implementation Plan
 
+> **Historical document.** Written during the original build (May 2026) and kept as a record. Where it differs from `skills/listing-kit/SKILL.md`, `references/`, or the scripts, those are current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a complete, automation-friendly Expo/React Native example app ("Recipe Box") under `examples/`, plus its Maestro flows and docs, so listing-kit can later be run against it to produce a full committed store listing (Phase B).

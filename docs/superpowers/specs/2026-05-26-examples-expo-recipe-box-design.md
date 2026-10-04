@@ -1,5 +1,7 @@
 # listing-kit examples — Expo Recipe Box (Phase A)
 
+> **Historical document.** Written during the original build (May 2026) and kept as a record. Where it differs from `skills/listing-kit/SKILL.md`, `references/`, or the scripts, those are current.
+
 **Status:** Design — approved, ready for implementation plan
 **Date:** 2026-05-26
 **Author:** Bilal Ahmad

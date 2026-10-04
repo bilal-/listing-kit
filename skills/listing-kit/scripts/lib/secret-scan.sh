@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assert the secrets boundary (skill §9.1): the committed listing tree must
+# Assert the secrets boundary (references/metadata/fastlane-layout.md, "Secrets boundary"): the committed listing tree must
 # contain NO credentials. Run during Assemble; FAIL the run on any hit.
 #
 # Usage:
@@ -88,7 +88,7 @@ case "$rc" in
 esac
 
 if [ "$found" -ne 0 ]; then
-  echo "FAIL: secrets must never be committed (see skill §9.1). Move them to .listing-kit/secrets.local or env, then re-run." >&2
+  echo "FAIL: secrets must never be committed (see references/metadata/fastlane-layout.md, "Secrets boundary"). Move them to .listing-kit/secrets.local or env, then re-run." >&2
   exit 1
 fi
 

@@ -1,5 +1,7 @@
 # listing-kit — Requirements & Design
 
+> **Historical document.** Written during the original build (May 2026) and kept as a record. Where it differs from `skills/listing-kit/SKILL.md`, `references/`, or the scripts, those are current.
+
 **Status:** Finalized — all major decisions resolved (§12); ready for build
 **Date:** 2026-05-25
 **Author:** Bilal Ahmad
