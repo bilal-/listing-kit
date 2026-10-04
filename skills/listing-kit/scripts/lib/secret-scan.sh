@@ -19,14 +19,21 @@ fi
 # marketing copy or a long URL that directly follows a word like "token"/"password".
 # It errs toward caution by design — review a flagged line; if it's genuinely public
 # copy, reword it slightly. Better a false alarm than a leaked credential.
+# Token prefixes are anchored to a non-word character so hyphenated copy
+# ("task-management-...") can't match "sk-...".
+B='(^|[^A-Za-z0-9_])'
 patterns=(
-  'AKIA[0-9A-Z]{16}'                                   # AWS access key id
+  "${B}(AKIA|ASIA)[0-9A-Z]{16}"                         # AWS access key id
   'aws_secret_access_key'
-  'ghp_[A-Za-z0-9]{36}'                                # GitHub PAT
-  'github_pat_[A-Za-z0-9_]{22,}'
-  'xox[baprs]-[A-Za-z0-9-]{10,}'                        # Slack token
-  'sk-[A-Za-z0-9]{20,}'                                 # generic API secret
+  "${B}gh[pousr]_[A-Za-z0-9]{36,}"                      # GitHub tokens (PAT, OAuth, app, refresh)
+  'github_pat_[A-Za-z0-9_]{22,}'                        # GitHub fine-grained PAT
+  "${B}glpat-[A-Za-z0-9_-]{20,}"                        # GitLab PAT
+  "${B}xox[abposr]-[A-Za-z0-9-]{10,}"                   # Slack token
+  "${B}sk-(proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}"     # OpenAI / Anthropic / generic sk- keys
+  "${B}(sk|rk)_(live|test)_[A-Za-z0-9]{16,}"            # Stripe secret / restricted key
   'AIza[0-9A-Za-z_-]{35}'                               # Google API key
+  '"(private_key_id|private_key)"[[:space:]]*:'         # Google service-account JSON
+  "${B}eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"   # JWT
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'                  # private key block
   '(api[_-]?key|secret|password|passwd|token|bearer)["'"'"' :=]+[A-Za-z0-9/_+.=-]{12,}'
 )

@@ -55,4 +55,35 @@ assert_eq 2 "$RC"
 assert_not_contains "$OUT" "Secret scan clean"
 rm -rf "$D"
 
+# --- current credential formats (each on its own line, no "token:" keyword) ---
+# Fixtures are split into two literals and joined by the shell, so this file never
+# contains a token-shaped string (GitHub push protection rejects those, even fakes).
+for k in \
+  "sk-""proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z" \
+  "sk-""ant-api03-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3dEf" \
+  "sk_""live_51Hab3dEf6hIj9kLm2nOp5qRs" \
+  "rk_""test_51Hab3dEf6hIj9kLm2nOp5qRs" \
+  "eyJ""hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U" \
+  '"private_key''_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"' \
+  "ghs""_Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3d" \
+  "glpat""-Ab3dEf6hIj9kLm2nOp5q" \
+  "ASIA""IOSFODNN7EXAMPLE"; do
+  it "fails on ${k:0:16}…"
+  mktree; printf '%s\n' "$k" > "$TREE/en-US/description.txt"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+done
+
+# --- ordinary store copy must not trip the token patterns ---
+for c in \
+  "The best task-management-for-every-busy-family app" \
+  "Use our desk-organizer-and-planner-for-students-and-teachers" \
+  "Track your password strength" \
+  "Tokens of appreciation: share recipes"; do
+  it "store copy is clean: ${c:0:28}…"
+  mktree; printf '%s\n' "$c" > "$TREE/en-US/description.txt"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+done
+
 summary
