@@ -48,8 +48,9 @@ $description
 
 **Skill instructions:** [\`$skill_md\`]($skill_md)
 
-To use under Codex or Copilot CLI, load the skill file above as context, then
-follow its pipeline. All work is plain shell-outs; see
+Codex installs it as a plugin (\`codex plugin marketplace add bilal-/listing-kit\`,
+then \`codex plugin add listing-kit@listing-kit\`). Under Copilot CLI, load the
+skill file above as context, then follow its pipeline. All work is plain shell-outs; see
 \`skills/$name/references/platforms/tool-mapping.md\` for tool-name
 equivalents on your platform.
 EOF

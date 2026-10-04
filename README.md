@@ -1,4 +1,11 @@
-<h1 align="center">listing-kit</h1>
+<p align="center">
+  <a href="https://listing-kit.bilal.sh">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="brand/svg/horizontal-on-dark.svg">
+      <img src="brand/svg/horizontal-on-light.svg" alt="listing-kit" width="260">
+    </picture>
+  </a>
+</p>
 
 <p align="center">
   <strong>App-store presence, in your repo.</strong><br>
@@ -7,6 +14,8 @@
   full App&nbsp;Store&nbsp;+&nbsp;Google&nbsp;Play listing — copy, metadata, and
   graphics — stored <em>in the repo</em> as the source of truth.
 </p>
+
+<p align="center"><a href="https://listing-kit.bilal.sh"><strong>listing-kit.bilal.sh</strong></a></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
@@ -80,7 +89,8 @@ generated from it so they never drift (`gemini-extension.json`, `AGENTS.md`).
 
 | Platform | How |
 |---|---|
-| **Codex / Copilot CLI** | Clone the repo; the agent reads [`AGENTS.md`](AGENTS.md) → `skills/listing-kit/SKILL.md`. |
+| **Codex** | `codex plugin marketplace add bilal-/listing-kit`, then `codex plugin add listing-kit@listing-kit` (reads the same marketplace as Claude Code). |
+| **Copilot CLI** | Clone the repo; the agent reads [`AGENTS.md`](AGENTS.md) → `skills/listing-kit/SKILL.md`. |
 | **Gemini CLI** | `gemini extensions install https://github.com/bilal-/listing-kit` (uses [`gemini-extension.json`](gemini-extension.json)). |
 | **Any** | Load `skills/listing-kit/SKILL.md` as context. All work is plain shell-outs — see [`tool-mapping.md`](skills/listing-kit/references/platforms/tool-mapping.md). |
 

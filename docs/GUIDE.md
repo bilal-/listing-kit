@@ -17,6 +17,13 @@ Claude Code:
 /plugin install listing-kit@listing-kit
 ```
 
+For Codex:
+
+```sh
+codex plugin marketplace add bilal-/listing-kit
+codex plugin add listing-kit@listing-kit
+```
+
 The skill installs **once** into your agent environment, then points at any
 mobile repo — it is not installed per app-repo.
 

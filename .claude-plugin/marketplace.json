@@ -15,7 +15,7 @@
       },
       "category": "productivity",
       "source": "./",
-      "homepage": "https://github.com/bilal-/listing-kit",
+      "homepage": "https://listing-kit.bilal.sh",
       "license": "MIT",
       "keywords": ["app-store", "google-play", "screenshots", "fastlane", "mobile"]
     }
