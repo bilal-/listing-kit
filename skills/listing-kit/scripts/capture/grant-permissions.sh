@@ -35,6 +35,11 @@ case "$platform" in
     serial="${3:-}"
     adb_target=(adb)
     [ -n "$serial" ] && adb_target=(adb -s "$serial")
+    # Without a device every grant fails and would be misreported as "not declared".
+    "${adb_target[@]}" get-state >/dev/null 2>&1 || {
+      echo "No Android device/emulator reachable${serial:+ at $serial} (check: adb devices)." >&2
+      exit 1
+    }
     for perm in \
       android.permission.ACCESS_FINE_LOCATION \
       android.permission.ACCESS_COARSE_LOCATION \

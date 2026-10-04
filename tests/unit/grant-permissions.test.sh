@@ -36,4 +36,11 @@ assert_eq 0 "$RC" "android exits 0"
 assert_contains "$LOG" "shell pm grant com.example.app android.permission.CAMERA"
 assert_contains "$LOG" "android.permission.ACCESS_FINE_LOCATION"
 
+it "android: fails clearly when no device is reachable"
+new_stubdir; stub adb 1
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" android com.example.app 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "No Android device"
+assert_not_contains "$OUT" "not declared"
+
 summary
