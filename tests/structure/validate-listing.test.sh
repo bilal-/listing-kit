@@ -348,4 +348,15 @@ OUT="$(LK_SUPPORTS_IPHONE=0 bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 rm -rf "$T"
 
+it "promotion eligibility needs 9:16 or 16:9, not just 1080px"
+play_only; rm -f "$T/$PHONE"/*.png
+for i in 1 2 3 4; do png "$T/$PHONE/0${i}.png" 1080 2160; done
+OUT="$(bash "$SUT" "$T" 2>&1)"
+assert_contains "$OUT" "only 0 screenshot(s)" "1080x2160 (1:2) doesn't count"
+rm -f "$T/$PHONE"/*.png
+for i in 1 2 3 4; do png "$T/$PHONE/0${i}.png" 1080 1920; done
+OUT="$(bash "$SUT" "$T" 2>&1)"
+assert_not_contains "$OUT" "promotion eligibility" "four 1080x1920 shots qualify"
+rm -rf "$T"
+
 summary

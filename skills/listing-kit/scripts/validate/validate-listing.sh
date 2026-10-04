@@ -162,7 +162,7 @@ fi
 # ---------------- Google Play (supply) ----------------
 # Screenshots: JPEG or 24-bit PNG (8-bit RGB, no alpha), 320–3840 px per side,
 # long side ≤ 2× short side, ≤8 per device type, ≥2 in total across types.
-# Promotion eligibility (warn only): ≥4 screenshots at ≥1080 px.
+# Promotion eligibility (warn only): ≥4 screenshots at ≥1080 px, 9:16 or 16:9.
 play_shots(){ # dir label
   local w h depth ct bytes cls path base lo hi n=0 big=0
   while IFS=$'\t' read -r w h depth ct bytes cls path; do
@@ -172,11 +172,12 @@ play_shots(){ # dir label
     [ "$lo" -gt 0 ] && [ $((hi * 1000)) -gt $((lo * 2000)) ] && fail "$base: aspect ${hi}/${lo} exceeds 2:1"
     { [ "$ct" = 2 ] && [ "$depth" = 8 ]; } || fail "$base: must be 24-bit no-alpha (depth=$depth colortype=$ct)"
     [ "$bytes" -le 8388608 ] || warn "$base: over 8 MB"
-    [ "$lo" -ge 1080 ] && big=$((big+1))
+    # Promotion bar: ≥1080 px on the short side and exactly 9:16 / 16:9 (±1%).
+    [ "$lo" -ge 1080 ] && [ $((hi * 900)) -ge $((lo * 1584)) ] && [ $((hi * 900)) -le $((lo * 1616)) ] && big=$((big+1))
   done < <(images_in "$1")
   [ "$n" -eq 0 ] && return
   [ "$n" -le 8 ] && pass "$2 screenshots: $n (≤8) ✓ format/size/aspect" || fail "$2 screenshots: $n (max 8)"
-  [ "$2" = phone ] && [ "$big" -lt 4 ] && warn "$2: only $big screenshot(s) at ≥1080px; Play needs 4 for promotion eligibility"
+  [ "$2" = phone ] && [ "$big" -lt 4 ] && warn "$2: only $big screenshot(s) at ≥1080px; Play needs 4 at 9:16 or 16:9 for promotion eligibility"
   play_total=$((play_total+n))
 }
 

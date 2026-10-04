@@ -11,7 +11,7 @@ the Phase-B output described in [`../README.md`](../README.md). Last full captur
   - iPhone 17 Pro Max simulator (iOS 26.5) → **6.9"**, **1320×2868**.
   - iPad Pro 13-inch (M5) simulator → **2064×2752** (required because `ios.supportsTablet: true`),
     switched to *Full Screen Apps* so no window grabber appears.
-  - `pixel_8` emulator (Android 16, API 36) → native 1080×2340, cropped to **1080×2160** for Play's 2:1 limit.
+  - `pixel_8` emulator (Android 16, API 36) → native 1080×2400, cropped to **1080×1920** (9:16) for Play's 2:1 limit and promotion bar.
 - **Stack detected:** Expo / React Native (managed, Expo SDK 57), Expo Router.
 - **Build:** Release on both platforms (`xcodebuild -configuration Release` for the
   simulator `.app`, reused on the iPad; `./gradlew assembleRelease` for Android).
@@ -26,7 +26,7 @@ the Phase-B output described in [`../README.md`](../README.md). Last full captur
 |---|---|---|---|
 | iPhone 6.9" screenshots | 4 | 1320×2868, RGB 24-bit no-alpha | ✅ |
 | iPad 13" screenshots | 4 | 2064×2752, RGB 24-bit no-alpha | ✅ |
-| Android phone screenshots | 4 | 1080×2160, RGB 24-bit no-alpha | ✅ (meets Play's 4-at-1080px promotion bar) |
+| Android phone screenshots | 4 | 1080×1920 (9:16), RGB 24-bit no-alpha | ✅ (meets Play's promotion bar: 4 at ≥1080 px, 9:16) |
 | Play feature graphic | 1 | 1024×500, RGB 24-bit no-alpha, `images/featureGraphic.png` | ✅ |
 | Play icon | 1 | 512×512, 32-bit PNG (alpha is allowed for the icon), `images/icon.png` | ✅ |
 | App Store + Play copy | — | within all limits | ✅ |
@@ -60,7 +60,7 @@ From the first run (May 2026):
    machines. → `references/driving/maestro.md`.
 2. **`clearState` vs. the Expo dev client:** it wipes the Metro URL, so capture from
    a **release** build. → `references/driving/maestro.md`.
-3. **Play aspect ratio:** phone captures taller than 2:1 must be cropped. →
+3. **Play aspect ratio:** phone captures taller than 2:1 must be cropped (now to 9:16, which also meets the promotion bar). →
    `normalize-screenshot.sh --play`.
 4. **Screenshot format:** raw captures are RGBA and must be flattened. →
    `normalize-screenshot.sh`.

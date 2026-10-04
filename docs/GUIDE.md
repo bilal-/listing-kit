@@ -88,7 +88,7 @@ auth), the agent asks you to navigate there manually and signals when to capture
 Screenshots are taken with clean SDK tooling (`simctl io ... screenshot`,
 `adb exec-out screencap`) at every required dimension, with the sanitized status
 bar intact. Raw captures carry an alpha channel, which both stores reject, so each
-one is flattened to 24-bit RGB (and cropped to Play's 2:1 limit where needed). This
+one is flattened to 24-bit RGB (and Play phone shots are cropped to 9:16). This
 step needs ImageMagick; the agent asks you to install it here if it's missing.
 
 ### Assemble & Validate

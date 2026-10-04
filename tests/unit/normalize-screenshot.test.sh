@@ -42,30 +42,30 @@ assert_contains "$LOG" "-depth 8" "forces 8-bit depth"
 assert_contains "$LOG" "PNG24:$TMP/out.png" "writes PNG24"
 assert_not_contains "$LOG" "-crop" "no crop without --play"
 
-it "--play crops a tall capture to 2:1 from the top"
+it "--play crops a tall capture to 9:16 from the top"
 png "$TMP/tall.png" 1080 2400
 new_stubdir; stub magick
 PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/tall.png" "$TMP/out.png" --play >/dev/null 2>&1
-assert_contains "$(stub_log)" "-crop 1080x2160+0+0 +repage"
+assert_contains "$(stub_log)" "-crop 1080x1920+0+0 +repage"
 
-it "--play crops a wide capture to 2:1"
+it "--play crops a wide capture to 16:9"
 png "$TMP/wide.png" 2400 1080
 new_stubdir; stub magick
 PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/wide.png" "$TMP/out.png" --play >/dev/null 2>&1
-assert_contains "$(stub_log)" "-crop 2160x1080+0+0 +repage"
+assert_contains "$(stub_log)" "-crop 1920x1080+0+0 +repage"
 
-it "--play leaves a ≤2:1 capture uncropped"
+it "--play leaves a 9:16 capture uncropped"
 new_stubdir; stub magick
 PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/in.png" "$TMP/out.png" --play >/dev/null 2>&1
 assert_not_contains "$(stub_log)" "-crop"
 
 # End-to-end with real ImageMagick, when the machine has it.
 if command -v magick >/dev/null 2>&1; then
-  it "real ImageMagick: RGBA 1080x2400 becomes RGB 1080x2160"
+  it "real ImageMagick: RGBA 1080x2400 becomes RGB 1080x1920"
   magick -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
   bash "$SUT" "$TMP/rgba.png" "$TMP/real.png" --play >/dev/null 2>&1
   INFO="$(python3 "$IMGINFO" "$TMP/real.png" | cut -f1-4)"
-  assert_eq "$(printf '1080\t2160\t8\t2')" "$INFO"
+  assert_eq "$(printf '1080\t1920\t8\t2')" "$INFO"
 fi
 
 it "--play on a non-image fails instead of skipping the crop"
