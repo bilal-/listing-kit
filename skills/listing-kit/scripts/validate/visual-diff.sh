@@ -43,8 +43,9 @@ diff_pixels(){
   [ "$da" != "$db" ] && { echo "dim:$da->$db"; return; }
   # compare writes the metric to stderr; null: discards the diff image. AE prints
   # as "<count>" or "<count>(<normalized>)" depending on the build — keep the count.
+  # IM7 may print a float ("1.12957e+06"); round it to a whole pixel count.
   local out; out=$("${COMPARE[@]}" -metric AE "$a" "$b" null: 2>&1 | tr -d ' \n')
-  echo "${out%%(*}"
+  awk -v n="${out%%(*}" 'BEGIN { if (n ~ /^[0-9.eE+-]+$/) printf "%.0f\n", n; else print n }'
 }
 
 changed=0; unchanged=0; added=0; removed=0
