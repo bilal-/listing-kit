@@ -29,7 +29,7 @@ From inside your mobile app's repo, ask the agent something like:
 The agent runs the pipeline:
 
 ```
-detect → doctor → discover → plan → configure → run → drive → capture → validate → assemble
+detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
 ```
 
 ## 3. What happens at each step
@@ -91,14 +91,14 @@ bar intact. Raw captures carry an alpha channel, which both stores reject, so ea
 one is flattened to 24-bit RGB (and cropped to Play's 2:1 limit where needed). This
 step needs ImageMagick; the agent asks you to install it here if it's missing.
 
-### Validate & Assemble
-Every asset and field is checked against current store rules (character limits,
-dimensions, missing required assets like the Play **feature graphic**, which the
-agent generates as an icon-on-gradient placeholder). Everything is written into
-the fastlane layout, ordered by numeric filename prefix. Finally, a **secret
-scan** runs over the committed tree and **fails the run** if anything leaked.
-If the app is in a git repo, Assemble also installs a pre-commit hook so commits
-that stage `fastlane/**` changes automatically refresh and stage
+### Assemble & Validate
+Everything is written into the fastlane layout, ordered by numeric filename
+prefix, including the Play **feature graphic** (generated as an icon-on-gradient
+placeholder if you don't have one). A **secret scan** runs over the committed tree
+and **fails the run** if anything leaked. Then the written tree is checked against
+current store rules: character limits, screenshot sizes and formats, and required
+assets. If the app is in a git repo, the agent also installs a pre-commit hook so
+commits that stage `fastlane/**` changes automatically refresh and stage
 `listing-review.html`.
 
 You get a **report**: per store/locale, what exists vs. required vs. missing,

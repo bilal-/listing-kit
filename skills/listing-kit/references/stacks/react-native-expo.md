@@ -30,10 +30,12 @@ Install JS deps first (`npm ci` / `yarn` / `pnpm i` — match the lockfile prese
 
 ## Build & launch
 ```sh
-# Expo
-npx expo run:ios --device "iPhone 17 Pro Max"     # or run:android
+# Expo (Release embeds the JS bundle; see ../driving/maestro.md)
+npx expo run:ios --configuration Release --device "iPhone 17 Pro Max"
+npx expo run:android --variant release
 # Bare RN
-npx react-native run-ios --simulator "iPhone 17 Pro Max"   # or run-android
+npx react-native run-ios --mode Release --simulator "iPhone 17 Pro Max"
+npx react-native run-android --mode release
 ```
 
 ## Sanitize, permissions & capture

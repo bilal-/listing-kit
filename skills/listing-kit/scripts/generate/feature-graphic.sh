@@ -6,7 +6,7 @@
 #   feature-graphic.sh <icon-path> <output-path> [<color-a>] [<color-b>]
 #
 # Exits non-zero (code 3) if ImageMagick is absent, so the caller can fall back
-# to prompting the user to supply a feature graphic (skill §12-D).
+# to prompting the user to supply a feature graphic (skill Assemble step).
 set -euo pipefail
 
 icon="${1:-}"

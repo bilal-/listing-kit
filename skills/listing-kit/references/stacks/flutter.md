@@ -22,11 +22,18 @@ Flutter produces **both** iOS and Android — confirm which store(s) to target.
 
 ## Build & launch
 ```sh
-flutter devices                         # list booted simulators/emulators
-flutter run -d <device-id> --release    # release avoids debug banner; or --profile
+flutter devices                                   # list booted simulators/emulators
+# Android emulator: release build (self-contained, no debug banner)
+flutter build apk --release && adb install -r build/app/outputs/flutter-apk/app-release.apk
+# iOS simulator: simulators only run DEBUG Flutter builds (--release/--profile fail)
+flutter build ios --simulator --debug
+xcrun simctl install booted build/ios/iphonesimulator/Runner.app
 ```
-For store-clean output prefer `--release` (no debug banner). Boot the simulator/
-emulator first (see the native docs) so it appears in `flutter devices`.
+On iOS simulators, hide the debug banner in code instead: set
+`debugShowCheckedModeBanner: false` on `MaterialApp`/`CupertinoApp` (ask before
+editing app code, or gate it behind a `--dart-define` the app reads). A built debug
+app runs standalone on the simulator, so Maestro's `clearState` still works. Boot
+the simulator/emulator first (see the native docs) so it appears in `flutter devices`.
 
 ## Sanitize & permissions
 Same as the underlying platform:

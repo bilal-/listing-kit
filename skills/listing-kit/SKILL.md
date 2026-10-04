@@ -25,7 +25,7 @@ Use when the user points you at a mobile-app repository and wants store listing 
 ## The pipeline
 
 ```
-detect → doctor → discover → plan → configure → run → drive → capture → validate → assemble
+detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
 ```
 
 Run these in order. Each step has a reference doc; load it when you reach the step.
@@ -82,11 +82,11 @@ Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out sc
 
 **Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit by running `scripts/capture/normalize-screenshot.sh` (input, output); add `--play` for Play screenshots to also crop to the ≤2:1 aspect (top-aligned). **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
 
-### 10. Validate — check everything against store rules
-Run `scripts/validate/validate-listing.sh` (pass the app root) — it checks every asset and metadata field against `references/stores/*.md`: character limits (Apple keywords in bytes), screenshot sizes vs. App Store display classes (`scripts/lib/apple-screenshot-sizes.tsv`), format (RGB/no-alpha/24-bit), Play's 320–3840 px and ≤2:1 aspect, per-locale requirements (a 6.9" or 6.5" iPhone set, ≤10 per class; a 13" iPad set when the app supports iPad, detected across Expo/native/Flutter; ≥2 Play screenshots across device types, ≤8 per type; Play feature graphic + icon), warns when Play screenshots fall short of promotion eligibility (≥4 at ≥1080 px), and runs the secret scan. It validates **only the store(s) actually present**, so a single-store listing isn't failed for the store it never targeted. It exits non-zero on any failure. If a previous screenshot set exists (e.g. a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) to get a per-screen regression report (added/removed/changed); it's informational and never blocks.
-
-### 11. Assemble — write the fastlane tree, then assert the secrets boundary
+### 10. Assemble — write the fastlane tree, then assert the secrets boundary
 Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the 512×512 icon to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
+
+### 11. Validate & review — check the written tree against store rules
+Validate what Assemble actually wrote, so generated metadata and graphics are covered. Run `scripts/validate/validate-listing.sh` (pass the app root) — it checks every asset and metadata field against `references/stores/*.md`: character limits (Apple keywords in bytes), screenshot sizes vs. App Store display classes (`scripts/lib/apple-screenshot-sizes.tsv`), format (RGB/no-alpha/24-bit), Play's 320–3840 px and ≤2:1 aspect, per-locale requirements (a 6.9" or 6.5" iPhone set, ≤10 per class; a 13" iPad set when the app supports iPad, detected across Expo/native/Flutter; ≥2 Play screenshots across device types, ≤8 per type; Play feature graphic + icon), warns when Play screenshots fall short of promotion eligibility (≥4 at ≥1080 px), and runs the secret scan. It validates **only the store(s) actually present**, so a single-store listing isn't failed for the store it never targeted. It exits non-zero on any failure. If a previous screenshot set exists (e.g. a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) to get a per-screen regression report (added/removed/changed); it's informational and never blocks. Fix failures (back in Configure, Capture, or Assemble) and rerun until it passes, or report what's left.
 
 Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-review.html` at the app root — a single static page (copy buttons, screenshots per device class, the validator's results) for reviewing the listing and pasting copy into the store consoles. It is read-only and never writes into `fastlane/`.
 

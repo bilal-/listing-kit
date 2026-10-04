@@ -26,10 +26,10 @@ If both `.xcworkspace` and `.xcodeproj` exist, prefer the workspace (CocoaPods/S
 # Pick a simulator matching the required device class (see ../stores/apple-app-store.md).
 # Prefer the newest Pro Max (6.9"); list what's installed with `xcrun simctl list devicetypes`.
 xcrun simctl boot "iPhone 17 Pro Max"        # 6.9"
-xcodebuild -workspace App.xcworkspace -scheme App \
+xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -derivedDataPath build build
-xcrun simctl install booted "build/Build/Products/Debug-iphonesimulator/App.app"
+xcrun simctl install booted "build/Build/Products/Release-iphonesimulator/App.app"
 xcrun simctl launch booted <bundle-id>
 ```
 Resolve `<bundle-id>` from `PRODUCT_BUNDLE_IDENTIFIER` (build settings) or the built `Info.plist`.

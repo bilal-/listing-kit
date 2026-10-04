@@ -103,7 +103,7 @@ listing-kit gates heavy dependencies so you only install what a given run needs:
 ## How it works
 
 ```
-detect → doctor → discover → plan → configure → run → drive → capture → validate → assemble
+detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
 ```
 
 The skill is a **shared orchestration core** plus **pluggable modules**: the core

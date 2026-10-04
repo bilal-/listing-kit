@@ -32,7 +32,9 @@ The same applies to capture: `xcrun simctl ... <udid>` / `adb -s <serial> ...`.
 
 ## Capture from a RELEASE build, not a debug/dev build
 Build the app in **release/standalone** configuration for the Run + Drive + Capture
-steps — not a debug or Expo dev-client build:
+steps — not a debug or Expo dev-client build. (Exception: Flutter on iOS simulators
+only runs debug builds; see `../stacks/flutter.md`. A *built* Flutter debug app is
+self-contained, so the dev-client problem below doesn't apply.)
 - `launchApp: clearState: true` **wipes a dev client's saved Metro URL**, so a debug
   build can no longer load its JS and every flow fails at the first `assertVisible`.
   A release build embeds the JS bundle, so `clearState` works and gives each flow a

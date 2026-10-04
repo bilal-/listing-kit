@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Visual diff between a PREVIOUS and a CURRENT set of screenshots, matched by
-# filename. Produces a regression report for reruns (skill Validate step §10):
+# filename. Produces a regression report for reruns (skill Validate step):
 # which screens were added, removed, unchanged, or changed (and by how much).
 #
 # Usage:

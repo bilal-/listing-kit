@@ -28,7 +28,9 @@ adb wait-for-device
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell monkey -p <applicationId> -c android.intent.category.LAUNCHER 1
 ```
-Resolve `<applicationId>` from `applicationId` in `build.gradle(.kts)`.
+Resolve `<applicationId>` from `applicationId` in `build.gradle(.kts)`. A native debug
+APK is self-contained, so it's fine for capture; build release instead if the app
+shows debug-only UI.
 
 ## Sanitize & permissions
 - Status bar (demo mode): `scripts/capture/sanitize-status-bar.sh android`
