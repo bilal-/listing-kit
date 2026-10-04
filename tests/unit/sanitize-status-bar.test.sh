@@ -63,4 +63,16 @@ OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" android 2>&1)"
 assert_not_contains "$(stub_log)" "snooze"
 assert_contains "$OUT" "not an emulator"
 
+it "android: an emulator with no notifications still succeeds"
+new_stubdir
+cat > "$STUB_BIN/adb" <<'EOF'
+#!/usr/bin/env bash
+echo "adb $*" >> "$(dirname "$0")/.calls"
+case "$*" in *"getprop ro.kernel.qemu"*) echo 1;; esac
+EOF
+chmod +x "$STUB_BIN/adb"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" android 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" "sanitized via demo mode"
+
 summary

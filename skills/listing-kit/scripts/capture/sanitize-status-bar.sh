@@ -49,8 +49,8 @@ case "$platform" in
     if [ "$("${adb_target[@]}" shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" = 1 ] \
        || [ "$("${adb_target[@]}" shell getprop ro.boot.qemu 2>/dev/null | tr -d '\r')" = 1 ]; then
       "${adb_target[@]}" shell dumpsys notification --noredact 2>/dev/null \
-        | grep -o 'NotificationRecord([^ ]* pkg=[^ ]* user=[^ ]* id=[^ ]* tag=[^ ]* importance=[^ ]* key=[^:]*' \
-        | sed 's/.*key=//' | sort -u \
+        | awk '/NotificationRecord\(/ && match($0, / key=[^:]*/) { print substr($0, RSTART + 5, RLENGTH - 5) }' \
+        | sort -u \
         | while IFS= read -r key; do
             "${adb_target[@]}" shell cmd notification snooze --for 3600000 "'$key'" >/dev/null 2>&1 || true
           done
