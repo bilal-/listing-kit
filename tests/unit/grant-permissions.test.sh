@@ -43,4 +43,29 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "No Android device"
 assert_not_contains "$OUT" "not declared"
 
+it "ios: fails clearly when the app isn't installed on the simulator"
+new_stubdir
+cat > "$STUB_BIN/xcrun" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *get_app_container*) exit 2;; esac
+exit 0
+EOF
+chmod +x "$STUB_BIN/xcrun"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" ios com.example.app 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "not found on simulator"
+assert_not_contains "$OUT" "skip (unsupported"
+
+it "android: fails clearly when the app isn't installed"
+new_stubdir
+cat > "$STUB_BIN/adb" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *"pm path"*) exit 1;; esac
+exit 0
+EOF
+chmod +x "$STUB_BIN/adb"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" android com.example.app 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "not installed"
+
 summary

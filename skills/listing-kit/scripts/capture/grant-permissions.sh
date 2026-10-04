@@ -20,6 +20,13 @@ fi
 case "$platform" in
   ios)
     device="${3:-booted}"
+    command -v xcrun >/dev/null 2>&1 || { echo "xcrun not found (install Xcode command-line tools)." >&2; exit 1; }
+    # Fails if the device isn't booted/valid or the app isn't installed on it, so a
+    # broken setup isn't misreported as "unsupported" for every service below.
+    xcrun simctl get_app_container "$device" "$app" >/dev/null 2>&1 || {
+      echo "App '$app' not found on simulator '$device' (boot it and install the app first)." >&2
+      exit 1
+    }
     # Services that simctl privacy reliably supports:
     for svc in location-always photos contacts calendar reminders microphone media-library motion; do
       if xcrun simctl privacy "$device" grant "$svc" "$app" 2>/dev/null; then
@@ -38,6 +45,10 @@ case "$platform" in
     # Without a device every grant fails and would be misreported as "not declared".
     "${adb_target[@]}" get-state >/dev/null 2>&1 || {
       echo "No Android device/emulator reachable${serial:+ at $serial} (check: adb devices)." >&2
+      exit 1
+    }
+    "${adb_target[@]}" shell pm path "$app" >/dev/null 2>&1 || {
+      echo "App '$app' is not installed on the device (install it first)." >&2
       exit 1
     }
     for perm in \
