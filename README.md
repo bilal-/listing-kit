@@ -142,8 +142,7 @@ recipe.
 
 ## Support
 
-listing-kit is free and MIT-licensed. If it saved you a tedious afternoon, you
-can say thanks: **[buymeacoffee.com/bilaldev](https://buymeacoffee.com/bilaldev)** ☕
+listing-kit is free and MIT-licensed.
 
 ## License
 
