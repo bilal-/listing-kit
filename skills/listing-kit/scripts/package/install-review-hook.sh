@@ -3,12 +3,14 @@
 # staged files under the app root's fastlane/ tree change.
 #
 # Usage: install-review-hook.sh [<app-root>]    (default: current directory)
-# Exit:  0 = installed/updated hook, 2 = usage / not a git worktree / missing python3.
+# Exit:  0 = installed/updated hook, 2 = usage / not a git worktree.
+#
+# Honors linked worktrees and core.hooksPath (e.g. husky) via `git rev-parse
+# --git-path hooks`. Rerunning replaces the previous listing-kit block in place.
 set -euo pipefail
 
 ROOT="${1:-.}"
 [ -d "$ROOT" ] || { echo "Not a directory: $ROOT" >&2; exit 2; }
-command -v python3 >/dev/null 2>&1 || { echo "Need python3 to install the review hook." >&2; exit 2; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_REVIEW="$SELF_DIR/build-review.sh"
@@ -19,22 +21,18 @@ git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   exit 2
 }
 
-repo_root="$(git -C "$ROOT" rev-parse --show-toplevel)"
-git_dir="$(git -C "$ROOT" rev-parse --git-dir)"
-case "$git_dir" in
-  /*) hook_dir="$git_dir/hooks" ;;
-  *) hook_dir="$repo_root/$git_dir/hooks" ;;
+# --git-path is relative to $ROOT unless git returns an absolute path.
+hook_dir="$(git -C "$ROOT" rev-parse --git-path hooks)"
+case "$hook_dir" in
+  /*) ;;
+  *) hook_dir="$(cd "$ROOT" && pwd)/$hook_dir" ;;
 esac
 hook="$hook_dir/pre-commit"
 mkdir -p "$hook_dir"
 
-app_rel="$(python3 - "$repo_root" "$ROOT" <<'PY'
-import os, sys
-repo, root = map(os.path.realpath, sys.argv[1:3])
-rel = os.path.relpath(root, repo)
-print("" if rel == "." else rel)
-PY
-)"
+# App root relative to the worktree root ("" at the root), without trailing slash.
+app_rel="$(git -C "$ROOT" rev-parse --show-prefix)"
+app_rel="${app_rel%/}"
 
 printf -v build_review_q "%q" "$BUILD_REVIEW"
 printf -v app_rel_q "%q" "$app_rel"
@@ -60,19 +58,17 @@ listing_kit_build_review=$build_review_q
 listing_kit_app_rel=$app_rel_q
 
 listing_kit_repo_root="\$(git rev-parse --show-toplevel)"
-if [ -n "\$listing_kit_app_rel" ]; then
-  listing_kit_app_root="\$listing_kit_repo_root/\$listing_kit_app_rel"
-  listing_kit_fastlane_path="\$listing_kit_app_rel/fastlane/"
-  listing_kit_report_path="\$listing_kit_app_rel/listing-review.html"
-else
-  listing_kit_app_root="\$listing_kit_repo_root"
-  listing_kit_fastlane_path="fastlane/"
-  listing_kit_report_path="listing-review.html"
-fi
+listing_kit_app_root="\$listing_kit_repo_root\${listing_kit_app_rel:+/\$listing_kit_app_rel}"
+listing_kit_prefix="\${listing_kit_app_rel:+\$listing_kit_app_rel/}"
 
-if git diff --cached --name-only --diff-filter=ACMR -- "\$listing_kit_fastlane_path" | grep -q .; then
-  "\$listing_kit_build_review" "\$listing_kit_app_root"
-  git add "\$listing_kit_report_path"
+if ! git diff --cached --quiet --diff-filter=ACMR -- "\${listing_kit_prefix}fastlane/"; then
+  if [ -x "\$listing_kit_build_review" ]; then
+    "\$listing_kit_build_review" "\$listing_kit_app_root"
+    git add -- "\${listing_kit_prefix}listing-review.html"
+  else
+    echo "listing-kit: \$listing_kit_build_review not found; listing-review.html not refreshed." >&2
+    echo "listing-kit: rerun install-review-hook.sh from the current listing-kit install." >&2
+  fi
 fi
 # END listing-kit review hook
 EOF

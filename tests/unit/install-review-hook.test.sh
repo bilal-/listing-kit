@@ -54,4 +54,40 @@ git -C "$T" commit -m "nested listing" >/dev/null
 assert_contains "$(git -C "$T" show HEAD:apps/mobile/listing-review.html)" "Nested description"
 rm -rf "$T"
 
+it "installs into the shared hooks dir from a linked worktree"
+make_app "Worktree description"
+git -C "$T" add fastlane && git -C "$T" commit -qm "initial listing"
+WT="$(mktemp -d)/wt"
+git -C "$T" worktree add -q "$WT"
+bash "$SUT" "$WT" >/dev/null
+assert_exec "$T/.git/hooks/pre-commit"
+printf 'Worktree update\n' > "$WT/fastlane/metadata/en-US/description.txt"
+git -C "$WT" commit -qam "update from worktree" >/dev/null
+assert_contains "$(git -C "$WT" show HEAD:listing-review.html)" "Worktree update"
+rm -rf "$T" "$(dirname "$WT")"
+
+it "honors core.hooksPath"
+make_app "Hooks path description"
+git -C "$T" config core.hooksPath .husky
+bash "$SUT" "$T" >/dev/null
+assert_exec "$T/.husky/pre-commit"
+rm -rf "$T"
+
+it "rerunning replaces the listing-kit block instead of duplicating it"
+make_app "Idempotent"
+bash "$SUT" "$T" >/dev/null
+bash "$SUT" "$T" >/dev/null
+assert_eq 1 "$(grep -c 'BEGIN listing-kit review hook' "$T/.git/hooks/pre-commit")"
+rm -rf "$T"
+
+it "a stale build-review path warns instead of blocking the commit"
+make_app "Stale path"
+bash "$SUT" "$T" >/dev/null
+sed -i.bak 's#^listing_kit_build_review=.*#listing_kit_build_review=/no/such/build-review.sh#' "$T/.git/hooks/pre-commit"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -m "listing" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "commit still succeeds"
+assert_contains "$OUT" "not refreshed"
+rm -rf "$T"
+
 summary
