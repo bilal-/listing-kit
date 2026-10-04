@@ -87,7 +87,9 @@ auth), the agent asks you to navigate there manually and signals when to capture
 ### Capture
 Screenshots are taken with clean SDK tooling (`simctl io ... screenshot`,
 `adb exec-out screencap`) at every required dimension, with the sanitized status
-bar intact.
+bar intact. Raw captures carry an alpha channel, which both stores reject, so each
+one is flattened to 24-bit RGB (and cropped to Play's 2:1 limit where needed). This
+step needs ImageMagick; the agent asks you to install it here if it's missing.
 
 ### Validate & Assemble
 Every asset and field is checked against current store rules (character limits,
@@ -133,6 +135,7 @@ instead of hanging, and relies on the flows captured in a prior interactive run.
 | Maestro can't find a screen | Add accessibility labels; for Flutter, add `Semantics`/`semanticLabel` |
 | Permission dialog blocks a flow | Camera/ATT can't be pre-granted on iOS — handled in-flow or manually |
 | Feature graphic step skipped | Install ImageMagick (`brew install imagemagick`) or supply a 1024×500 PNG |
+| Validator: "must be RGB no-alpha" | A raw capture slipped through: run `scripts/capture/normalize-screenshot.sh in.png out.png` (add `--play` for Play) |
 | Secret scan failed the run | A credential reached the listing tree — move it to `.listing-kit/secrets.local` |
 
 ## 7. Going further
