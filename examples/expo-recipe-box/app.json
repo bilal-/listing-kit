@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.bilalahmad.recipebox"
+      "bundleIdentifier": "sh.bilal.recipebox"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dev.bilalahmad.recipebox"
+      "package": "sh.bilal.recipebox"
     },
     "web": {
       "favicon": "./assets/favicon.png"

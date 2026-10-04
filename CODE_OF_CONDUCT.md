@@ -29,7 +29,7 @@ Unacceptable behavior includes:
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the project maintainer at the contact listed on
-[bilalahmad.dev](https://bilalahmad.dev). All complaints will be reviewed and
+[bilal.sh](https://bilal.sh). All complaints will be reviewed and
 investigated promptly and fairly. Maintainers will respect the privacy and
 security of the reporter.
 

@@ -1,4 +1,4 @@
-appId: dev.bilalahmad.recipebox
+appId: sh.bilal.recipebox
 ---
 - launchApp:
     clearState: true

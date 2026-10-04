@@ -90,8 +90,8 @@ Edit `examples/expo-recipe-box/app.json` so the `expo` object includes these key
     "scheme": "recipebox",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "dev.bilalahmad.recipebox" },
-    "android": { "package": "dev.bilalahmad.recipebox" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "sh.bilal.recipebox" },
+    "android": { "package": "sh.bilal.recipebox" },
     "plugins": ["expo-router"]
   }
 }
@@ -516,7 +516,7 @@ git commit -m "feat(examples): add Settings screen"
 
 Create `examples/expo-recipe-box/.listing-kit/flows/recipes.yaml`:
 ```yaml
-appId: dev.bilalahmad.recipebox
+appId: sh.bilal.recipebox
 ---
 - launchApp:
     clearState: true
@@ -527,7 +527,7 @@ appId: dev.bilalahmad.recipebox
 
 Create `examples/expo-recipe-box/.listing-kit/flows/recipe-detail.yaml`:
 ```yaml
-appId: dev.bilalahmad.recipebox
+appId: sh.bilal.recipebox
 ---
 - openLink: recipebox://recipe/1
 - assertVisible: "Ingredients"
@@ -535,7 +535,7 @@ appId: dev.bilalahmad.recipebox
 
 Create `examples/expo-recipe-box/.listing-kit/flows/shopping.yaml`:
 ```yaml
-appId: dev.bilalahmad.recipebox
+appId: sh.bilal.recipebox
 ---
 - openLink: recipebox://shopping
 - assertVisible:
@@ -544,7 +544,7 @@ appId: dev.bilalahmad.recipebox
 
 Create `examples/expo-recipe-box/.listing-kit/flows/settings.yaml`:
 ```yaml
-appId: dev.bilalahmad.recipebox
+appId: sh.bilal.recipebox
 ---
 - openLink: recipebox://settings
 - assertVisible:
@@ -786,5 +786,5 @@ git commit -m "test(examples): structure checks for Recipe Box app + flows"
 
 - **Spec coverage:** §3 app/screens → Tasks 3–6; §3.1 scheme/labels/demo-data → Tasks 1,2,3–6; §4 folder structure → Tasks 1,7,8; §6 Phase A items (app, flows, README, gitignore negation, main-README link) → Tasks 1–9; §7 optional structure test → Task 10; §8 docs → Task 9. Phase B (§5/§6) intentionally documented only (Task 9 Step 1), not implemented. ✅
 - **Placeholders:** none — all code and commands are complete.
-- **Type/name consistency:** `Recipe`, `ShoppingItem`, `recipes`, `shoppingList` defined in Task 2 and used unchanged in Tasks 3–6; route names in `_layout.tsx` (`index`, `recipe/[id]`, `shopping`, `settings`) match the created files and the deep links in the flows; `appId` `dev.bilalahmad.recipebox` matches `app.json` `ios.bundleIdentifier` / `android.package`. ✅
+- **Type/name consistency:** `Recipe`, `ShoppingItem`, `recipes`, `shoppingList` defined in Task 2 and used unchanged in Tasks 3–6; route names in `_layout.tsx` (`index`, `recipe/[id]`, `shopping`, `settings`) match the created files and the deep links in the flows; `appId` `sh.bilal.recipebox` matches `app.json` `ios.bundleIdentifier` / `android.package`. ✅
 - **Known external risk:** exact Expo/RN package versions come from `create-expo-app` + `expo install` at run time (not hard-pinned here) precisely so they stay mutually compatible; the only version-sensitive assertion is `tsc --noEmit`, which the executor runs after each task.

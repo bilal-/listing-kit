@@ -1,10 +1,10 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "listing-kit",
   "description": "App-store presence, in your repo. A free, open-source skill that captures store-compliant screenshots and assembles full App Store + Google Play listings.",
   "owner": {
     "name": "Bilal Ahmad",
-    "url": "https://bilalahmad.dev"
+    "url": "https://bilal.sh"
   },
   "plugins": [
     {
