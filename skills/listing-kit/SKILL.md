@@ -36,7 +36,7 @@ Identify the stack from manifest signals. See `references/stacks/` (each stack d
 **Record the app root** — the directory that holds the manifest (`app.json`/`package.json`, `pubspec.yaml`, `*.xcodeproj`, `build.gradle`). This is the repo root for a single-app repo, but a **subdirectory in a monorepo** (e.g. `apps/mobile/`). All output — `fastlane/` and `.listing-kit/` — is written relative to the app root, never assumed at the repo root. If multiple apps are found, ask which to target; each gets its own `fastlane/` under its own root.
 
 ### 2. Doctor — pre-flight the environment
-Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`. Report **optional** tools and what their absence degrades to:
+Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`, and `python3` (the validator, review page, and commit hook use it). Report **optional** tools and what their absence degrades to:
 - **ImageMagick** missing → screenshots can't be normalized to RGB at Capture (prompt to install it then), and feature-graphic generation falls back to asking the user for one.
 - **Maestro + JDK** missing → the Drive step falls back to manual-assist. (Do not install Maestro here; it is gated to first use in Drive.)
 
