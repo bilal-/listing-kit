@@ -16,11 +16,11 @@ for f in index.tsx "recipe/[id].tsx" shopping.tsx settings.tsx; do
   assert_file "$APP/app/$f"
 done
 
-it "each Maestro flow declares an appId and an action"
+it "each Maestro flow declares an appId, launches clean, and asserts content"
 flows=0
 for f in "$APP/.listing-kit/flows/"*.yaml; do
   flows=$((flows + 1))
-  if grep -q '^appId:' "$f" && grep -q 'openLink:' "$f"; then pass "${f##*/}"; else fail "malformed flow: $f"; fi
+  if grep -q '^appId:' "$f" && grep -q 'clearState: true' "$f" && grep -q 'assertVisible:' "$f"; then pass "${f##*/}"; else fail "malformed flow: $f"; fi
 done
 it "found the expected four flows"
 assert_eq 4 "$flows"

@@ -1,6 +1,9 @@
 appId: sh.bilal.recipebox
 ---
+# Reached by tapping accessibility labels, not deep links: on iOS a cold-start
+# custom-scheme link raises a system "Open in app?" alert Maestro cannot dismiss
+# reliably. Each flow asserts real content, so an empty screen fails the flow.
 - launchApp:
     clearState: true
-- openLink: recipebox://recipe/1
-- assertVisible: "Ingredients"
+- tapOn: "Recipe: Lemon Herb Pasta.*"
+- assertVisible: "Ingredient: 200g spaghetti"

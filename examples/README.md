@@ -26,7 +26,7 @@ A tiny recipe saver with four deep-linkable screens:
 ### Run the app
 ```sh
 cd examples/expo-recipe-box
-npm install
+npm ci
 npx expo start            # press i (iOS sim) or a (Android emulator)
 ```
 
