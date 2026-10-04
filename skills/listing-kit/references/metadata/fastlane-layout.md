@@ -26,8 +26,8 @@ this keeps the output directly usable. (This repo's own example follows the rule
 ```
 fastlane/metadata/
   copyright.txt
-  primary_category.txt
-  <locale>/                         # e.g. en-US
+  primary_category.txt  secondary_category.txt
+  <locale>/                         # e.g. en-US (or default/ = fallback for all locales)
     name.txt  subtitle.txt  promotional_text.txt
     description.txt  keywords.txt
     marketing_url.txt  support_url.txt  privacy_url.txt
@@ -40,9 +40,11 @@ fastlane/screenshots/<locale>/      # iPhone / iPad / Watch PNGs
 fastlane/metadata/android/
   <locale>/                         # e.g. en-US
     title.txt  short_description.txt  full_description.txt
+    changelogs/<versionCode>.txt    # or changelogs/default.txt
     images/
       icon/             featureGraphic/
-      phoneScreenshots/ sevenInchScreenshots/ tenInchScreenshots/ wearScreenshots/
+      phoneScreenshots/ sevenInchScreenshots/ tenInchScreenshots/
+      tvScreenshots/    wearScreenshots/
 ```
 
 The community `universal_metadata` fastlane plugin is **prior art** for this

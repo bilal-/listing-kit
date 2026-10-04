@@ -21,7 +21,8 @@ and capture** for a native Android app? Driving is shared (see `../driving/maest
 
 ## Build & launch
 ```sh
-emulator -avd Pixel_8_API_34 -no-snapshot -no-boot-anim &
+emulator -list-avds                     # pick one; names vary per machine
+emulator -avd <avd-name> -no-snapshot -no-boot-anim &
 adb wait-for-device
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk

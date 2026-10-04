@@ -7,7 +7,7 @@ accessibility hierarchy. So driving is a **shared core capability**, not four
 per-stack implementations.
 
 ## Gating
-Maestro (and its **JDK** dependency) are **only** needed at the Drive step.
+Maestro (and its **JDK 17+** dependency, with `JAVA_HOME` set) are **only** needed at the Drive step.
 Detect, Doctor, Discover, Plan, metadata collection, Validate, and Assemble all
 run without it. **Prompt to install Maestro when the pipeline first needs to
 drive the app — never at startup.**

@@ -31,9 +31,9 @@ Install JS deps first (`npm ci` / `yarn` / `pnpm i` — match the lockfile prese
 ## Build & launch
 ```sh
 # Expo
-npx expo run:ios --device "iPhone 16 Pro Max"     # or run:android
+npx expo run:ios --device "iPhone 17 Pro Max"     # or run:android
 # Bare RN
-npx react-native run-ios --simulator "iPhone 16 Pro Max"   # or run-android
+npx react-native run-ios --simulator "iPhone 17 Pro Max"   # or run-android
 ```
 
 ## Sanitize, permissions & capture

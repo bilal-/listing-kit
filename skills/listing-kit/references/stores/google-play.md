@@ -1,19 +1,21 @@
 # Google Play — requirements reference
 
-> **Snapshot, not gospel.** Play Console requirements change. **Re-verify against
-> current Play Console docs at runtime** and prefer live docs when they disagree
-> with this table.
+> **Snapshot, not gospel** (verified against Play Console help, 2026-10). Play
+> Console requirements change. **Re-verify against the current
+> [preview assets guide](https://support.google.com/googleplay/android-developer/answer/9866151)
+> at runtime** and prefer live docs when they disagree with this table.
 
 ## Graphics & screenshots
 
 | Asset | Required? | Spec |
 |---|---|---|
-| Phone screenshots | Yes (min 2) | 2–8 images; JPEG or 24-bit PNG (**no alpha**); 320–3840px per side; max aspect 2:1; 1080×1920 recommended |
-| 7" tablet screenshots | If targeting tablets | 2–8, same format rules |
-| 10" tablet screenshots | If targeting tablets | 2–8, same format rules |
+| Screenshots (all device types) | **≥2 in total**, across device types | up to 8 per device type; JPEG or 24-bit PNG (**no alpha**); 320–3840 px per side; long side ≤ 2× short side |
+| Phone screenshots | In practice yes | 1080×1920 recommended. **Promotion eligibility:** ≥4 screenshots at ≥1080 px (9:16 portrait or 16:9 landscape); games need 3 landscape |
+| 7" / 10" tablet screenshots | If targeting tablets | up to 8 each; for tablet/Chromebook featuring, ≥4 at 1080–7680 px, 16:9 or 9:16 |
 | Wear OS screenshots | If Wear OS app | up to 8 |
+| Android XR screenshots | If XR app | 4–8, 8:5 aspect, ≥1920×1200 (3840×2400 recommended), ≤8 MB. No fastlane `supply` folder yet: upload in Play Console |
 | **Feature graphic** | **Yes — required to publish** | exactly **1024×500**, JPEG or 24-bit PNG (**no alpha**) |
-| App icon | Yes | 512×512, 32-bit PNG |
+| App icon | Yes | 512×512, 32-bit PNG (alpha allowed), ≤1 MB, no badges or rank/price text |
 
 > The **feature graphic is not a screenshot** and cannot be produced by
 > capturing the app. listing-kit generates an icon-on-gradient placeholder via
@@ -31,7 +33,7 @@ for screenshots/feature graphic. Every image must be normalized before it is wri
 | **8-bit depth** | "24-bit PNG" = 8 bits × 3 channels. A 16-bit-depth PNG is 48-bit and non-compliant. | include `-depth 8` (and `PNG24:`) |
 | **Max aspect ratio 2:1** | A 1080×2400 (20:9 ≈ 2.22:1) phone capture **exceeds** it. | crop to ≤2:1 (e.g. top-aligned `-crop 1080x1920+0+0`) or target a ≤2:1 device |
 | **Side length 320–3840 px** | each side | check both dimensions |
-| **Max file size 8 MB** per image | screenshots + feature graphic | check `stat`/size |
+| **File size** | Play no longer documents a phone-screenshot cap (8 MB was the old limit; XR still has one). `validate-listing.sh` warns above 8 MB | check `stat`/size |
 | **App icon is the exception** | the Play **icon** is a **32-bit PNG (alpha allowed)** — do *not* flatten it. | leave icon as RGBA |
 
 ## Detecting tablet support (decide whether to capture tablet sets)
@@ -69,4 +71,6 @@ downloading a system image, so prompt before doing it in a non-interactive run.
 See `../metadata/fastlane-layout.md`. Text fields are `.txt` files under
 `fastlane/metadata/android/<locale>/`; images live under that locale's
 `images/` subtree (`phoneScreenshots/`, `sevenInchScreenshots/`,
-`tenInchScreenshots/`, `wearScreenshots/`, `featureGraphic/`, `icon/`).
+`tenInchScreenshots/`, `tvScreenshots/`, `wearScreenshots/`, `featureGraphic/`,
+`icon/`, plus optional `promoGraphic.png` / `tvBanner.png`). Release notes go in
+`changelogs/<versionCode>.txt` (or `changelogs/default.txt`).

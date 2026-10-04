@@ -30,8 +30,10 @@ emulator first (see the native docs) so it appears in `flutter devices`.
 
 ## Sanitize & permissions
 Same as the underlying platform:
-- iOS: `scripts/capture/*.sh ios booted ...`
-- Android: `scripts/capture/*.sh android ...`
+- iOS: `scripts/capture/sanitize-status-bar.sh ios booted`, then
+  `scripts/capture/grant-permissions.sh ios <bundle-id> booted`
+- Android: `scripts/capture/sanitize-status-bar.sh android`, then
+  `scripts/capture/grant-permissions.sh android <applicationId>`
 
 ## Capture
 Use the **platform** SDK tooling, not `flutter screenshot` (which lacks the
