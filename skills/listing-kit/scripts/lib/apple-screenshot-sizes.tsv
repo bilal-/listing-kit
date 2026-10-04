@@ -1,0 +1,24 @@
+# App Store Connect screenshot sizes -> display class. Portrait WIDTHxHEIGHT;
+# landscape is the same size swapped. Read by pnginfo.py (validate-listing.sh,
+# build-review.sh). Source: developer.apple.com/help/app-store-connect/reference/
+# app-information/screenshot-specifications (verified 2026-10). Keep in sync with
+# references/stores/apple-app-store.md.
+1320x2868	iPhone 6.9"
+1290x2796	iPhone 6.9"
+1260x2736	iPhone 6.9"
+1284x2778	iPhone 6.5"
+1242x2688	iPhone 6.5"
+1206x2622	iPhone 6.3"
+1179x2556	iPhone 6.3"
+1170x2532	iPhone 6.1"
+1125x2436	iPhone 6.1"
+1080x2340	iPhone 6.1"
+1242x2208	iPhone 5.5"
+750x1334	iPhone 4.7"
+2064x2752	iPad 13"
+2048x2732	iPad 13"
+1668x2420	iPad 11"
+1668x2388	iPad 11"
+1640x2360	iPad 11"
+1488x2266	iPad 11"
+1668x2224	iPad 10.5"

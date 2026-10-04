@@ -27,10 +27,13 @@ else
 fi
 
 OUT="$ROOT/listing-review.html"
-python3 - "$ROOT" "$VAL_TXT" "$OUT" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
-import sys, os, glob, struct, html, datetime
+python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
+import sys, os, glob, html, datetime
 
-root, val_txt, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+root, val_txt, out_path, lib_dir = sys.argv[1:5]
+sys.path.insert(0, lib_dir)
+from pnginfo import png_info, apple_class
+
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -41,20 +44,13 @@ def read(p):
         return None
 
 def dims(p):
-    try:
-        d = open(p, "rb").read(24)
-        if d[:8] != b"\x89PNG\r\n\x1a\n":
-            return None
-        return struct.unpack(">II", d[16:24])
-    except OSError:
-        return None
+    w, h = png_info(p)[:2]
+    return (w, h) if w else None
 
-def devclass(w, h):
-    lo, hi = sorted((w, h))
-    t = {(1320,2868):'iPhone 6.9"',(1290,2796):'iPhone 6.9"',(1284,2778):'iPhone 6.7"',
-         (1242,2688):'iPhone 6.5"',(1242,2208):'iPhone 5.5"',(2064,2752):'iPad 13"',
-         (2048,2732):'iPad 12.9"',(1668,2388):'iPad 11"',(1640,2360):'iPad 11"'}
-    return t.get((lo, hi), f"{w}×{h}")
+def devclass(wh):
+    if not wh:
+        return "?"
+    return apple_class(*wh) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
     return html.escape(s if s is not None else "")
@@ -85,8 +81,7 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         ]
         shots = {}
         for f in sorted(glob.glob(os.path.join(FL, "screenshots", loc, "*.png"))):
-            wh = dims(f)
-            cls = devclass(*wh) if wh else "?"
+            cls = devclass(dims(f))
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=[]))
     applevel = [

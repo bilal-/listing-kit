@@ -75,4 +75,113 @@ assert_eq 1 "$RC" "exit 1 — native iPad support detected, iPad shots required"
 assert_contains "$OUT" "NO iPad screenshots"
 rm -rf "$T"
 
+# --- store-rule checks driven by synthetic PNG headers (pnginfo reads IHDR only) ---
+# png <path> <w> <h> [depth=8] [colortype=2]
+png() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
+import struct, sys, zlib
+p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+depth = int(sys.argv[4]) if len(sys.argv) > 4 else 8
+ct = int(sys.argv[5]) if len(sys.argv) > 5 else 2
+ihdr = struct.pack(">IIBBBBB", w, h, depth, ct, 0, 0, 0)
+open(p, "wb").write(b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr
+                    + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr)))
+PY
+}
+apple_only() { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"; rm -rf "$T"/fastlane/metadata/android; }
+play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US; }
+PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
+
+it "a 6.5\" iPhone set alone satisfies the iPhone requirement"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+png "$T/fastlane/screenshots/en-US/01_home.png" 1284 2778
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" "iPhone screenshots present (1 at"
+rm -rf "$T"
+
+it "a 6.1\" set alone fails (6.9\" or 6.5\" is required)"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+png "$T/fastlane/screenshots/en-US/01_home.png" 1170 2532
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "no 6.9\" or 6.5\" iPhone screenshots"
+rm -rf "$T"
+
+it "an 11\" iPad set does not satisfy the 13\" iPad requirement"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
+png "$T/fastlane/screenshots/en-US/ipad11_01.png" 1668 2420
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "NO iPad screenshots"
+rm -rf "$T"
+
+it "landscape screenshots are recognized"
+apple_only; png "$T/fastlane/screenshots/en-US/05_wide.png" 2868 1320
+OUT="$(bash "$SUT" "$T" 2>&1)"
+assert_not_contains "$OUT" "not a recognized App Store size"
+rm -rf "$T"
+
+it "more than 10 screenshots in one display class fails"
+apple_only
+for i in 05 06 07 08 09 10 11; do png "$T/fastlane/screenshots/en-US/${i}_x.png" 1320 2868; done
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "11 screenshots (App Store max is 10"
+rm -rf "$T"
+
+it "each screenshot locale is checked on its own"
+apple_only; mkdir -p "$T/fastlane/screenshots/de-DE"
+png "$T/fastlane/screenshots/de-DE/01_home.png" 1170 2532
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "a locale without a 6.9\"/6.5\" set fails even if en-US has one"
+assert_contains "$OUT" "screenshots de-DE:"
+rm -rf "$T"
+
+it "keywords are limited to 100 UTF-8 bytes, not characters"
+apple_only
+python3 -c "import sys;open(sys.argv[1],'w',encoding='utf-8').write('料'*40)" "$T/fastlane/metadata/en-US/keywords.txt"   # 40 chars, 120 bytes
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "keywords: 120/100 bytes OVER LIMIT"
+rm -rf "$T"
+
+it "a 16-bit-depth Play screenshot fails (24-bit means 8 bits per channel)"
+play_only; png "$T/$PHONE/05_deep.png" 1080 1920 16 2
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "05_deep.png: must be 24-bit no-alpha (depth=16"
+rm -rf "$T"
+
+it "a Play screenshot over 2:1 fails"
+play_only; png "$T/$PHONE/05_tall.png" 1080 2400
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "05_tall.png: aspect"
+rm -rf "$T"
+
+it "Play's 2-screenshot minimum counts across device types"
+play_only; rm -f "$T/$PHONE"/*.png
+png "$T/$PHONE/01_home.png" 1080 1920
+png "$T/fastlane/metadata/android/en-US/images/tenInchScreenshots/01_home.png" 1920 1080
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "1 phone + 1 tablet passes"
+assert_contains "$OUT" "screenshots across device types: 2"
+assert_contains "$OUT" "promotion eligibility"
+rm -rf "$T"
+
+it "a single Play screenshot fails"
+play_only; rm -f "$T/$PHONE"/0[2-9]*.png
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "need ≥2"
+rm -rf "$T"
+
+it "a non-PNG file with a .png name fails cleanly instead of crashing"
+play_only; printf 'not a png' > "$T/$PHONE/05_bogus.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_not_contains "$OUT" "integer expression"
+assert_not_contains "$OUT" "Traceback"
+rm -rf "$T"
+
 summary
