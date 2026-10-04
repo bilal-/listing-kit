@@ -11,9 +11,12 @@
 # An existing pre-commit hook is left intact:
 #   - shell hook  → one call line is inserted after its shebang; the rest of the
 #                   hook runs exactly as before (same exit status)
-#   - other hooks → moved to pre-commit.local and exec'd by a small wrapper
-# Rerunning adds the app root to the list; hooks from listing-kit ≤0.2 (an inline
-# BEGIN/END block) are migrated. Honors linked worktrees and core.hooksPath.
+#   - other hooks → not modified (managers like overcommit dispatch on the hook's
+#                   name); the call line to add is printed instead
+# Husky 9 (core.hooksPath=.husky/_) → the call goes in the durable .husky/pre-commit,
+# never the regenerated .husky/_/pre-commit. Rerunning adds the app root to the
+# list; hooks from listing-kit ≤0.2 (an inline BEGIN/END block) are migrated.
+# Honors linked worktrees and core.hooksPath.
 set -euo pipefail
 
 ROOT="${1:-.}"
@@ -35,10 +38,17 @@ case "$hook_dir" in
   *) hook_dir="$(cd "$ROOT" && pwd)/$hook_dir" ;;
 esac
 mkdir -p "$hook_dir"
+hook_dir="$(cd "$hook_dir" && pwd)"
 hook="$hook_dir/pre-commit"
 runner="$hook_dir/listing-kit-review"
+# Husky 9 regenerates .husky/_/*; user hooks live one level up and are sourced by it.
+if [ "$(basename "$hook_dir")" = "_" ] && [ -f "$hook_dir/h" ]; then
+  hook="$(dirname "$hook_dir")/pre-commit"
+fi
 CALL_MARK='# listing-kit review refresh'
-call="\"\$(dirname \"\$0\")/listing-kit-review\" || true   $CALL_MARK"
+# Resolved through git so it works from any hook layout (and is a no-op for
+# clones that never ran the installer, e.g. teammates sharing .husky/pre-commit).
+call="r=\"\$(git rev-parse --git-path hooks)/listing-kit-review\"; [ ! -x \"\$r\" ] || \"\$r\" || true   $CALL_MARK"
 
 # App root relative to the worktree root ("" at the root), without trailing slash.
 app_rel="$(git -C "$ROOT" rev-parse --show-prefix)"
@@ -78,23 +88,37 @@ if [ ! -x "$build_review" ]; then
   exit 0
 fi
 cd "$(git rev-parse --show-toplevel)" || exit 0
+set -o pipefail
+
+# Index paths build-review reads for one app (listing, flows, iPad signals), NUL-separated.
+# Pathspecs are literal so app dirs with [ ] * ? in their names match exactly.
+snapshot_paths(){ # prefix
+  git ls-files -z -- ":(literal)${1:-.}" | python3 -c '
+import re, sys
+pre = sys.argv[1]
+keep = re.compile(r"(fastlane/|\.listing-kit/flows/)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
+for p in sys.stdin.buffer.read().split(b"\0"):
+    rel = p.decode("utf-8", "surrogateescape")[len(pre):]
+    if p and keep.match(rel):
+        sys.stdout.buffer.write(p + b"\0")
+' "$1"
+}
 
 for app in "${apps[@]}"; do
   p="${app:+$app/}"
-  git diff --cached --quiet -- "${p}fastlane/" && continue
-  if [ -z "$(git ls-files -- "${p}fastlane/")" ]; then   # listing removed entirely
-    git rm -q --cached --ignore-unmatch -- "${p}listing-review.html" && rm -f -- "${p}listing-review.html"
+  git diff --cached --quiet -- ":(literal)${p}fastlane/" && continue
+  if [ -z "$(git ls-files -- ":(literal)${p}fastlane/")" ]; then   # listing removed entirely
+    git rm -q --cached --ignore-unmatch -- ":(literal)${p}listing-review.html" && rm -f -- "${p}listing-review.html"
     continue
   fi
-  # Snapshot what build-review reads (listing, flows, iPad signals) from the index.
-  snap="$(mktemp -d)"
-  git ls-files -z -- "${p}fastlane/" "${p}.listing-kit/flows/" "${p}app.json" "${p}app.config.*" \
-      ":(glob)${p}**/*.pbxproj" ":(glob)${p}**/Info.plist" \
-    | git checkout-index -z --stdin --prefix="$snap/"
-  if "$build_review" "$snap/${app:-.}" >/dev/null 2>&1; then
-    cp "$snap/${p}listing-review.html" "${p}listing-review.html" && git add -- "${p}listing-review.html"
+  snap="$(mktemp -d)" || { warn "mktemp failed; listing-review.html not refreshed."; continue; }
+  # --ignore-skip-worktree-bits: include files a sparse checkout hides.
+  if snapshot_paths "$p" | git checkout-index -z --stdin --ignore-skip-worktree-bits --prefix="$snap/" \
+     && "$build_review" "$snap/${app:-.}" >/dev/null 2>&1 \
+     && cp "$snap/${p}listing-review.html" "${p}listing-review.html"; then
+    git add -- ":(literal)${p}listing-review.html"
   else
-    warn "build-review.sh failed for ${app:-the repo root}; listing-review.html not refreshed."
+    warn "could not rebuild the review page for ${app:-the repo root}; listing-review.html not refreshed."
   fi
   rm -rf "$snap"
 done
@@ -125,14 +149,11 @@ elif head -1 "$hook" | grep -qE '^#!.*[/ ](ba|da|k|z)?sh([[:space:]].*)?$' || ! 
   fi
   cat "$tmp" > "$hook"; rm -f "$tmp"
 else
-  local_hook="$hook_dir/pre-commit.local"
-  [ -e "$local_hook" ] && {
-    echo "Can't install: $hook is not a shell script and $local_hook already exists." >&2
-    exit 2
-  }
-  mv "$hook" "$local_hook"
-  printf '#!/bin/sh\n%s\nexec "$(dirname "$0")/pre-commit.local" "$@"\n' "$call" > "$hook"
-  echo "Moved your existing pre-commit hook to $local_hook (it still runs, and its exit status decides the commit)."
+  echo "Your pre-commit hook ($hook) is not a shell script, so it was left unchanged." >&2
+  echo "To refresh listing-review.html on commit, have your hook manager run this before committing:" >&2
+  echo "  $runner" >&2
+  echo "Installed listing-kit review runner: $runner (apps: ${apps[*]})"
+  exit 0
 fi
 chmod +x "$hook"
 

@@ -110,16 +110,27 @@ git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html 2>&1)" "Exit zero hook"
 rm -rf "$T"
 
-it "a non-shell hook is moved to pre-commit.local and keeps its exit status"
+it "a non-shell hook is left unchanged and the call to add is printed"
 make_app "Python hook"
-printf '#!/usr/bin/env python3\nimport sys\nprint("py hook ran", file=sys.stderr)\nsys.exit(3)\n' > "$T/.git/hooks/pre-commit"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n' > "$T/.git/hooks/pre-commit"
 chmod +x "$T/.git/hooks/pre-commit"
+BEFORE="$(cat "$T/.git/hooks/pre-commit")"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_eq "$BEFORE" "$(cat "$T/.git/hooks/pre-commit")" "hook untouched"
+assert_contains "$OUT" "listing-kit-review"
+assert_exec "$T/.git/hooks/listing-kit-review"
+rm -rf "$T"
+
+it "husky 9: wires .husky/pre-commit, not the regenerated .husky/_/pre-commit"
+make_app "Husky"
+mkdir -p "$T/.husky/_"; printf '#!/usr/bin/env sh\n' > "$T/.husky/_/h"
+printf '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n' > "$T/.husky/_/pre-commit"; chmod +x "$T/.husky/_/pre-commit"
+git -C "$T" config core.hooksPath .husky/_
 bash "$SUT" "$T" >/dev/null
-assert_exec "$T/.git/hooks/pre-commit.local"
-git -C "$T" add fastlane
-OUT="$(git -C "$T" commit -m "listing" 2>&1)"; RC=$?
-assert_ne 0 "$RC" "python hook's failure still rejects the commit"
-assert_contains "$OUT" "py hook ran"
+assert_contains "$(cat "$T/.husky/pre-commit")" "listing-kit review refresh"
+assert_not_contains "$(cat "$T/.husky/_/pre-commit")" "listing-kit"
+assert_exec "$T/.husky/_/listing-kit-review"
 rm -rf "$T"
 
 it "migrates a listing-kit 0.2 inline hook block"
@@ -173,6 +184,20 @@ done
 git -C "$T" add apps && git -C "$T" commit -qm "two listings" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:apps/one/listing-review.html)" "Description of apps/one"
 assert_contains "$(git -C "$T" show HEAD:apps/two/listing-review.html)" "Description of apps/two"
+rm -rf "$T"
+
+it "app dirs with glob characters are matched literally"
+T="$(mktemp -d)"; git -C "$T" init -q
+git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
+for a in "apps/mobile[1]" "apps/mobile1"; do
+  mkdir -p "$T/$a/fastlane/metadata/en-US"
+  printf 'Name\n' > "$T/$a/fastlane/metadata/en-US/name.txt"
+  printf 'Description of %s\n' "$a" > "$T/$a/fastlane/metadata/en-US/description.txt"
+done
+bash "$SUT" "$T/apps/mobile[1]" >/dev/null
+git -C "$T" add apps && git -C "$T" commit -qm "listings" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show 'HEAD:apps/mobile[1]/listing-review.html')" "Description of apps/mobile[1]"
+assert_not_contains "$(git -C "$T" ls-files)" "apps/mobile1/listing-review.html" "the look-alike dir is untouched"
 rm -rf "$T"
 
 summary
