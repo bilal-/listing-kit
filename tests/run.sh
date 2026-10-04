@@ -23,8 +23,11 @@ for f in $(find tests -name '*.test.sh' | sort); do
     total_pass=$((total_pass + p))
     total_fail=$((total_fail + fl))
   fi
-  if [ "$rc" -ne 0 ] && [ -z "$s" ]; then
-    printf '  %s✗ test file errored before reporting (exit %d)%s\n' "$R" "$rc" "$Z"
+  if [ -z "$s" ]; then
+    printf '  %s✗ test file did not report a summary (exit %d)%s\n' "$R" "$rc" "$Z"
+    files_errored=$((files_errored + 1))
+  elif [ "$rc" -ne 0 ] && [ "${fl:-0}" -eq 0 ]; then
+    printf '  %s✗ test file exited %d after reporting no failures%s\n' "$R" "$rc" "$Z"
     files_errored=$((files_errored + 1))
   fi
 done
