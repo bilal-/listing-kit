@@ -34,6 +34,14 @@ assert_contains "$KI" "v$VER"
 assert_contains "$KI" "skills/listing-kit/SKILL.md"
 assert_contains "$KI" "inclusion: manual"
 
+it "a description containing quotes and backslashes still yields valid JSON"
+T3="$(mktemp -d)"; mkdir -p "$T3/.claude-plugin"
+printf '{"name":"listing-kit","version":"9.9.9","description":"Say \\"hi\\" \\\\ ok"}' > "$T3/.claude-plugin/plugin.json"
+bash "$SUT" "$T3" >/dev/null 2>&1
+if json_valid "$T3/gemini-extension.json"; then pass "valid JSON"; else fail "invalid JSON"; fi
+assert_eq 'Say "hi" \ ok' "$(json_get "$T3/gemini-extension.json" description)"
+rm -rf "$T3"
+
 it "fails clearly when plugin.json is missing"
 T2="$(mktemp -d)"
 OUT="$(bash "$SUT" "$T2" 2>&1)"; RC=$?
