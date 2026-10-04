@@ -28,7 +28,7 @@ skills/listing-kit/
   references/          pluggable modules: stores/, stacks/, driving/, metadata/, platforms/
   scripts/             portable bash 3.2+ helpers (capture/, generate/, lib/, package/, validate/)
   assets/              optional device frames (future)
-docs/                  user guide + design spec
+docs/                  user guide (GUIDE.md) + architecture (ARCHITECTURE.md)
 AGENTS.md, gemini-extension.json, .kiro/steering/   GENERATED — do not hand-edit (see below)
 ```
 

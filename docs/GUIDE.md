@@ -1,7 +1,7 @@
 # listing-kit — User Guide
 
-This guide walks through a real run, end to end. For *why* it's built this way,
-see the original [design spec](superpowers/specs/2026-05-25-listing-kit-design.md) (May 2026). For
+This guide walks through a real run, end to end. For how listing-kit is built and
+why, see [ARCHITECTURE.md](ARCHITECTURE.md). For
 the operational instructions the agent follows, see
 [`skills/listing-kit/SKILL.md`](../skills/listing-kit/SKILL.md).
 
