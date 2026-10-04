@@ -120,6 +120,7 @@ Then produce a **report**: per platform/locale, what exists vs. required vs. mis
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |
+| `scripts/lib/listing.py` | Which locales and images a fastlane tree contains (shared by validate and review) |
 | `scripts/validate/validate-listing.sh` | Validate the listing tree against App Store + Play rules (Validate step) |
 | `scripts/validate/visual-diff.sh` | Per-screen regression report between a previous and current screenshot set (Validate step) |
 | `scripts/package/generate-manifests.sh` | Emit per-AI-platform install manifests from this canonical skill |

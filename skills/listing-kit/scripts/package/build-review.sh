@@ -28,12 +28,13 @@ fi
 
 OUT="$ROOT/listing-review.html"
 python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
-import sys, os, glob, html, datetime
+import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
 sys.path.insert(0, lib_dir)
-from imginfo import image_info, apple_class, is_image
+from imginfo import image_info, apple_class
 import fields as store_fields
+import listing
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -44,9 +45,7 @@ def dims(p):
     w, h = image_info(p)[:2]
     return (w, h) if w else None
 
-def images(d):
-    """PNG/JPEG files directly in d (extension case-insensitive), sorted."""
-    return sorted(f for f in glob.glob(os.path.join(glob.escape(d), "*")) if os.path.isfile(f) and is_image(f))
+images = listing.images
 
 def devclass(wh):
     if not wh:
@@ -65,16 +64,8 @@ def copy_row(label, path):
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 
 # ---- iOS (deliver) ----
-# Same locale rule as validate-listing.sh: every metadata/<dir> except the Play
-# tree, the default/ fallback, and deliver's non-locale folders, plus any locale
-# that only has screenshots.
-NOT_LOCALES = {"android", "default", "review_information", "trade_representative_contact_information"}
-ios_locs = {os.path.basename(d) for d in glob.glob(os.path.join(glob.escape(FL), "metadata", "*"))
-            if os.path.isdir(d) and os.path.basename(d) not in NOT_LOCALES}
-ios_locs |= {os.path.basename(d) for d in glob.glob(os.path.join(glob.escape(FL), "screenshots", "*")) if os.path.isdir(d)}
-ios_locs = [os.path.join(FL, "metadata", l) for l in sorted(ios_locs)]
-apple_default = os.path.join(FL, "metadata", "default")
-apple_default = apple_default if os.path.isdir(apple_default) else None
+ios_locs = listing.apple_locales(FL)
+apple_default = listing.apple_default(FL)
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
     for ld in ios_locs:
@@ -95,7 +86,7 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
 A = os.path.join(FL, "metadata", "android")
 if os.path.isdir(A):
     locs = []
-    for ld in sorted(d for d in glob.glob(os.path.join(glob.escape(A), "*")) if os.path.isdir(d)):
+    for ld in listing.play_locales(FL):
         loc = os.path.basename(ld)
         fields = store_fields.rows("play", ld)
         shots = {}

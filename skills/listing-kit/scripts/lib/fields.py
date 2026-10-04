@@ -10,11 +10,11 @@ import os
 import sys
 from urllib.parse import urlparse
 
-# (file stem, display label, limit or None, unit, required)
+# (file stem, display label, limit or None, unit, required[, minimum])
 # unit: "chars" = Unicode code points, "bytes" = UTF-8 bytes, "url" = http(s) URL.
 FIELDS = {
     "apple": [
-        ("name", "Name", 30, "chars", True),
+        ("name", "Name", 30, "chars", True, 2),
         ("subtitle", "Subtitle", 30, "chars", False),
         ("promotional_text", "Promotional text", 170, "chars", False),
         ("keywords", "Keywords", 100, "bytes", False),
@@ -22,6 +22,7 @@ FIELDS = {
         ("support_url", "Support URL", None, "url", True),
         ("marketing_url", "Marketing URL", None, "url", False),
         ("privacy_url", "Privacy URL", None, "url", True),
+        ("release_notes", "Release notes", 4000, "chars", False),
     ],
     "play": [
         ("title", "Title", 30, "chars", True),
@@ -58,9 +59,25 @@ def measure(text, unit):
     return len(text.encode("utf-8")) if unit == "bytes" else len(text)
 
 
+# Play release notes: changelogs/<versionCode>.txt or changelogs/default.txt.
+CHANGELOG_LIMIT = 500
+
+
+def _fields(store, locale_dir):
+    specs = list(FIELDS[store])
+    if store == "play":
+        cl = os.path.join(locale_dir, "changelogs")
+        names = sorted(n for n in os.listdir(cl) if n.endswith(".txt")) if os.path.isdir(cl) else []
+        specs += [(f"changelogs/{n[:-4]}", f"Release notes ({n[:-4]})", CHANGELOG_LIMIT, "chars", False)
+                  for n in names]
+    return specs
+
+
 def rows(store, locale_dir, fallback_dir=None):
     out = []
-    for stem, label, limit, unit, required in FIELDS[store]:
+    for spec in _fields(store, locale_dir):
+        stem, label, limit, unit, required = spec[:5]
+        minimum = spec[5] if len(spec) > 5 else 0
         path, error, value = os.path.join(locale_dir, stem + ".txt"), None, None
         candidates = [path] + ([os.path.join(fallback_dir, stem + ".txt")] if fallback_dir else [])
         for cand in candidates:
@@ -72,7 +89,7 @@ def rows(store, locale_dir, fallback_dir=None):
                     error = "not valid UTF-8"
                 break
         out.append(dict(stem=stem, label=label, path=path, value=value, limit=limit, unit=unit,
-                        required=required, error=error,
+                        required=required, error=error, minimum=minimum,
                         count=None if value is None else measure(value, unit)))
     return out
 
@@ -92,6 +109,8 @@ def check(r):
         if is_url(value):
             return "PASS", f"{stem}: {value}"
         return "FAIL", f"{stem}: not a single http(s) URL: {value[:60]!r}"
+    if r["count"] < r.get("minimum", 0):
+        return "FAIL", f"{stem}: {r['count']} {r['unit']}, under the {r['minimum']}-{r['unit']} minimum"
     if r["count"] > r["limit"]:
         return "FAIL", f"{stem}: {r['count']}/{r['limit']} {r['unit']} OVER LIMIT"
     return "PASS", f"{stem}: {r['count']}/{r['limit']} {r['unit']}"

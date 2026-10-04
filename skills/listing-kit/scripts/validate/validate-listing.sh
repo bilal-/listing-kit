@@ -96,19 +96,10 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 
 # Scope to the store(s) actually present, so a single-store listing (e.g. Play
 # only) is not failed for the store it never targeted.
-apple_locales=()
-for loc in "$ROOT"/fastlane/metadata/*/; do
-  [ -d "$loc" ] || continue
-  # android = Play tree; default = fallback values, not a locale; the rest are
-  # deliver's non-locale folders.
-  case "$(basename "$loc")" in android|default|review_information|trade_representative_contact_information) continue;; esac
-  apple_locales+=("$loc")
-done
-# A locale with screenshots but no metadata folder still needs its copy.
-for sdir in "$ROOT"/fastlane/screenshots/*/; do
-  [ -d "$sdir" ] || continue
-  [ -d "$ROOT/fastlane/metadata/$(basename "$sdir")" ] || apple_locales+=("$ROOT/fastlane/metadata/$(basename "$sdir")/")
-done
+# Locales come from lib/listing.py, shared with build-review.sh.
+apple_locales=(); play_locales=()
+while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/listing.py" apple-locales "$ROOT/fastlane")
+while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")
 apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0
 { [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ]; } && apple_present=1
@@ -189,11 +180,10 @@ play_graphic(){ # images-dir type
   done
 }
 
-A="$ROOT/fastlane/metadata/android"
 if [ "$play_present" = 1 ]; then
   echo "${B}== Google Play ==${Z}"
-  for loc in "$A"/*/; do
-    [ -d "$loc" ] || continue
+  [ "${#play_locales[@]}" -gt 0 ] || fail "fastlane/metadata/android has no locale folders (e.g. en-US/)"
+  for loc in ${play_locales[@]+"${play_locales[@]}"}; do
     echo " locale $(basename "$loc"):"
     fields play "$loc"
 

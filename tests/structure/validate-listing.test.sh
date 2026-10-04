@@ -345,4 +345,26 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "icon must be a PNG"
 rm -rf "$T"
 
+it "a Play tree with no locale folders fails"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata/android"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "has no locale folders"
+rm -rf "$T"
+
+it "an App Store name under 2 characters fails"
+apple_only; printf 'R\n' > "$T/fastlane/metadata/en-US/name.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "under the 2-chars minimum"
+rm -rf "$T"
+
+it "Play changelogs are limited to 500 characters"
+play_only; mkdir -p "$T/fastlane/metadata/android/en-US/changelogs"
+printf 'x%.0s' $(seq 1 501) > "$T/fastlane/metadata/android/en-US/changelogs/42.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "changelogs/42: 501/500 chars OVER LIMIT"
+rm -rf "$T"
+
 summary
