@@ -18,3 +18,6 @@ Thumbs.db
 *.log
 .maestro/
 
+
+# brand kit: downloaded font cache
+brand/tools/.cache/
