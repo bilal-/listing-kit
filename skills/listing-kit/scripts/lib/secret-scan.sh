@@ -31,15 +31,16 @@ patterns=(
   '(api[_-]?key|secret|password|passwd|token|bearer)["'"'"' :=]+[A-Za-z0-9/_+.=-]{12,}'
 )
 
+# Text files only — screenshots and other binaries are never scanned.
+includes=(--include='*.txt' --include='*.json' --include='*.yaml' --include='*.yml' --include='*.md')
+
 found=0
-while IFS= read -r -d '' file; do
-  for pat in "${patterns[@]}"; do
-    if grep -Eil -e "$pat" "$file" >/dev/null 2>&1; then
-      echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
-      found=1
-    fi
-  done
-done < <(find "$dir" -type f \( -name '*.txt' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) -print0)
+for pat in "${patterns[@]}"; do
+  while IFS= read -r file; do
+    echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
+    found=1
+  done < <(grep -rEil "${includes[@]}" -e "$pat" "$dir" 2>/dev/null)
+done
 
 if [ "$found" -ne 0 ]; then
   echo "FAIL: secrets must never be committed (see skill §9.1). Move them to .listing-kit/secrets.local or env, then re-run." >&2
