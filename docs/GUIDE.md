@@ -77,8 +77,8 @@ dialogs don't interrupt automation.
 
 ### Drive
 Now Maestro is installed (prompted here, not earlier). For each curated screen
-the agent writes a Maestro flow — preferring deep links, else tapping by
-accessibility label — and reaches your desired state. **Each flow is saved** as a
+the agent writes a Maestro flow that taps through the app by accessibility label
+and checks the screen shows real content, reaching your desired state. **Each flow is saved** as a
 rerunnable recipe under `.listing-kit/flows/`.
 
 If a screen can't be automated (canvas/game UI, missing semantics, unscriptable

@@ -70,7 +70,7 @@ Bootstrap dependencies, build, and launch on each required simulator/emulator (s
 ### 8. Drive — reach each curated state
 Driving is a **shared capability via Maestro** (one YAML flow language across all stacks/platforms). See `references/driving/maestro.md`. This is where Maestro + JDK get installed (prompt now, not earlier). For each screen:
 1. Confirm it exists at runtime (`maestro studio` / UI snapshot) and reconcile against the static inventory.
-2. Author a Maestro flow, preferring deep links/URL schemes, else tap-by-accessibility-label.
+2. Author a Maestro flow that starts from a clean launch and taps accessibility labels, asserting real content on the target screen. Deep links are fine on Android, but on iOS a custom-scheme link raises an "Open in app?" alert Maestro can't dismiss reliably (see `references/driving/maestro.md`).
 3. Reach the desired state via demo mode / mock data / mock-auth; prioritize bypass routes for social logins (they often fail on simulators).
 4. **Reject empty states before capturing.** A deep link or fresh launch lands on whatever state the app currently has, which is often empty ("No notes yet", an empty list, a zero-results screen) — the most common weak store screenshot. Confirm the screen is actually **populated** before you capture it; if it isn't, seed/mock data to fill it, go to a populated instance, or drop/replace the screen back in Curate. Don't ship an empty screen just because the route resolved.
 5. **Manual-assist fallback** when Maestro can't reach a state (canvas/game UIs, missing semantics, unscriptable auth). Under `--non-interactive`, skip and mark the screen **Missing**.
