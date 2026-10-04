@@ -54,4 +54,19 @@ assert_not_contains "$OUT" "magick" "never calls magick"
 rm -rf "$STUB_BIN"
 
 rm -rf "$P" "$C"
+
+it "JPEG screenshots are compared too"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+printf 'AAAA' > "$P/01.jpg"; printf 'BBBB' > "$C/01.jpg"
+OUT="$(LK_NO_IMAGEMAGICK=1 bash "$SUT" "$P" "$C" 2>&1)"
+assert_contains "$OUT" "01.jpg (bytes differ)"
+rm -rf "$P" "$C"
+
+it "an ImageMagick 6 install without identify falls back to byte-compare"
+P="$(mktemp -d)"; C="$(mktemp -d)"; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
+new_stubdir; stub compare
+OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
+assert_contains "$OUT" "byte-compare only"
+rm -rf "$P" "$C"
+
 summary

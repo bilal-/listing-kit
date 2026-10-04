@@ -75,18 +75,8 @@ assert_eq 1 "$RC" "exit 1 — native iPad support detected, iPad shots required"
 assert_contains "$OUT" "NO iPad screenshots"
 rm -rf "$T"
 
-# --- store-rule checks driven by synthetic PNG headers (imginfo reads the header only) ---
-# png <path> <w> <h> [depth=8] [colortype=2]
-png() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
-import struct, sys, zlib
-p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-depth = int(sys.argv[4]) if len(sys.argv) > 4 else 8
-ct = int(sys.argv[5]) if len(sys.argv) > 5 else 2
-ihdr = struct.pack(">IIBBBBB", w, h, depth, ct, 0, 0, 0)
-open(p, "wb").write(b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr
-                    + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr)))
-PY
-}
+# --- store-rule checks driven by tiny synthetic images (tests/helpers.sh) ---
+png() { fake_png "$@"; }   # <path> <w> <h> [depth=8] [colortype=2]
 apple_only() { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"; rm -rf "$T"/fastlane/metadata/android; }
 play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US; }
 PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
@@ -196,12 +186,7 @@ rm -rf "$T"
 
 it "a JPEG feature graphic is accepted"
 play_only; rm "$T/$IMG/featureGraphic.png"
-python3 - "$T/$IMG/featureGraphic.jpg" <<'PY'
-import struct, sys
-# Minimal JPEG header: SOI + SOF0 (8-bit, 500x1024, 3 components).
-sof = struct.pack(">BHHB", 8, 500, 1024, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
-open(sys.argv[1], "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
-PY
+fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "feature graphic 1024x500"
@@ -245,11 +230,7 @@ rm -rf "$T"
 
 it "JPEG screenshots count toward the iPhone set"
 apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
-python3 - "$T/fastlane/screenshots/en-US/01_home.jpeg" <<'PY'
-import struct, sys
-sof = struct.pack(">BHHB", 8, 2868, 1320, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
-open(sys.argv[1], "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
-PY
+fake_jpeg "$T/fastlane/screenshots/en-US/01_home.jpeg" 1320 2868
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "iPhone screenshots present (1 at"
@@ -287,12 +268,7 @@ rm -rf "$T"
 
 it "an RGB PNG with tRNS transparency fails the no-alpha check"
 apple_only
-python3 - "$T/fastlane/screenshots/en-US/05_trns.png" <<'PY'
-import struct, sys, zlib
-def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
-ihdr = struct.pack(">IIBBBBB", 1320, 2868, 8, 2, 0, 0, 0)
-open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"tRNS", b"\0\0\0\0\0\0") + chunk(b"IEND", b""))
-PY
+fake_png "$T/fastlane/screenshots/en-US/05_trns.png" 1320 2868 8 2 trns
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" "05_trns.png: must be RGB no-alpha (colortype=2+tRNS)"
@@ -332,11 +308,7 @@ rm -rf "$T"
 
 it "a JPEG Play icon fails (Play requires PNG)"
 play_only; rm "$T/$IMG/icon.png"
-python3 - "$T/$IMG/icon.jpg" <<'PY'
-import struct, sys
-sof = struct.pack(">BHHB", 8, 512, 512, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
-open(sys.argv[1], "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
-PY
+fake_jpeg "$T/$IMG/icon.jpg" 512 512
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" "icon must be a PNG"
@@ -357,6 +329,20 @@ rm -f "$T/$PHONE"/*.png
 for i in 1 2 3 4; do png "$T/$PHONE/0${i}.png" 1080 1920; done
 OUT="$(bash "$SUT" "$T" 2>&1)"
 assert_not_contains "$OUT" "promotion eligibility" "four 1080x1920 shots qualify"
+rm -rf "$T"
+
+it "a truncated PNG (header but no image data) fails"
+apple_only; head -c 33 "$T/fastlane/screenshots/en-US/01_recipes.png" > "$T/x" && mv "$T/x" "$T/fastlane/screenshots/en-US/01_recipes.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "01_recipes.png: 0x0 is not an App Store screenshot size"
+rm -rf "$T"
+
+it "a JPEG saved as icon.png fails"
+play_only; fake_jpeg "$T/$IMG/icon.png" 512 512
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "icon must be a PNG"
 rm -rf "$T"
 
 summary

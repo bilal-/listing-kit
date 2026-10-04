@@ -225,7 +225,9 @@ if [ "$play_present" = 1 ]; then
     ic="$(play_graphic "$img" icon)"
     if [ -n "$ic" ]; then
       IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$ic")
-      case "$ic" in *.png) ;; *) fail "icon must be a PNG (Play requires a 32-bit PNG)";; esac
+      # By content, not just name: a JPEG saved as icon.png is still a JPEG.
+      { case "$ic" in *.png) true;; *) false;; esac && [ "$(head -c 4 "$ic" | od -An -tx1 | tr -d ' \n')" = 89504e47 ]; } \
+        || fail "icon must be a PNG (Play requires a 32-bit PNG)"
       { [ "$w" = 512 ] && [ "$h" = 512 ]; } && pass "icon 512x512" || fail "icon must be 512x512 (got ${w}x${h})"
       { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } \
         || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"

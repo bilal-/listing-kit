@@ -29,18 +29,21 @@ def _png(f):
     if not w or not h:
         return UNKNOWN
     depth, ct = d[24], d[25]
-    # Walk chunks up to the image data: a tRNS chunk adds transparency to RGB/gray.
+    # Walk chunks to the image data. A tRNS chunk adds transparency to RGB/gray;
+    # a file that ends (or hits IEND) before any IDAT is truncated, not an image.
+    trns = False
     while True:
         head = f.read(8)
         if len(head) < 8:
-            break
+            return UNKNOWN
         length, kind = struct.unpack(">I4s", head)
         if kind == b"tRNS":
-            return w, h, depth, f"{ct}+tRNS"
-        if kind in (b"IDAT", b"IEND"):
-            break
+            trns = True
+        elif kind == b"IDAT":
+            return w, h, depth, f"{ct}+tRNS" if trns else ct
+        elif kind == b"IEND":
+            return UNKNOWN
         f.seek(length + 4, os.SEEK_CUR)  # data + CRC
-    return w, h, depth, ct
 
 
 def _jpeg(f):

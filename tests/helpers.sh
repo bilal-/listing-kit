@@ -51,3 +51,25 @@ summary() {
   echo "##SUMMARY pass=$PASS fail=$FAIL"
   [ "$FAIL" -eq 0 ]
 }
+
+# --- tiny image fixtures (headers + minimal data; enough for lib/imginfo.py) ---
+# fake_png <path> <w> <h> [depth=8] [colortype=2] [trns]   (pass "trns" to add a tRNS chunk)
+fake_png() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
+import struct, sys, zlib
+p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+depth = int(sys.argv[4]) if len(sys.argv) > 4 else 8
+ct = int(sys.argv[5]) if len(sys.argv) > 5 else 2
+def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+extra = chunk(b"tRNS", b"\0\0\0\0\0\0") if "trns" in sys.argv[6:] else b""
+open(p, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, ct, 0, 0, 0))
+                    + extra + chunk(b"IDAT", zlib.compress(b"\0")) + chunk(b"IEND", b""))
+PY
+}
+# fake_jpeg <path> <w> <h>   (8-bit, 3-component baseline JPEG header)
+fake_jpeg() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
+import struct, sys
+p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+sof = struct.pack(">BHHB", 8, h, w, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+open(p, "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
+PY
+}

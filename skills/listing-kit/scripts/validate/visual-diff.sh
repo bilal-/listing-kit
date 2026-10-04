@@ -6,7 +6,7 @@
 # Usage:
 #   visual-diff.sh <previous-dir> <current-dir>
 #
-# Recurses both dirs and pairs *.png by relative path. For each pair:
+# Recurses both dirs and pairs PNG/JPEG files by relative path. For each pair:
 #   - ImageMagick present  → compares pixels (`compare -metric AE`); differing
 #     dimensions count as CHANGED; 0 differing pixels = unchanged.
 #   - ImageMagick absent    → falls back to a byte-identical check (cmp).
@@ -29,10 +29,10 @@ if [ -t 1 ]; then G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; B=$'\033[1m'; Z=$
 # Helpers live in ../lib; parameter expansion (not dirname) so this works on a bare PATH.
 _here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
 . "$_here/../lib/imagemagick.sh"
-if im_resolve; then HAVE_IM=1; else HAVE_IM=0; fi
+if im_resolve compare; then HAVE_IM=1; else HAVE_IM=0; fi
 
-# relative paths of every PNG under a dir
-list(){ (cd "$1" && find . -type f -name '*.png' | sed 's#^\./##' | sort); }
+# relative paths of every PNG/JPEG under a dir
+list(){ (cd "$1" && find . -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | sed 's#^\./##' | sort); }
 
 # differing-pixel count via ImageMagick (echoes integer, or "dim" if sizes differ)
 diff_pixels(){

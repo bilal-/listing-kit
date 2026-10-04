@@ -4,16 +4,7 @@
 SUT="$SCRIPTS/capture/normalize-screenshot.sh"
 IMGINFO="$SCRIPTS/lib/imginfo.py"
 
-# Header-only PNG (imginfo reads the header only): png <path> <w> <h> [colortype=6]
-png() { python3 - "$@" <<'PY'
-import struct, sys, zlib
-p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-ct = int(sys.argv[4]) if len(sys.argv) > 4 else 6
-ihdr = struct.pack(">IIBBBBB", w, h, 8, ct, 0, 0, 0)
-open(p, "wb").write(b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr
-                    + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr)))
-PY
-}
+png() { fake_png "$1" "$2" "$3" 8 "${4:-6}"; }   # <path> <w> <h> [colortype=6]
 
 TMP="$(mktemp -d)"
 
