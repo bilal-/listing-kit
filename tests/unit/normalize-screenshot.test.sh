@@ -2,9 +2,9 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/capture/normalize-screenshot.sh"
-PNGINFO="$SCRIPTS/lib/pnginfo.py"
+IMGINFO="$SCRIPTS/lib/imginfo.py"
 
-# Header-only PNG (pnginfo reads IHDR only): png <path> <w> <h> [colortype=6]
+# Header-only PNG (imginfo reads the header only): png <path> <w> <h> [colortype=6]
 png() { python3 - "$@" <<'PY'
 import struct, sys, zlib
 p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
@@ -64,7 +64,7 @@ if command -v magick >/dev/null 2>&1; then
   it "real ImageMagick: RGBA 1080x2400 becomes RGB 1080x2160"
   magick -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
   bash "$SUT" "$TMP/rgba.png" "$TMP/real.png" --play >/dev/null 2>&1
-  INFO="$(python3 "$PNGINFO" "$TMP/real.png" | cut -f1-4)"
+  INFO="$(python3 "$IMGINFO" "$TMP/real.png" | cut -f1-4)"
   assert_eq "$(printf '1080\t2160\t8\t2')" "$INFO"
 fi
 

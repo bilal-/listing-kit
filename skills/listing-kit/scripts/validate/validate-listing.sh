@@ -19,26 +19,22 @@ pass(){ PASS=$((PASS+1)); printf '  %s✓%s %s\n' "$G" "$Z" "$1"; }
 fail(){ FAIL=$((FAIL+1)); printf '  %s✗%s %s\n' "$R" "$Z" "$1"; }
 warn(){ WARN=$((WARN+1)); printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 
-# Tab-separated PNG facts for every PNG directly in a dir:
-#   W H DEPTH COLORTYPE BYTES APPLE_CLASS PATH   (colortype 2=RGB, 6=RGBA, 99=not PNG)
-pngs_in(){
+# Tab-separated facts for every PNG/JPEG directly in a dir (extension case-insensitive):
+#   W H DEPTH COLORTYPE BYTES APPLE_CLASS PATH   (colortype 2=RGB, 6=RGBA, 99=unreadable)
+images_in(){
   local f files=()
-  for f in "$1"/*.png; do [ -f "$f" ] && files+=("$f"); done
-  [ "${#files[@]}" -gt 0 ] && python3 "$LIB/pnginfo.py" "${files[@]}"
+  for f in "$1"/*; do
+    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && files+=("$f");; esac
+  done
+  [ "${#files[@]}" -gt 0 ] && python3 "$LIB/imginfo.py" "${files[@]}"
 }
 
-# Length of a text field, mirroring how fastlane measures: trailing whitespace /
-# newlines are stripped first (a 30-char name with a trailing "\n" is 30/30).
-# Counts Unicode code points, or UTF-8 bytes when $2 = bytes (Apple keywords).
-measure(){ [ -f "$1" ] || { echo MISSING; return; }
-  python3 -c "import sys;t=open(sys.argv[1],encoding='utf-8').read().rstrip();print(len(t.encode()) if sys.argv[2]=='bytes' else len(t))" "$1" "${2:-chars}"; }
-field(){ # name file limit required(0/1) [unit: chars|bytes]
-  local unit="${5:-chars}" n; n=$(measure "$2" "$unit")
-  if [ "$n" = MISSING ]; then
-    if [ "$4" = 1 ]; then fail "$1: REQUIRED file missing ($2)"; else warn "$1: optional, absent"; fi
-    return
-  fi
-  [ "$n" -le "$3" ] && pass "$1: $n/$3 $unit" || fail "$1: $n/$3 $unit OVER LIMIT"
+# Check every copy field of one locale against the shared table in lib/fields.py.
+fields(){ # store locale-dir
+  local level msg
+  while IFS=$'\t' read -r level msg; do
+    case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
+  done < <(python3 "$LIB/fields.py" "$1" "$2")
 }
 
 # Does the app support iPad (→ iPad screenshots REQUIRED on the App Store)?
@@ -46,15 +42,25 @@ field(){ # name file limit required(0/1) [unit: chars|bytes]
 #   Expo/RN  → ios.supportsTablet in app.json / app.config.json
 #   native   → TARGETED_DEVICE_FAMILY includes 2 in any *.pbxproj (also Flutter's
 #              ios/Runner.xcodeproj), or UIDeviceFamily includes 2 in an Info.plist
+#   dynamic → a literal `supportsTablet: true` in app.config.{js,ts,mjs,cjs}
+# Set LK_SUPPORTS_IPAD=1 or 0 to override detection (e.g. config computed at runtime).
 # Prints "True"/"False". Prunes node_modules/Pods/build so it stays fast on real repos.
-supports_ipad(){ python3 - "$1" <<'PY2'
+supports_ipad(){
+  case "${LK_SUPPORTS_IPAD:-}" in 1) echo True; return;; 0) echo False; return;; esac
+  python3 - "$1" <<'PY2'
 import sys,os,glob,json,re,plistlib
 root=sys.argv[1]
 def expo():
     for f in glob.glob(os.path.join(root,'app.json'))+glob.glob(os.path.join(root,'app.config.json')):
         try:
-            if json.load(open(f)).get('expo',{}).get('ios',{}).get('supportsTablet'): return True
+            cfg=json.load(open(f))
+            if cfg.get('expo',cfg).get('ios',{}).get('supportsTablet'): return True
         except Exception: pass
+    for f in glob.glob(os.path.join(root,'app.config.*')):
+        if f.endswith(('.js','.ts','.mjs','.cjs')):
+            try:
+                if re.search(r'supportsTablet["\']?\s*:\s*true',open(f,errors='ignore').read()): return True
+            except Exception: pass
     return False
 def native():
     skip={'node_modules','.git','Pods','build','DerivedData','.expo','dist','.dart_tool'}
@@ -96,17 +102,11 @@ if [ "$apple_present" = 1 ]; then
   echo "${B}== Apple App Store ==${Z}"
   for loc in ${apple_locales[@]+"${apple_locales[@]}"}; do
     echo " locale $(basename "$loc"):"
-    field "name" "$loc/name.txt" 30 1
-    field "subtitle" "$loc/subtitle.txt" 30 0
-    field "promotional_text" "$loc/promotional_text.txt" 170 0
-    field "keywords" "$loc/keywords.txt" 100 0 bytes
-    field "description" "$loc/description.txt" 4000 1
-    [ -f "$loc/support_url.txt" ] && pass "support_url present" || warn "support_url absent (Apple requires one)"
-    [ -f "$loc/privacy_url.txt" ] && pass "privacy_url present" || warn "privacy_url absent (Apple requires a privacy policy URL)"
+    fields apple "$loc"
   done
   [ -f "$ROOT/fastlane/metadata/copyright.txt" ] && pass "copyright.txt present" || warn "copyright.txt absent"
 
-  # Screenshots: deliver assigns each PNG to a display class by its pixel size.
+  # Screenshots: deliver assigns each image to a display class by its pixel size.
   # Checked per locale: ≤10 per class, a 6.9" or 6.5" iPhone set, and a 13" iPad
   # set when the app runs on iPad.
   ipad_required=$(supports_ipad "$ROOT")
@@ -121,7 +121,7 @@ if [ "$apple_present" = 1 ]; then
       if [ "$cls" = "-" ]; then warn "$base: ${w}x${h} not a recognized App Store size"
       else classes="$classes$cls"$'\n'; fi
       [ "$ct" = 2 ] || { fail "$base: must be RGB no-alpha (colortype=$ct)"; badfmt=1; }
-    done < <(pngs_in "$sdir")
+    done < <(images_in "$sdir")
     count_of(){ printf '%s' "$classes" | grep -c "^$1" || true; }
     while read -r n cls; do
       [ -n "$cls" ] && [ "$n" -gt 10 ] && fail "$cls: $n screenshots (App Store max is 10 per display class)"
@@ -153,11 +153,19 @@ play_shots(){ # dir label
     { [ "$ct" = 2 ] && [ "$depth" = 8 ]; } || fail "$base: must be 24-bit no-alpha (depth=$depth colortype=$ct)"
     [ "$bytes" -le 8388608 ] || warn "$base: over 8 MB"
     [ "$lo" -ge 1080 ] && big=$((big+1))
-  done < <(pngs_in "$1")
+  done < <(images_in "$1")
   [ "$n" -eq 0 ] && return
   [ "$n" -le 8 ] && pass "$2 screenshots: $n (≤8) ✓ format/size/aspect" || fail "$2 screenshots: $n (max 8)"
-  [ "$big" -ge 4 ] || warn "$2: only $big screenshot(s) at ≥1080px; Play needs 4 for promotion eligibility"
+  [ "$2" = phone ] && [ "$big" -lt 4 ] && warn "$2: only $big screenshot(s) at ≥1080px; Play needs 4 for promotion eligibility"
   play_total=$((play_total+n))
+}
+
+# supply uploads images/<type>.{png,jpg,jpeg} (case-insensitive); echoes the match.
+play_graphic(){ # images-dir type
+  local f
+  for f in "$1/$2".*; do
+    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && { echo "$f"; return; };; esac
+  done
 }
 
 A="$ROOT/fastlane/metadata/android"
@@ -166,33 +174,38 @@ if [ "$play_present" = 1 ]; then
   for loc in "$A"/*/; do
     [ -d "$loc" ] || continue
     echo " locale $(basename "$loc"):"
-    field "title" "$loc/title.txt" 30 1
-    field "short_description" "$loc/short_description.txt" 80 1
-    field "full_description" "$loc/full_description.txt" 4000 1
+    fields play "$loc"
 
+    img="$loc/images"
     play_total=0
-    play_shots "$loc/images/phoneScreenshots" "phone"
-    play_shots "$loc/images/sevenInchScreenshots" '7" tablet'
-    play_shots "$loc/images/tenInchScreenshots" '10" tablet'
+    play_shots "$img/phoneScreenshots" "phone"
+    play_shots "$img/sevenInchScreenshots" '7" tablet'
+    play_shots "$img/tenInchScreenshots" '10" tablet'
+    play_shots "$img/tvScreenshots" "TV"
+    play_shots "$img/wearScreenshots" "Wear OS"
     [ "$play_total" -ge 2 ] && pass "screenshots across device types: $play_total (≥2)" \
       || fail "screenshots: $play_total across device types (need ≥2)"
 
-    # feature graphic
-    fg="$loc/images/featureGraphic/featureGraphic.png"
-    if [ -f "$fg" ]; then
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(pngs_in "$(dirname "$fg")")
+    # Graphics live directly in images/ — supply never uploads images/featureGraphic/*.
+    for t in featureGraphic icon; do
+      [ -d "$img/$t" ] && fail "images/$t/ is not uploaded by fastlane supply; move the file to images/$t.png"
+    done
+
+    fg="$(play_graphic "$img" featureGraphic)"
+    if [ -n "$fg" ]; then
+      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$fg")
       { [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; } \
         && pass "feature graphic 1024x500 24-bit no-alpha" \
         || fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
-    else fail "feature graphic MISSING (required to publish)"; fi
+    else fail "feature graphic MISSING (required to publish): images/featureGraphic.png"; fi
 
     # icon (32-bit PNG with alpha is allowed; max 1 MB)
-    ic="$loc/images/icon/icon.png"
-    if [ -f "$ic" ]; then
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(pngs_in "$(dirname "$ic")")
+    ic="$(play_graphic "$img" icon)"
+    if [ -n "$ic" ]; then
+      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$ic")
       { [ "$w" = 512 ] && [ "$h" = 512 ]; } && pass "icon 512x512" || fail "icon must be 512x512 (got ${w}x${h})"
       [ "$bytes" -le 1048576 ] || fail "icon is over 1 MB ($bytes bytes)"
-    else warn "Play icon absent"; fi
+    else fail "Play icon MISSING (required): images/icon.png"; fi
   done
 fi
 

@@ -32,7 +32,7 @@ fi
 crop=()
 if [ "$mode" = "--play" ]; then
   SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  IFS=$'\t' read -r w h _ <<<"$(python3 "$SELF_DIR/../lib/pnginfo.py" "$in")"
+  IFS=$'\t' read -r w h _ <<<"$(python3 "$SELF_DIR/../lib/imginfo.py" "$in")"
   if [ "$h" -gt $((w * 2)) ]; then crop=(-crop "${w}x$((w * 2))+0+0" +repage)
   elif [ "$w" -gt $((h * 2)) ]; then crop=(-crop "$((h * 2))x${h}+0+0" +repage)
   fi

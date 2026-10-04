@@ -42,7 +42,7 @@ fastlane/metadata/android/
     title.txt  short_description.txt  full_description.txt
     changelogs/<versionCode>.txt    # or changelogs/default.txt
     images/
-      icon/             featureGraphic/
+      icon.png          featureGraphic.png   # files, not folders (supply ignores folders)
       phoneScreenshots/ sevenInchScreenshots/ tenInchScreenshots/
       tvScreenshots/    wearScreenshots/
 ```

@@ -1,5 +1,5 @@
 # App Store Connect screenshot sizes -> display class. Portrait WIDTHxHEIGHT;
-# landscape is the same size swapped. Read by pnginfo.py (validate-listing.sh,
+# landscape is the same size swapped. Read by imginfo.py (validate-listing.sh,
 # build-review.sh). Source: developer.apple.com/help/app-store-connect/reference/
 # app-information/screenshot-specifications (verified 2026-10). Keep in sync with
 # references/stores/apple-app-store.md.

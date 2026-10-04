@@ -68,4 +68,21 @@ bash "$SUT" "$T" >/dev/null 2>&1
 assert_not_contains "$(cat "$T/listing-review.html")" "locale: review_information"
 rm -rf "$T"
 
+it "keyword badge counts UTF-8 bytes, matching the validator"
+T="$(mktemp -d)"; cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+python3 -c "import sys;open(sys.argv[1],'w',encoding='utf-8').write('料'*40)" "$T/fastlane/metadata/en-US/keywords.txt"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '<span class="b bad">120/100 bytes</span>'
+rm -rf "$T"
+
+it "shows Play graphics from images/featureGraphic.png and images/icon.png"
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" "images/featureGraphic.png"
+assert_contains "$PAGE" "Feature graphic 1024×500"
+assert_contains "$PAGE" "images/icon.png"
+rm -rf "$T"
+
 summary

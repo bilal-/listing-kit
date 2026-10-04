@@ -32,20 +32,21 @@ import sys, os, glob, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
 sys.path.insert(0, lib_dir)
-from pnginfo import png_info, apple_class
+from imginfo import image_info, apple_class, is_image
+import fields as store_fields
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-def read(p):
-    try:
-        return open(p, encoding="utf-8").read().rstrip()
-    except OSError:
-        return None
+read = store_fields.read
 
 def dims(p):
-    w, h = png_info(p)[:2]
+    w, h = image_info(p)[:2]
     return (w, h) if w else None
+
+def images(d):
+    """PNG/JPEG files directly in d (extension case-insensitive), sorted."""
+    return sorted(f for f in glob.glob(os.path.join(d, "*")) if os.path.isfile(f) and is_image(f))
 
 def devclass(wh):
     if not wh:
@@ -55,9 +56,10 @@ def devclass(wh):
 def esc(s):
     return html.escape(s if s is not None else "")
 
-def copy_row(label, path, limit=None, required=False):
+def copy_row(label, path):
+    """An app-level field with no limit (copyright, category)."""
     v = read(path)
-    return dict(label=label, value=v, limit=limit, required=required,
+    return dict(label=label, value=v, limit=None, unit="chars", required=False,
                 count=(len(v) if v is not None else None))
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
@@ -72,18 +74,9 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
-        fields = [
-            copy_row("Name", os.path.join(ld, "name.txt"), 30, True),
-            copy_row("Subtitle", os.path.join(ld, "subtitle.txt"), 30),
-            copy_row("Promotional text", os.path.join(ld, "promotional_text.txt"), 170),
-            copy_row("Keywords", os.path.join(ld, "keywords.txt"), 100),
-            copy_row("Description", os.path.join(ld, "description.txt"), 4000, True),
-            copy_row("Support URL", os.path.join(ld, "support_url.txt"), None, True),
-            copy_row("Marketing URL", os.path.join(ld, "marketing_url.txt")),
-            copy_row("Privacy URL", os.path.join(ld, "privacy_url.txt")),
-        ]
+        fields = store_fields.rows("apple", ld)
         shots = {}
-        for f in sorted(glob.glob(os.path.join(FL, "screenshots", loc, "*.png"))):
+        for f in images(os.path.join(FL, "screenshots", loc)):
             cls = devclass(dims(f))
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=[]))
@@ -99,21 +92,20 @@ if os.path.isdir(A):
     locs = []
     for ld in sorted(d for d in glob.glob(os.path.join(A, "*")) if os.path.isdir(d)):
         loc = os.path.basename(ld)
-        fields = [
-            copy_row("Title", os.path.join(ld, "title.txt"), 30, True),
-            copy_row("Short description", os.path.join(ld, "short_description.txt"), 80, True),
-            copy_row("Full description", os.path.join(ld, "full_description.txt"), 4000, True),
-        ]
+        fields = store_fields.rows("play", ld)
         shots = {}
         for sub, lbl in [("phoneScreenshots", "Phone"), ("sevenInchScreenshots", '7" tablet'),
-                         ("tenInchScreenshots", '10" tablet'), ("wearScreenshots", "Wear")]:
-            fs = sorted(glob.glob(os.path.join(ld, "images", sub, "*.png")))
+                         ("tenInchScreenshots", '10" tablet'), ("tvScreenshots", "TV"),
+                         ("wearScreenshots", "Wear")]:
+            fs = images(os.path.join(ld, "images", sub))
             if fs:
                 shots[lbl] = [os.path.relpath(f, root) for f in fs]
         graphics = []
-        for sub, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon")]:
-            for f in sorted(glob.glob(os.path.join(ld, "images", sub, "*.png"))):
-                graphics.append((lbl, os.path.relpath(f, root), dims(f)))
+        # supply uploads images/featureGraphic.<ext> and images/icon.<ext> directly.
+        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon")]:
+            for f in images(os.path.join(ld, "images")):
+                if os.path.splitext(os.path.basename(f))[0].lower() == name.lower():
+                    graphics.append((lbl, os.path.relpath(f, root), dims(f)))
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics))
     platforms["Android"] = dict(locales=locs, applevel=[])
 
@@ -123,10 +115,15 @@ val_output = read(val_txt) or ""
 def badge(r):
     if r["count"] is None:
         return '<span class="b warn">missing</span>' if r["required"] else '<span class="b opt">optional</span>'
+    if "stem" in r:  # a store field: same verdict as validate-listing.sh
+        level = store_fields.check(r)[0]
+    else:
+        level = "PASS"
+    cls = {"PASS": "ok", "WARN": "warn", "FAIL": "bad"}[level]
     if r["limit"] is None:
-        return '<span class="b ok">set</span>'
-    ok = r["count"] <= r["limit"]
-    return f'<span class="b {"ok" if ok else "bad"}">{r["count"]}/{r["limit"]}</span>'
+        return f'<span class="b {cls}">{"set" if level == "PASS" else "check"}</span>'
+    unit = " bytes" if r["unit"] == "bytes" else ""
+    return f'<span class="b {cls}">{r["count"]}/{r["limit"]}{unit}</span>'
 
 def render_field(r):
     if r["value"] is None:

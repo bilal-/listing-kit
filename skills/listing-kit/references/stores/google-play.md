@@ -70,7 +70,8 @@ downloading a system image, so prompt before doing it in a non-interactive run.
 ## fastlane `supply` mapping
 See `../metadata/fastlane-layout.md`. Text fields are `.txt` files under
 `fastlane/metadata/android/<locale>/`; images live under that locale's
-`images/` subtree (`phoneScreenshots/`, `sevenInchScreenshots/`,
-`tenInchScreenshots/`, `tvScreenshots/`, `wearScreenshots/`, `featureGraphic/`,
-`icon/`, plus optional `promoGraphic.png` / `tvBanner.png`). Release notes go in
+`images/` subtree: screenshot folders (`phoneScreenshots/`, `sevenInchScreenshots/`,
+`tenInchScreenshots/`, `tvScreenshots/`, `wearScreenshots/`) plus single files
+`featureGraphic.png`, `icon.png`, and optional `tvBanner.png` directly in `images/`
+(PNG or JPEG; supply does **not** look inside `featureGraphic/` or `icon/` folders). Release notes go in
 `changelogs/<versionCode>.txt` (or `changelogs/default.txt`).
