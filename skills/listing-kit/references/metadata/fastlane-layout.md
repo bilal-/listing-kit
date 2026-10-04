@@ -50,6 +50,12 @@ fastlane/metadata/android/
 The community `universal_metadata` fastlane plugin is **prior art** for this
 mapping — a reference, not a dependency.
 
+## File names
+Use **lower-case** extensions (`.png`, `.jpg`, `.jpeg`): fastlane globs for those, so on
+a case-sensitive filesystem (Linux CI) `01_home.PNG` is silently never uploaded. The
+validator fails upper-case extensions. Copy files must be UTF-8. Locale values can
+fall back to `metadata/default/` (deliver) for fields a locale doesn't override.
+
 ## Screenshot ordering (important)
 Both `deliver` and `supply` derive on-store display order from the **filename
 sort order**. Encode the curated order (Curate step) as a numeric prefix:

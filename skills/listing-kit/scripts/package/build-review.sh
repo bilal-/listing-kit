@@ -46,7 +46,7 @@ def dims(p):
 
 def images(d):
     """PNG/JPEG files directly in d (extension case-insensitive), sorted."""
-    return sorted(f for f in glob.glob(os.path.join(d, "*")) if os.path.isfile(f) and is_image(f))
+    return sorted(f for f in glob.glob(os.path.join(glob.escape(d), "*")) if os.path.isfile(f) and is_image(f))
 
 def devclass(wh):
     if not wh:
@@ -65,16 +65,21 @@ def copy_row(label, path):
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 
 # ---- iOS (deliver) ----
-# Same rule as validate-listing.sh: a locale dir holds name.txt or description.txt
-# (skips android/ plus non-locale dirs such as review_information/).
-ios_locs = sorted(d for d in glob.glob(os.path.join(FL, "metadata", "*"))
-                  if os.path.isdir(d) and os.path.basename(d) != "android"
-                  and any(os.path.isfile(os.path.join(d, f)) for f in ("name.txt", "description.txt")))
+# Same locale rule as validate-listing.sh: every metadata/<dir> except the Play
+# tree, the default/ fallback, and deliver's non-locale folders, plus any locale
+# that only has screenshots.
+NOT_LOCALES = {"android", "default", "review_information", "trade_representative_contact_information"}
+ios_locs = {os.path.basename(d) for d in glob.glob(os.path.join(glob.escape(FL), "metadata", "*"))
+            if os.path.isdir(d) and os.path.basename(d) not in NOT_LOCALES}
+ios_locs |= {os.path.basename(d) for d in glob.glob(os.path.join(glob.escape(FL), "screenshots", "*")) if os.path.isdir(d)}
+ios_locs = [os.path.join(FL, "metadata", l) for l in sorted(ios_locs)]
+apple_default = os.path.join(FL, "metadata", "default")
+apple_default = apple_default if os.path.isdir(apple_default) else None
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
-        fields = store_fields.rows("apple", ld)
+        fields = store_fields.rows("apple", ld, apple_default)
         shots = {}
         for f in images(os.path.join(FL, "screenshots", loc)):
             cls = devclass(dims(f))
@@ -90,7 +95,7 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
 A = os.path.join(FL, "metadata", "android")
 if os.path.isdir(A):
     locs = []
-    for ld in sorted(d for d in glob.glob(os.path.join(A, "*")) if os.path.isdir(d)):
+    for ld in sorted(d for d in glob.glob(os.path.join(glob.escape(A), "*")) if os.path.isdir(d)):
         loc = os.path.basename(ld)
         fields = store_fields.rows("play", ld)
         shots = {}
@@ -113,6 +118,8 @@ val_output = read(val_txt) or ""
 
 # ---- render helpers ----
 def badge(r):
+    if r.get("error"):
+        return f'<span class="b bad">{esc(r["error"])}</span>'
     if r["count"] is None:
         return '<span class="b warn">missing</span>' if r["required"] else '<span class="b opt">optional</span>'
     if "stem" in r:  # a store field: same verdict as validate-listing.sh

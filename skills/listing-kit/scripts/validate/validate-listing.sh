@@ -29,12 +29,21 @@ images_in(){
   [ "${#files[@]}" -gt 0 ] && python3 "$LIB/imginfo.py" "${files[@]}"
 }
 
+# fastlane globs *.png / *.jpg / *.jpeg; on case-sensitive filesystems (Linux CI)
+# an upper-case extension is never uploaded.
+check_ext(){ # path
+  case "$1" in *.png|*.jpg|*.jpeg) ;; *) fail "${1##*/}: rename with a lower-case extension (fastlane won't upload it)";; esac
+}
+
 # Check every copy field of one locale against the shared table in lib/fields.py.
-fields(){ # store locale-dir
-  local level msg
+fields(){ # store locale-dir [fallback-dir]
+  local level msg out rc=0
+  out="$(python3 "$LIB/fields.py" "$@")" || rc=$?
   while IFS=$'\t' read -r level msg; do
+    [ -n "$level" ] || continue
     case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
-  done < <(python3 "$LIB/fields.py" "$1" "$2")
+  done <<<"$out"
+  [ "$rc" = 0 ] || fail "could not check copy fields in $2 (fields.py exit $rc)"
 }
 
 # Does the app support iPad (→ iPad screenshots REQUIRED on the App Store)?
@@ -51,12 +60,12 @@ supports_ipad(){
 import sys,os,glob,json,re,plistlib
 root=sys.argv[1]
 def expo():
-    for f in glob.glob(os.path.join(root,'app.json'))+glob.glob(os.path.join(root,'app.config.json')):
+    for f in glob.glob(os.path.join(glob.escape(root),'app.json'))+glob.glob(os.path.join(glob.escape(root),'app.config.json')):
         try:
             cfg=json.load(open(f))
             if cfg.get('expo',cfg).get('ios',{}).get('supportsTablet'): return True
         except Exception: pass
-    for f in glob.glob(os.path.join(root,'app.config.*')):
+    for f in glob.glob(os.path.join(glob.escape(root),'app.config.*')):
         if f.endswith(('.js','.ts','.mjs','.cjs')):
             try:
                 if re.search(r'supportsTablet["\']?\s*:\s*true',open(f,errors='ignore').read()): return True
@@ -90,9 +99,17 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 apple_locales=()
 for loc in "$ROOT"/fastlane/metadata/*/; do
   [ -d "$loc" ] || continue
-  case "$(basename "$loc")" in android) continue;; esac   # android tree handled below
-  { [ -f "$loc/name.txt" ] || [ -f "$loc/description.txt" ]; } && apple_locales+=("$loc")
+  # android = Play tree; default = fallback values, not a locale; the rest are
+  # deliver's non-locale folders.
+  case "$(basename "$loc")" in android|default|review_information|trade_representative_contact_information) continue;; esac
+  apple_locales+=("$loc")
 done
+# A locale with screenshots but no metadata folder still needs its copy.
+for sdir in "$ROOT"/fastlane/screenshots/*/; do
+  [ -d "$sdir" ] || continue
+  [ -d "$ROOT/fastlane/metadata/$(basename "$sdir")" ] || apple_locales+=("$ROOT/fastlane/metadata/$(basename "$sdir")/")
+done
+apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0
 { [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ]; } && apple_present=1
 [ -d "$ROOT/fastlane/metadata/android" ] && play_present=1
@@ -102,7 +119,7 @@ if [ "$apple_present" = 1 ]; then
   echo "${B}== Apple App Store ==${Z}"
   for loc in ${apple_locales[@]+"${apple_locales[@]}"}; do
     echo " locale $(basename "$loc"):"
-    fields apple "$loc"
+    if [ -d "$apple_default" ]; then fields apple "$loc" "$apple_default"; else fields apple "$loc"; fi
   done
   [ -f "$ROOT/fastlane/metadata/copyright.txt" ] && pass "copyright.txt present" || warn "copyright.txt absent"
 
@@ -117,8 +134,8 @@ if [ "$apple_present" = 1 ]; then
     echo " screenshots $(basename "$sdir"):"
     classes=""; badfmt=0
     while IFS=$'\t' read -r w h depth ct bytes cls path; do
-      base="${path##*/}"
-      if [ "$cls" = "-" ]; then warn "$base: ${w}x${h} not a recognized App Store size"
+      base="${path##*/}"; check_ext "$path"
+      if [ "$cls" = "-" ]; then fail "$base: ${w}x${h} is not an App Store screenshot size (see scripts/lib/apple-screenshot-sizes.tsv)"
       else classes="$classes$cls"$'\n'; fi
       [ "$ct" = 2 ] || { fail "$base: must be RGB no-alpha (colortype=$ct)"; badfmt=1; }
     done < <(images_in "$sdir")
@@ -126,9 +143,12 @@ if [ "$apple_present" = 1 ]; then
     while read -r n cls; do
       [ -n "$cls" ] && [ "$n" -gt 10 ] && fail "$cls: $n screenshots (App Store max is 10 per display class)"
     done < <(printf '%s' "$classes" | sort | uniq -c)
-    iphone_hero=$(( $(count_of 'iPhone 6.9"') + $(count_of 'iPhone 6.5"') ))
-    [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at 6.9\"/6.5\")" \
-      || fail "no 6.9\" or 6.5\" iPhone screenshots (App Store requires one of these sets)"
+    # LK_SUPPORTS_IPHONE=0 for iPad-only apps (TARGETED_DEVICE_FAMILY = 2).
+    if [ "${LK_SUPPORTS_IPHONE:-1}" != 0 ]; then
+      iphone_hero=$(( $(count_of 'iPhone 6.9"') + $(count_of 'iPhone 6.5"') ))
+      [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at 6.9\"/6.5\")" \
+        || fail "no 6.9\" or 6.5\" iPhone screenshots (App Store requires one of these sets)"
+    fi
     if [ "$ipad_required" = "True" ]; then
       ipad13=$(count_of 'iPad 13"')
       [ "$ipad13" -ge 1 ] && pass "iPad screenshots present ($ipad13 at 13\") — required (app runs on iPad)" \
@@ -146,7 +166,7 @@ fi
 play_shots(){ # dir label
   local w h depth ct bytes cls path base lo hi n=0 big=0
   while IFS=$'\t' read -r w h depth ct bytes cls path; do
-    n=$((n+1)); base="${path##*/}"
+    n=$((n+1)); base="${path##*/}"; check_ext "$path"
     lo=$w; hi=$h; [ "$w" -gt "$h" ] && { lo=$h; hi=$w; }
     { [ "$lo" -ge 320 ] && [ "$hi" -le 3840 ]; } || fail "$base: side out of 320–3840 (${w}x${h})"
     [ "$lo" -gt 0 ] && [ $((hi * 1000)) -gt $((lo * 2000)) ] && fail "$base: aspect ${hi}/${lo} exceeds 2:1"
@@ -193,6 +213,7 @@ if [ "$play_present" = 1 ]; then
 
     fg="$(play_graphic "$img" featureGraphic)"
     if [ -n "$fg" ]; then
+      check_ext "$fg"
       IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$fg")
       { [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; } \
         && pass "feature graphic 1024x500 24-bit no-alpha" \
@@ -203,7 +224,10 @@ if [ "$play_present" = 1 ]; then
     ic="$(play_graphic "$img" icon)"
     if [ -n "$ic" ]; then
       IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$ic")
+      case "$ic" in *.png) ;; *) fail "icon must be a PNG (Play requires a 32-bit PNG)";; esac
       { [ "$w" = 512 ] && [ "$h" = 512 ]; } && pass "icon 512x512" || fail "icon must be 512x512 (got ${w}x${h})"
+      { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } \
+        || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
       [ "$bytes" -le 1048576 ] || fail "icon is over 1 MB ($bytes bytes)"
     else fail "Play icon MISSING (required): images/icon.png"; fi
   done

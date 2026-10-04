@@ -194,9 +194,9 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "images/featureGraphic/ is not uploaded by fastlane supply"
 rm -rf "$T"
 
-it "a JPEG feature graphic with an upper-case extension is accepted"
+it "a JPEG feature graphic is accepted"
 play_only; rm "$T/$IMG/featureGraphic.png"
-python3 - "$T/$IMG/featureGraphic.JPG" <<'PY'
+python3 - "$T/$IMG/featureGraphic.jpg" <<'PY'
 import struct, sys
 # Minimal JPEG header: SOI + SOF0 (8-bit, 500x1024, 3 components).
 sof = struct.pack(">BHHB", 8, 500, 1024, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
@@ -243,9 +243,9 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "privacy_url: not a single http(s) URL"
 rm -rf "$T"
 
-it "JPEG screenshots with upper-case extensions count toward the iPhone set"
+it "JPEG screenshots count toward the iPhone set"
 apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
-python3 - "$T/fastlane/screenshots/en-US/01_home.JPEG" <<'PY'
+python3 - "$T/fastlane/screenshots/en-US/01_home.jpeg" <<'PY'
 import struct, sys
 sof = struct.pack(">BHHB", 8, 2868, 1320, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
 open(sys.argv[1], "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
@@ -269,6 +269,83 @@ apple_only; rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
 OUT="$(LK_SUPPORTS_IPAD=0 bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_not_contains "$OUT" "iPad"
+rm -rf "$T"
+
+it "an upper-case extension fails (fastlane won't upload it on Linux)"
+apple_only; mv "$T/fastlane/screenshots/en-US/01_recipes.png" "$T/fastlane/screenshots/en-US/01_recipes.PNG"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "01_recipes.PNG: rename with a lower-case extension"
+rm -rf "$T"
+
+it "an unrecognized App Store screenshot size fails"
+apple_only; png "$T/fastlane/screenshots/en-US/09_odd.png" 100 100
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "09_odd.png: 100x100 is not an App Store screenshot size"
+rm -rf "$T"
+
+it "an RGB PNG with tRNS transparency fails the no-alpha check"
+apple_only
+python3 - "$T/fastlane/screenshots/en-US/05_trns.png" <<'PY'
+import struct, sys, zlib
+def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+ihdr = struct.pack(">IIBBBBB", 1320, 2868, 8, 2, 0, 0, 0)
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"tRNS", b"\0\0\0\0\0\0") + chunk(b"IEND", b""))
+PY
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "05_trns.png: must be RGB no-alpha (colortype=2+tRNS)"
+rm -rf "$T"
+
+it "a screenshot locale without a metadata folder still needs its copy"
+apple_only; mkdir -p "$T/fastlane/screenshots/fr-FR"
+cp "$T"/fastlane/screenshots/en-US/*.png "$T/fastlane/screenshots/fr-FR/"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "locale fr-FR:"
+assert_contains "$OUT" "name: REQUIRED file missing"
+rm -rf "$T"
+
+it "fields missing from a locale fall back to metadata/default/"
+apple_only; mkdir -p "$T/fastlane/metadata/default"
+mv "$T/fastlane/metadata/en-US/support_url.txt" "$T/fastlane/metadata/en-US/privacy_url.txt" "$T/fastlane/metadata/default/"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" "support_url: https://"
+rm -rf "$T"
+
+it "a bare https:// URL fails"
+apple_only; echo "https://" > "$T/fastlane/metadata/en-US/support_url.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "support_url: not a single http(s) URL"
+rm -rf "$T"
+
+it "a non-UTF-8 copy file fails instead of being skipped"
+apple_only; printf 'Caf\xe9\n' > "$T/fastlane/metadata/en-US/subtitle.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "subtitle: not valid UTF-8"
+assert_contains "$OUT" "name: 23/30"   # other fields are still checked
+rm -rf "$T"
+
+it "a JPEG Play icon fails (Play requires PNG)"
+play_only; rm "$T/$IMG/icon.png"
+python3 - "$T/$IMG/icon.jpg" <<'PY'
+import struct, sys
+sof = struct.pack(">BHHB", 8, 512, 512, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+open(sys.argv[1], "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
+PY
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "icon must be a PNG"
+rm -rf "$T"
+
+it "LK_SUPPORTS_IPHONE=0 allows an iPad-only listing"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+OUT="$(LK_SUPPORTS_IPHONE=0 bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
 rm -rf "$T"
 
 summary

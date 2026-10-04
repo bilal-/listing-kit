@@ -68,5 +68,12 @@ if command -v magick >/dev/null 2>&1; then
   assert_eq "$(printf '1080\t2160\t8\t2')" "$INFO"
 fi
 
-rm -rf "$TMP"
+it "--play on a non-image fails instead of skipping the crop"
+printf 'junk' > "$TMP/junk.png"
+new_stubdir; stub magick
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/junk.png" "$TMP/out.png" --play 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "Not a PNG/JPEG"
+assert_eq "" "$(stub_log)" "ImageMagick never ran"
+
 summary

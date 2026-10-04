@@ -7,7 +7,8 @@
 #   normalize-screenshot.sh <in.png> <out.png> [--play]
 #
 #   --play  also crop to Google Play's ≤2:1 aspect, keeping the top of the screen
-#           (e.g. a 1080x2400 capture becomes 1080x2160).
+#           (e.g. a 1080x2400 capture becomes 1080x2160). Screenshots only: never
+#           use it on the 1024x500 feature graphic, which it would crop.
 #
 # Exits 3 if ImageMagick is absent so the caller can tell the user to install it
 # (brew install imagemagick / apt install imagemagick).
@@ -32,7 +33,9 @@ fi
 crop=()
 if [ "$mode" = "--play" ]; then
   SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  IFS=$'\t' read -r w h _ <<<"$(python3 "$SELF_DIR/../lib/imginfo.py" "$in")"
+  info="$(python3 "$SELF_DIR/../lib/imginfo.py" "$in")" || { echo "Could not read image size: $in" >&2; exit 1; }
+  IFS=$'\t' read -r w h _ <<<"$info"
+  [ "${w:-0}" -gt 0 ] && [ "${h:-0}" -gt 0 ] || { echo "Not a PNG/JPEG image: $in" >&2; exit 1; }
   if [ "$h" -gt $((w * 2)) ]; then crop=(-crop "${w}x$((w * 2))+0+0" +repage)
   elif [ "$w" -gt $((h * 2)) ]; then crop=(-crop "$((h * 2))x${h}+0+0" +repage)
   fi

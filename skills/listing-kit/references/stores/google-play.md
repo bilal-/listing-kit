@@ -29,7 +29,7 @@ for screenshots/feature graphic. Every image must be normalized before it is wri
 
 | Rule | Detail | How to enforce |
 |---|---|---|
-| **No alpha** (screenshots + feature graphic) | Play wants **JPEG or 24-bit PNG**. 32-bit RGBA is non-compliant. | `scripts/capture/normalize-screenshot.sh in.png out.png --play` |
+| **No alpha** (screenshots + feature graphic) | Play wants **JPEG or 24-bit PNG**. 32-bit RGBA is non-compliant. | screenshots: `scripts/capture/normalize-screenshot.sh in.png out.png --play`; feature graphic: same **without** `--play` (it would crop 1024×500) |
 | **8-bit depth** | "24-bit PNG" = 8 bits × 3 channels. A 16-bit-depth PNG is 48-bit and non-compliant. | include `-depth 8` (and `PNG24:`) |
 | **Max aspect ratio 2:1** | A 1080×2400 (20:9 ≈ 2.22:1) phone capture **exceeds** it. | `normalize-screenshot.sh --play` crops top-aligned to ≤2:1, or target a ≤2:1 device |
 | **Side length 320–3840 px** | each side | check both dimensions |

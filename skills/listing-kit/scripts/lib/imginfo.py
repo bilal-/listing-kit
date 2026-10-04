@@ -5,8 +5,9 @@ CLI:    imginfo.py <file>...
 Prints one tab-separated line per file:
     width  height  bit_depth  color_type  bytes  apple_class  path
 color_type follows PNG numbering: 2 = RGB (no alpha), 6 = RGBA, 0 = grayscale,
-4 = grayscale+alpha, 3 = palette. JPEGs report 2 (3 channels), 0 (1 channel), or
-99 (CMYK/other). Unreadable or unknown files report "0 0 0 99". apple_class is
+4 = grayscale+alpha, 3 = palette; a PNG with a tRNS (transparency) chunk reports
+e.g. "2+tRNS", so it never passes as "2". JPEGs report 2 (3 channels), 0 (1
+channel), or 99 (CMYK/other). Unreadable or unknown files report "0 0 0 99". apple_class is
 the App Store display class from apple-screenshot-sizes.tsv, or "-".
 
 Also imported by build-review.sh for image_info() and apple_class().
@@ -16,16 +17,30 @@ import struct
 import sys
 
 UNKNOWN = (0, 0, 0, 99)
-EXTENSIONS = (".png", ".jpg", ".jpeg")  # what deliver/supply upload (case-insensitive)
+EXTENSIONS = (".png", ".jpg", ".jpeg")  # deliver/supply upload these (lower-case only on Linux)
 SIZES_TSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apple-screenshot-sizes.tsv")
 
 
 def _png(f):
-    d = f.read(26)
-    if len(d) < 26 or d[:8] != b"\x89PNG\r\n\x1a\n":
+    d = f.read(33)
+    if len(d) < 33 or d[:8] != b"\x89PNG\r\n\x1a\n" or d[8:16] != b"\x00\x00\x00\x0dIHDR":
         return UNKNOWN
     w, h = struct.unpack(">II", d[16:24])
-    return w, h, d[24], d[25]
+    if not w or not h:
+        return UNKNOWN
+    depth, ct = d[24], d[25]
+    # Walk chunks up to the image data: a tRNS chunk adds transparency to RGB/gray.
+    while True:
+        head = f.read(8)
+        if len(head) < 8:
+            break
+        length, kind = struct.unpack(">I4s", head)
+        if kind == b"tRNS":
+            return w, h, depth, f"{ct}+tRNS"
+        if kind in (b"IDAT", b"IEND"):
+            break
+        f.seek(length + 4, os.SEEK_CUR)  # data + CRC
+    return w, h, depth, ct
 
 
 def _jpeg(f):
@@ -47,11 +62,15 @@ def _jpeg(f):
             return UNKNOWN
         length = struct.unpack(">H", seg)[0]
         # SOF0..SOF15 carry the frame size, except DHT (C4), JPG (C8), DAC (CC).
+        if length < 2:
+            return UNKNOWN
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-            d = f.read(6)
+            d = f.read(length - 2)
             if len(d) < 6:
                 return UNKNOWN
-            precision, h, w, comps = struct.unpack(">BHHB", d)
+            precision, h, w, comps = struct.unpack(">BHHB", d[:6])
+            if not w or not h or not comps or len(d) < 6 + 3 * comps:
+                return UNKNOWN
             return w, h, precision, {3: 2, 1: 0}.get(comps, 99)
         f.seek(length - 2, os.SEEK_CUR)
 
