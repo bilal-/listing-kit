@@ -29,9 +29,9 @@ for screenshots/feature graphic. Every image must be normalized before it is wri
 
 | Rule | Detail | How to enforce |
 |---|---|---|
-| **No alpha** (screenshots + feature graphic) | Play wants **JPEG or 24-bit PNG**. 32-bit RGBA is non-compliant. | `magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png` |
+| **No alpha** (screenshots + feature graphic) | Play wants **JPEG or 24-bit PNG**. 32-bit RGBA is non-compliant. | `scripts/capture/normalize-screenshot.sh in.png out.png --play` |
 | **8-bit depth** | "24-bit PNG" = 8 bits × 3 channels. A 16-bit-depth PNG is 48-bit and non-compliant. | include `-depth 8` (and `PNG24:`) |
-| **Max aspect ratio 2:1** | A 1080×2400 (20:9 ≈ 2.22:1) phone capture **exceeds** it. | crop to ≤2:1 (e.g. top-aligned `-crop 1080x1920+0+0`) or target a ≤2:1 device |
+| **Max aspect ratio 2:1** | A 1080×2400 (20:9 ≈ 2.22:1) phone capture **exceeds** it. | `normalize-screenshot.sh --play` crops top-aligned to ≤2:1, or target a ≤2:1 device |
 | **Side length 320–3840 px** | each side | check both dimensions |
 | **File size** | Play no longer documents a phone-screenshot cap (8 MB was the old limit; XR still has one). `validate-listing.sh` warns above 8 MB | check `stat`/size |
 | **App icon is the exception** | the Play **icon** is a **32-bit PNG (alpha allowed)** — do *not* flatten it. | leave icon as RGBA |

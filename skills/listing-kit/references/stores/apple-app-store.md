@@ -31,7 +31,7 @@ and let the store fill the rest, unless the user wants explicit per-size capture
 **Format (Validate must enforce):** PNG or JPEG, **RGB, flattened, no alpha/
 transparency**. Raw `xcrun simctl … screenshot` output is **32-bit RGBA** and must
 be flattened before upload:
-`magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png`.
+`scripts/capture/normalize-screenshot.sh in.png out.png`.
 No rounded corners/device frame needed (raw screen content is preferred for
 regeneration). Max ~500 MB/file (not a practical concern).
 

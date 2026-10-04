@@ -98,7 +98,7 @@ listing-kit gates heavy dependencies so you only install what a given run needs:
 | Stack SDK (Xcode+CocoaPods / JDK+Android SDK / Flutter / Node) | Build & run | Doctor fails fast with fix instructions |
 | `xcrun simctl` / `adb` | Run, sanitize, capture | required for that platform |
 | **Maestro + JDK** | Drive step only | falls back to manual-assist |
-| **ImageMagick** | Feature-graphic generation only | falls back to prompting you for one |
+| **ImageMagick** | Capture onward: flattening screenshots to RGB, feature graphic | prompted to install at Capture; feature graphic falls back to asking you for one |
 
 ## How it works
 

@@ -19,7 +19,7 @@ Use when the user points you at a mobile-app repository and wants store listing 
 2. **Preserve existing listings on reruns.** If `fastlane/` already contains metadata or screenshots, treat it as the baseline, not disposable generated output. Read the existing `.txt` files before drafting copy, keep wording that is still accurate and within limits, and make surgical edits for new features, changed positioning, missing required fields, or validation failures. Do not rewrite a good description, title, subtitle, keyword list, release note, or caption just to make it sound new. Prefer a short inserted sentence or phrase in the best existing spot, then show the diff for review.
 3. **Store specs drift.** The numbers in `references/stores/*.md` are a snapshot. When a build actually targets the stores, prefer verifying against current App Store Connect / Play Console docs (use web search if available) and treat the reference docs as defaults, not gospel.
 4. **Stay portable.** Core logic is markdown + shell. Shell out to `xcrun simctl`, `adb`, `flutter`, the Expo/RN CLI, `maestro`, and ImageMagick — never to an agent-specific browser/MCP capability. See `references/platforms/tool-mapping.md` for tool-name equivalents across AI platforms.
-5. **Gate heavy dependencies.** Maestro + JDK are only needed at the **Drive** step; ImageMagick only at feature-graphic generation. Don't make the user install them up front.
+5. **Gate heavy dependencies.** Maestro + JDK are only needed at the **Drive** step; ImageMagick only from **Capture** onward (screenshot normalization, feature graphic). Don't make the user install them up front.
 6. **Confirm before expensive work.** Get the user to commit to a screen list *before* building (the Discover step), and confirm target stores/devices before running.
 
 ## The pipeline
@@ -37,7 +37,7 @@ Identify the stack from manifest signals. See `references/stacks/` (each stack d
 
 ### 2. Doctor — pre-flight the environment
 Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`. Report **optional** tools and what their absence degrades to:
-- **ImageMagick** missing → feature-graphic generation falls back to prompting the user.
+- **ImageMagick** missing → screenshots can't be normalized to RGB at Capture (prompt to install it then), and feature-graphic generation falls back to asking the user for one.
 - **Maestro + JDK** missing → the Drive step falls back to manual-assist. (Do not install Maestro here; it is gated to first use in Drive.)
 
 Fail fast with clear fix instructions. Building mobile apps is fragile — a clean Doctor report saves the user a long, confusing build failure later.
@@ -80,7 +80,7 @@ Persist each Maestro flow — it is the rerunnable navigation recipe for next ti
 ### 9. Capture — screenshot at required dimensions
 Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Default: capture the largest required size per device family and let the store derive the rest, unless the user wants explicit per-size captures.
 
-**Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit (`magick in.png -background white -alpha remove -alpha off -depth 8 PNG24:out.png`), and crop to satisfy Play's ≤2:1 aspect. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
+**Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit by running `scripts/capture/normalize-screenshot.sh` (input, output); add `--play` for Play screenshots to also crop to the ≤2:1 aspect (top-aligned). **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
 
 ### 10. Validate — check everything against store rules
 Run `scripts/validate/validate-listing.sh` (pass the app root) — it checks every asset and metadata field against `references/stores/*.md`: character limits (Apple keywords in bytes), screenshot sizes vs. App Store display classes (`scripts/lib/apple-screenshot-sizes.tsv`), format (RGB/no-alpha/24-bit), Play's 320–3840 px and ≤2:1 aspect, per-locale requirements (a 6.9" or 6.5" iPhone set, ≤10 per class; a 13" iPad set when the app supports iPad, detected across Expo/native/Flutter; ≥2 Play screenshots across device types, ≤8 per type; Play feature graphic + icon), warns when Play screenshots fall short of promotion eligibility (≥4 at ≥1080 px), and runs the secret scan. It validates **only the store(s) actually present**, so a single-store listing isn't failed for the store it never targeted. It exits non-zero on any failure. If a previous screenshot set exists (e.g. a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) to get a per-screen regression report (added/removed/changed); it's informational and never blocks.
@@ -114,6 +114,7 @@ Then produce a **report**: per platform/locale, what exists vs. required vs. mis
 | Script | Purpose |
 |---|---|
 | `scripts/capture/sanitize-status-bar.sh` | iOS `simctl status_bar` + Android demo-mode clean status bar |
+| `scripts/capture/normalize-screenshot.sh` | Flatten a raw capture to 24-bit RGB PNG; `--play` also crops to ≤2:1 |
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |

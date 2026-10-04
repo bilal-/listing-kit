@@ -30,7 +30,7 @@ for d in stores/apple-app-store stores/google-play \
 done
 
 # ---- all scripts exist and are executable ----
-for s in capture/sanitize-status-bar capture/grant-permissions \
+for s in capture/sanitize-status-bar capture/grant-permissions capture/normalize-screenshot \
          generate/feature-graphic lib/secret-scan package/generate-manifests \
          validate/validate-listing validate/visual-diff package/build-review \
          package/install-review-hook; do
