@@ -215,13 +215,13 @@ if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ]; then
 fi
 
 # ---------------- secrets ----------------
-if [ -d "$ROOT/fastlane" ]; then
-  if bash "$SELF_DIR/../lib/secret-scan.sh" "$ROOT/fastlane" >/dev/null 2>&1; then pass "secret scan: clean"; else fail "secret scan: credentials found in committed tree"; fi
-fi
+scan(){ # dir label found-msg
+  local rc=0; bash "$LIB/secret-scan.sh" "$1" >/dev/null 2>&1 || rc=$?
+  case "$rc" in 0) pass "$2: clean";; 1) fail "$2: $3";; *) fail "$2: could not complete (exit $rc)";; esac
+}
+[ -d "$ROOT/fastlane" ] && scan "$ROOT/fastlane" "secret scan" "credentials found in committed tree"
 # Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
-if [ -d "$ROOT/.listing-kit/flows" ]; then
-  if bash "$SELF_DIR/../lib/secret-scan.sh" "$ROOT/.listing-kit/flows" >/dev/null 2>&1; then pass "flow secret scan: clean"; else fail "flow secret scan: credentials inlined in a committed Maestro flow"; fi
-fi
+[ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
 [ "$FAIL" -eq 0 ] && { echo "${G}LISTING VALID${Z}"; exit 0; } || { echo "${R}LISTING HAS FAILURES${Z}"; exit 1; }

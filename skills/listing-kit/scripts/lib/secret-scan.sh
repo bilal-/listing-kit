@@ -5,7 +5,7 @@
 # Usage:
 #   secret-scan.sh [<dir>]    # default: fastlane
 #
-# Exit codes: 0 = clean, 1 = secret(s) found, 2 = usage/error.
+# Exit codes: 0 = clean, 1 = secret(s) found, 2 = scan error (e.g. unreadable file).
 set -euo pipefail
 
 dir="${1:-fastlane}"
@@ -36,10 +36,16 @@ includes=(--include='*.txt' --include='*.json' --include='*.yaml' --include='*.y
 
 found=0
 for pat in "${patterns[@]}"; do
-  while IFS= read -r file; do
-    echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
-    found=1
-  done < <(grep -rEil "${includes[@]}" -e "$pat" "$dir" 2>/dev/null)
+  rc=0; hits="$(grep -rEil "${includes[@]}" -e "$pat" "$dir")" || rc=$?
+  case "$rc" in
+    0) while IFS= read -r file; do
+         echo "POTENTIAL SECRET in committed listing: $file (pattern: $pat)" >&2
+       done <<<"$hits"
+       found=1 ;;
+    1) ;;   # no match
+    *) echo "ERROR: secret scan could not read '$dir' (grep exit $rc); refusing to report clean." >&2
+       exit 2 ;;
+  esac
 done
 
 if [ "$found" -ne 0 ]; then

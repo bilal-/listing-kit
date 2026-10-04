@@ -46,4 +46,13 @@ mktree; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$TREE/en-US/01_home.png"
 OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "binary/screenshot files are not scanned for copy secrets"
 
+it "a scan error exits 2 instead of reporting clean"
+D="$(mktemp -d)"; echo "harmless copy" > "$D/description.txt"
+new_stubdir
+printf '#!/usr/bin/env bash\nexit 2\n' > "$STUB_BIN/grep"; chmod +x "$STUB_BIN/grep"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$D" 2>&1)"; RC=$?
+assert_eq 2 "$RC"
+assert_not_contains "$OUT" "Secret scan clean"
+rm -rf "$D"
+
 summary
