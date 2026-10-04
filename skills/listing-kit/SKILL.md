@@ -56,16 +56,17 @@ Present the inventory and capture **four things per screen** the user keeps:
 Ask which stores to target, then device classes. Detect hints (iPad support in `Info.plist`, Wear OS module, watchOS target) and pre-select, but always confirm. Default locale is `en-US` (single-locale in v1). Defaults: target both stores if both buildable; **5 hero screens** per device class. See `references/stores/`.
 
 ### 6. Configure — inputs, credentials, seed data
-Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `fastlane/` already exists, inventory the current metadata first and ask the user which app changes should be reflected; reuse valid existing copy by default and edit only the affected fields. Detect **Auth/Demo modes** (`mock_data.json`, `--demo` flags, demo build configs). **Secrets never enter the committed tree** — store them in a git-ignored `.listing-kit/secrets.local` or environment variables and reference (don't inline) them in Maestro flows.
+Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `fastlane/` already exists, inventory the current metadata first and ask which app changes it should reflect (then follow principle 2). Detect **Auth/Demo modes** (`mock_data.json`, `--demo` flags, demo build configs). **Secrets never enter the committed tree** — store them in a git-ignored `.listing-kit/secrets.local` or environment variables and reference (don't inline) them in Maestro flows.
 
 **Never fabricate metadata.** Values that can only come from the user — **support / marketing / privacy-policy URLs, copyright, category** — must never be invented. If you don't have a value, **ask**; under `--non-interactive`, **leave the field unwritten (omit the `.txt` file)** rather than writing a guessed or empty value. An omitted required field is then surfaced by Validate (and shown blank with a ⚠ marker on the review page); a fabricated URL could pass review while pointing somewhere wrong.
 
-**Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would. On an existing listing, preserve the user's voice and structure; make the smallest useful edit and keep stable text byte-for-byte where possible. **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
+**Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would, and on an existing listing keep the user's voice (principle 2). **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
 
-### 7. Run — build, launch, sanitize
-Bootstrap dependencies, build, and launch on each required simulator/emulator (see the per-stack doc for exact commands). Then:
+### 7. Run — build, install, sanitize, launch
+Bootstrap dependencies, build, and install on each required simulator/emulator (see the per-stack doc for exact commands). Then, **before launching the app**:
 - **Sanitize status bars** to 9:41 AM, full battery/signal: run `scripts/capture/sanitize-status-bar.sh`.
 - **Pre-grant permissions** to avoid blocking dialogs: run `scripts/capture/grant-permissions.sh` (note its caveats — camera/ATT can't be pre-granted on iOS).
+- Then launch the app (Maestro's `launchApp` in Drive does this).
 
 ### 8. Drive — reach each curated state
 Driving is a **shared capability via Maestro** (one YAML flow language across all stacks/platforms). See `references/driving/maestro.md`. This is where Maestro + JDK get installed (prompt now, not earlier). For each screen:
@@ -96,7 +97,7 @@ Then produce a **report**: per platform/locale, what exists vs. required vs. mis
 
 ## Headless / CI mode
 
-`--non-interactive` skips manual-assist and any prompt, reports missing assets instead of hanging, and depends on persisted Maestro flows from a prior interactive run.
+When the user asks for a non-interactive or CI run (written `--non-interactive` in these docs; it is a mode you adopt, not a CLI flag), skip manual-assist and any prompt, reports missing assets instead of hanging, and depends on persisted Maestro flows from a prior interactive run.
 
 ## Reference map
 

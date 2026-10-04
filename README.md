@@ -54,8 +54,8 @@ Point your agent at a mobile repo and listing-kit will:
 7. **Assemble** copy, keywords, URLs, copyright, and a generated Play **feature graphic** into the fastlane layout — then **scan to guarantee no secret was committed**.
 8. **Validate & report** every asset/field against current store rules.
 
-**Out of scope (v1):** actually publishing to the stores, writing your marketing
-copy *content* for you, app preview videos, A/B testing, non-mobile targets.
+**Out of scope (v1):** actually publishing to the stores, positioning and pricing
+decisions (the agent drafts copy; you review and own it), app preview videos, A/B testing, non-mobile targets.
 
 ## Supported
 
@@ -127,7 +127,7 @@ Expo app you can run listing-kit against. See [`examples/`](examples/) for the f
 
 The committed tree is the source of truth **for non-secrets only**. Listing copy,
 screenshots, and graphics get committed; **credentials and seed secrets never
-do** — they live in a git-ignored `.listing-kit/` or environment variables, and
+do** — they live in a git-ignored `.listing-kit/secrets.local` or environment variables, and
 the Assemble step runs a secret scan that **fails the run** if anything leaked.
 
 After a run, open `listing-review.html` at the app root to review all copy (with copy buttons), screenshots, and validation in one page.

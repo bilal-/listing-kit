@@ -50,7 +50,8 @@ sets when the app targets tablets. Signals that it does:
 To capture, you need a **tablet AVD** (e.g. `pixel_tablet` / `Nexus 9`); a phone AVD
 won't produce tablet-sized images. If none exists, create one
 (`avdmanager create avd -d pixel_tablet -k "<system-image>"`) — note this may require
-downloading a system image, so prompt before doing it in a non-interactive run.
+downloading a system image, so ask first; in a non-interactive run, don't create
+one: report the tablet set as missing instead.
 
 ## Metadata fields (per locale)
 

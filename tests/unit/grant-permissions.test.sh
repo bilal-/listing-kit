@@ -23,6 +23,7 @@ LOG="$(stub_log)"
 assert_eq 0 "$RC" "ios exits 0"
 assert_contains "$LOG" "simctl privacy booted grant location-always com.example.app"
 assert_contains "$LOG" "grant photos com.example.app"
+assert_contains "$LOG" "simctl terminate booted com.example.app" "stops the app before granting"
 
 it "ios: warns that camera/ATT cannot be pre-granted"
 assert_contains "$OUT" "camera"

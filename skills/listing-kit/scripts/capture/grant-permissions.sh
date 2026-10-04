@@ -27,6 +27,8 @@ case "$platform" in
       echo "App '$app' not found on simulator '$device' (boot it and install the app first)." >&2
       exit 1
     }
+    # Some grants only take effect while the app is not running.
+    xcrun simctl terminate "$device" "$app" >/dev/null 2>&1 || true
     # Services that simctl privacy reliably supports:
     for svc in location-always photos contacts calendar reminders microphone media-library motion; do
       if xcrun simctl privacy "$device" grant "$svc" "$app" 2>/dev/null; then

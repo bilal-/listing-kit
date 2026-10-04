@@ -19,7 +19,7 @@ platform's equivalent below.
   this skill.
 - **No agent-specific browser/MCP capability** is used for capture — screenshots
   come from `simctl`/`adb`.
-- **Helpers that need real code** live in `scripts/` as portable POSIX shell, so
+- **Helpers that need real code** live in `scripts/` as portable bash (3.2+) and Python 3 standard library, so
   the agent invokes them rather than relying on a platform-specific tool.
 
 ## Installing across platforms

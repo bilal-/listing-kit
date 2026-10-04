@@ -26,7 +26,7 @@ against a real app and tells us what broke.
 skills/listing-kit/
   SKILL.md             the orchestration core (the pipeline)
   references/          pluggable modules: stores/, stacks/, driving/, metadata/, platforms/
-  scripts/             portable POSIX shell helpers (capture/, generate/, lib/, package/)
+  scripts/             portable bash 3.2+ helpers (capture/, generate/, lib/, package/, validate/)
   assets/              optional device frames (future)
 docs/                  user guide + design spec
 AGENTS.md, gemini-extension.json, .kiro/steering/   GENERATED — do not hand-edit (see below)
@@ -74,7 +74,7 @@ against the example apps (Phase B) and is regenerated **periodically, not per-PR
 it needs simulators and may lag the latest store sizes. Don't block a PR on it.
 
 ### Shell conventions
-- POSIX-friendly `bash`, `set -euo pipefail`, clear `Usage:` on bad args.
+- `bash` 3.2-compatible (macOS's default: no associative arrays, no `mapfile`), `set -euo pipefail`, clear `Usage:` on bad args.
 - Degrade gracefully: a missing optional tool should fall back (and say so), not
   crash. See `feature-graphic.sh` (exit 3 → prompt) for the pattern.
 - Never write secrets to disk in a committed path. If you touch the listing tree,

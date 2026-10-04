@@ -70,8 +70,9 @@ The committed tree is the source of truth **for non-secrets only**.
 - **NEVER committed:** login credentials, API tokens, seed-data secrets, mock
   auth tokens. These live in a git-ignored `.listing-kit/secrets.local` or
   environment variables, and are **referenced — not inlined** — by Maestro flows.
-  Ensure `.listing-kit/` is git-ignored (it is in this repo's `.gitignore`; add
-  it to the *target* repo's `.gitignore` too).
+  Add `.listing-kit/secrets.local` (or `*.local`) to the *target* repo's `.gitignore`.
+  Do **not** ignore all of `.listing-kit/`: the flows in `.listing-kit/flows/` are
+  committed so reruns and CI can replay them, and the secret scan checks them.
 - **Assemble asserts the boundary:** before finishing, run
   `scripts/lib/secret-scan.sh` over the written `fastlane/` tree and **fail the
   run** if any credential/high-entropy token leaked into a committed file.

@@ -112,7 +112,8 @@ fastlane/
     android/                # Android copy + images/ (screenshots, featureGraphic, icon)
   screenshots/<locale>/     # iOS screenshots, ordered 01_, 02_, …
 listing-review.html         # open in a browser: copy buttons, screenshots, validation
-.listing-kit/               # git-ignored: flows + secrets (NOT committed)
+.listing-kit/flows/         # Maestro flows: committed, so reruns and CI can replay them
+.listing-kit/secrets.local  # git-ignored: credentials for demo/mock logins (NEVER committed)
 ```
 
 Commit `fastlane/`. Review the copy like code. Re-run any time the app changes.
@@ -123,8 +124,8 @@ capture repeatable.
 
 ## 5. Re-running & CI
 
-Because flows are persisted, later runs replay them. For CI, run with
-`--non-interactive`: it skips manual-assist and prompts, reports missing assets
+Because flows are persisted, later runs replay them. For CI, tell the agent to run
+*non-interactively* (the skill's `--non-interactive` mode): it skips manual-assist and prompts, reports missing assets
 instead of hanging, and relies on the flows captured in a prior interactive run.
 
 ## 6. Troubleshooting
