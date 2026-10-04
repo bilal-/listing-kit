@@ -84,7 +84,7 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 apple_locales=()
 for loc in "$ROOT"/fastlane/metadata/*/; do
   [ -d "$loc" ] || continue
-  case "$(basename "$loc")" in android|default) continue;; esac   # android = Play; default = fastlane fallback
+  case "$(basename "$loc")" in android) continue;; esac   # android tree handled below
   { [ -f "$loc/name.txt" ] || [ -f "$loc/description.txt" ]; } && apple_locales+=("$loc")
 done
 apple_present=0; play_present=0

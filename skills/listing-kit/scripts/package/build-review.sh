@@ -63,8 +63,11 @@ def copy_row(label, path, limit=None, required=False):
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 
 # ---- iOS (deliver) ----
+# Same rule as validate-listing.sh: a locale dir holds name.txt or description.txt
+# (skips android/ plus non-locale dirs such as review_information/).
 ios_locs = sorted(d for d in glob.glob(os.path.join(FL, "metadata", "*"))
-                  if os.path.isdir(d) and os.path.basename(d) != "android")
+                  if os.path.isdir(d) and os.path.basename(d) != "android"
+                  and any(os.path.isfile(os.path.join(d, f)) for f in ("name.txt", "description.txt")))
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
     for ld in ios_locs:

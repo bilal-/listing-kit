@@ -60,4 +60,12 @@ assert_contains "$PAGE" "Generated "
 assert_contains "$PAGE" "from fastlane metadata .txt files"
 rm -rf "$T"
 
+it "non-locale metadata dirs (review_information/) are not shown as locales"
+T="$(mktemp -d)"; cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+mkdir -p "$T/fastlane/metadata/review_information"
+printf 'demo@example.test\n' > "$T/fastlane/metadata/review_information/email_address.txt"
+bash "$SUT" "$T" >/dev/null 2>&1
+assert_not_contains "$(cat "$T/listing-review.html")" "locale: review_information"
+rm -rf "$T"
+
 summary
