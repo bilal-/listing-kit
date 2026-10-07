@@ -200,4 +200,26 @@ assert_contains "$(git -C "$T" show 'HEAD:apps/mobile[1]/listing-review.html')" 
 assert_not_contains "$(git -C "$T" ls-files)" "apps/mobile1/listing-review.html" "the look-alike dir is untouched"
 rm -rf "$T"
 
+it "header-only and plan-only commits refresh from staged assets"
+T="$(mktemp -d)"; git -C "$T" init -q
+git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
+fake_png "$T/store-assets/apple/en-US/header.png" 5244 2950
+git -C "$T" add store-assets
+# The unstaged working copy must not leak into the committed review.
+fake_png "$T/store-assets/apple/en-US/header.png" 1024 500 8 6
+git -C "$T" commit -qm "header" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'Header Asset (manual console upload)'
+assert_contains "$PAGE" '5244x2950 RGB/no-alpha'
+mkdir -p "$T/.listing-kit"
+printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Duo":5}}}}' > "$T/.listing-kit/asset-plan.json"
+git -C "$T" add .listing-kit/asset-plan.json
+git -C "$T" commit -qm "plan" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'iPhone Duo: 0 of 5 screenshots'
+rm -rf "$T"
+
 summary

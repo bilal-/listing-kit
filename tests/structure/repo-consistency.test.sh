@@ -79,6 +79,6 @@ assert_contains "$SK" "Do not rewrite a good description"
 
 it "SKILL.md states git repos install the review refresh hook"
 assert_contains "$SK" 'run `scripts/package/install-review-hook.sh`'
-assert_contains "$SK" 'whenever staged `fastlane/**` files change'
+assert_contains "$SK" 'whenever staged `fastlane/**`, `store-assets/apple/**`, or `.listing-kit/asset-plan.json` files change'
 
 summary

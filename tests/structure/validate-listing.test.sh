@@ -2,9 +2,13 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/validate/validate-listing.sh"
-APP="$ROOT/examples/expo-recipe-box"
+# Keep historical example captures unchanged; add a synthetic medium-size test fixture.
+APP="$(mktemp -d)"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
+fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
+trap 'rm -rf "$APP"' EXIT
 
-it "the committed example listing passes validation (both stores, exit 0)"
+it "a current-size fixture passes validation (both stores, exit 0)"
 OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0"
 assert_contains "$OUT" "LISTING VALID"
@@ -81,20 +85,20 @@ apple_only() { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json"
 play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US; }
 PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
 
-it "a 6.5\" iPhone set alone satisfies the iPhone requirement"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+it "a Face ID large set alone cannot fill the medium upload slot"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
 png "$T/fastlane/screenshots/en-US/01_home.png" 1284 2778
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
-assert_eq 0 "$RC"
-assert_contains "$OUT" "iPhone screenshots present (1 at"
+assert_eq 1 "$RC"
+assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots"
 rm -rf "$T"
 
-it "a 6.1\" set alone fails (6.9\" or 6.5\" is required)"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+it "a Face ID medium set does not fill the Dynamic Island medium slot"
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
 png "$T/fastlane/screenshots/en-US/01_home.png" 1170 2532
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "no 6.9\" or 6.5\" iPhone screenshots"
+assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots"
 rm -rf "$T"
 
 it "an 11\" iPad set does not satisfy the 13\" iPad requirement"
@@ -123,7 +127,7 @@ it "each screenshot locale is checked on its own"
 apple_only; mkdir -p "$T/fastlane/screenshots/de-DE"
 png "$T/fastlane/screenshots/de-DE/01_home.png" 1170 2532
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
-assert_eq 1 "$RC" "a locale without a 6.9\"/6.5\" set fails even if en-US has one"
+assert_eq 1 "$RC" "a locale without a Dynamic Island medium set fails even if en-US has one"
 assert_contains "$OUT" "screenshots de-DE:"
 rm -rf "$T"
 
@@ -229,8 +233,8 @@ assert_contains "$OUT" "privacy_url: not a single http(s) URL"
 rm -rf "$T"
 
 it "JPEG screenshots count toward the iPhone set"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
-fake_jpeg "$T/fastlane/screenshots/en-US/01_home.jpeg" 1320 2868
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
+fake_jpeg "$T/fastlane/screenshots/en-US/01_home.jpeg" 1179 2556
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "iPhone screenshots present (1 at"
@@ -315,7 +319,7 @@ assert_contains "$OUT" "icon must be a PNG"
 rm -rf "$T"
 
 it "LK_SUPPORTS_IPHONE=0 allows an iPad-only listing"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
 OUT="$(LK_SUPPORTS_IPHONE=0 bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 rm -rf "$T"

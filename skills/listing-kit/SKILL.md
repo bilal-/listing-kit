@@ -20,7 +20,8 @@ Use when the user points you at a mobile-app repository and wants store listing 
 3. **Store specs drift.** The numbers in `references/stores/*.md` are a snapshot. When a build actually targets the stores, prefer verifying against current App Store Connect / Play Console docs (use web search if available) and treat the reference docs as defaults, not gospel.
 4. **Stay portable.** Core logic is markdown + shell. Shell out to `xcrun simctl`, `adb`, `flutter`, the Expo/RN CLI, `maestro`, and ImageMagick — never to an agent-specific browser/MCP capability. See `references/platforms/tool-mapping.md` for tool-name equivalents across AI platforms.
 5. **Gate heavy dependencies.** Maestro + JDK are only needed at the **Drive** step; ImageMagick only from **Capture** onward (screenshot normalization, feature graphic). Don't make the user install them up front.
-6. **Confirm before expensive work.** Get the user to commit to a screen list *before* building (the Discover step), and confirm target stores/devices before running.
+6. **Preserve release metadata.** Preparing listing assets does not require a marketing-version bump. Keep the app's current release version and follow its existing build-number policy; do not invent a release to capture screenshots.
+7. **Confirm before expensive work.** Get the user to commit to a screen list *before* building (the Discover step), and confirm target stores/devices before running.
 
 ## The pipeline
 
@@ -53,7 +54,7 @@ Present the inventory and capture **four things per screen** the user keeps:
 4. **Desired state** — free text, e.g. "Library, populated with books, not empty." You will reason about the UI to reach this.
 
 ### 5. Plan — stores, devices, locales
-Ask which stores to target, then device classes. Detect hints (iPad support in `Info.plist`, Wear OS module, watchOS target) and pre-select, but always confirm. Default locale is `en-US` (single-locale in v1). Defaults: target both stores if both buildable; **5 hero screens** per device class. See `references/stores/`.
+Ask which stores to target, then device classes. Detect hints (iPad support in `Info.plist`, Wear OS module, watchOS target) and pre-select, but always confirm. Default locale is `en-US` (single-locale in v1). Defaults: target both stores if both buildable; **5 hero screens** per device class. See `references/stores/`. For Apple, select exact console upload slots and any Header Asset variants, then persist the approved coverage in `.listing-kit/asset-plan.json` as described in `references/metadata/fastlane-layout.md`. Treat deferred targets as deferred, not missing launch requirements.
 
 ### 6. Configure — inputs, credentials, seed data
 Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `fastlane/` already exists, inventory the current metadata first and ask which app changes it should reflect (then follow principle 2). Detect **Auth/Demo modes** (`mock_data.json`, `--demo` flags, demo build configs). **Secrets never enter the committed tree** — store them in a git-ignored `.listing-kit/secrets.local` or environment variables and reference (don't inline) them in Maestro flows.
@@ -79,19 +80,21 @@ Driving is a **shared capability via Maestro** (one YAML flow language across al
 Persist each Maestro flow — it is the rerunnable navigation recipe for next time.
 
 ### 9. Capture — screenshot at required dimensions
-Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Default: capture the largest required size per device family and let the store derive the rest, unless the user wants explicit per-size captures.
+Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Capture each selected upload slot at its accepted native size. For Apple, Dynamic Island medium is currently required; a larger iPhone capture does not fill that slot. Verify current specs and the active asset plan before picking simulators.
 
 **Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit by running `scripts/capture/normalize-screenshot.sh` (input, output); add `--play` for Play phone screenshots to also crop anything taller than 9:16 to exactly 9:16 (top-aligned), which meets Play's 2:1 limit and its promotion bar. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
 
 ### 10. Assemble — write the fastlane tree, then assert the secrets boundary
-Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the 512×512 icon to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
+Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the 512×512 icon to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). For Apple headers, follow the Header Asset section in `references/stores/apple-app-store.md`; save them outside Fastlane screenshots under `store-assets/apple/<locale>/` and include them in the review/handoff.
+
+**Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
 
 ### 11. Validate & review — check the written tree against store rules
 Validate what Assemble actually wrote, so generated metadata and graphics are covered. Run `scripts/validate/validate-listing.sh` (pass the app root). It checks the listing against the rules in `references/stores/*.md` (copy limits and required fields, screenshot sizes, formats and counts per locale, Play graphics, and the secret scan) and exits non-zero on any failure; warnings, such as missing Play promotion eligibility, don't fail the run. It checks **only the store(s) actually present**. If device-family detection is wrong (an iPad-only app, or `supportsTablet` computed at runtime), set `LK_SUPPORTS_IPHONE=0` / `LK_SUPPORTS_IPAD=0|1`. If a previous screenshot set exists (a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) for a per-screen regression report; it never blocks. Fix failures (back in Configure, Capture, or Assemble) and rerun until it passes, or report what's left.
 
 Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-review.html` at the app root — a single static page (copy buttons, screenshots per device class, the validator's results) for reviewing the listing and pasting copy into the store consoles. It is read-only and never writes into `fastlane/`.
 
-If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html` whenever staged `fastlane/**` files change. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
+If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html` whenever staged `fastlane/**`, `store-assets/apple/**`, or `.listing-kit/asset-plan.json` files change. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 
@@ -121,6 +124,7 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
 | `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
 | `scripts/lib/apple-screenshot-sizes.tsv` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
+| `scripts/lib/apple_assets.py` | Apple header format and persisted upload-plan validation |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |
 | `scripts/lib/listing.py` | Which locales and images a fastlane tree contains (shared by validate and review) |

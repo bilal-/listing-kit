@@ -2,7 +2,11 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/build-review.sh"
-APP="$ROOT/examples/expo-recipe-box"
+# Keep historical example captures unchanged; add a synthetic medium-size test fixture.
+APP="$(mktemp -d)"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
+fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
+trap 'rm -rf "$APP"' EXIT
 
 it "exits 2 when there is no fastlane tree"
 T="$(mktemp -d)"
@@ -27,8 +31,8 @@ it "renders char counts, screenshots, and graphics"
 assert_contains "$PAGE" '23/30'                        # name: "Recipe Box: Cook & Shop"
 assert_contains "$PAGE" 'fastlane/screenshots/en-US/'  # relative screenshot link (iOS)
 assert_contains "$PAGE" 'phoneScreenshots'             # android screenshot link
-assert_contains "$PAGE" 'iPhone 6.9'                   # device-class grouping (note: " is HTML-escaped)
-assert_not_contains "$PAGE" 'iPhone 6.9"'   # the " must be HTML-escaped (&quot;), never literal
+assert_contains "$PAGE" 'iPhone Dynamic Island (large display)' # device-class grouping
+assert_contains "$PAGE" 'iPad 13&quot;' # class labels are HTML-escaped
 assert_contains "$PAGE" 'Feature graphic'              # generated graphic
 
 it "embeds the validator output"

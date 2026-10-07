@@ -3,18 +3,18 @@
 # build-review.sh). Source: developer.apple.com/help/app-store-connect/reference/
 # app-information/screenshot-specifications (verified 2026-10). Keep in sync with
 # references/stores/apple-app-store.md.
-1320x2868	iPhone 6.9"
-1290x2796	iPhone 6.9"
-1260x2736	iPhone 6.9"
-1284x2778	iPhone 6.5"
-1242x2688	iPhone 6.5"
-1206x2622	iPhone 6.3"
-1179x2556	iPhone 6.3"
-1170x2532	iPhone 6.1"
-1125x2436	iPhone 6.1"
-1080x2340	iPhone 6.1"
-1242x2208	iPhone 5.5"
-750x1334	iPhone 4.7"
+1320x2868	iPhone Dynamic Island (large display)
+1290x2796	iPhone Dynamic Island (large display)
+1260x2736	iPhone Dynamic Island (large display)
+1284x2778	iPhone Face ID (large display)
+1242x2688	iPhone Face ID (large display)
+1206x2622	iPhone Dynamic Island (medium display)
+1179x2556	iPhone Dynamic Island (medium display)
+1170x2532	iPhone Face ID (medium display)
+1125x2436	iPhone Face ID (medium display)
+1080x2340	iPhone Face ID (medium display)
+1242x2208	iPhone Home Button (large display)
+750x1334	iPhone Home Button (medium display)
 2064x2752	iPad 13"
 2048x2732	iPad 13"
 1668x2420	iPad 11"
@@ -22,3 +22,5 @@
 1640x2360	iPad 11"
 1488x2266	iPad 11"
 1668x2224	iPad 10.5"
+1398x2034	iPhone Duo
+2007x2853	iPhone Duo

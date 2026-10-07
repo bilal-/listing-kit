@@ -28,13 +28,28 @@ Install JS deps first (`npm ci` / `yarn` / `pnpm i` — match the lockfile prese
 - Expo Router: file-based routes under `app/`
 - Registered deep links / URL scheme: `expo.scheme` in `app.json`, `Linking` config
 
+For iOS 27 targets, verify the app adopts UIKit's scene lifecycle before capture.
+Expo SDK 57.0.23+ supports the `expo-build-properties` option
+`ios.enableSceneSupport`; newer SDKs may provide it by default. Follow the
+[Expo scene-lifecycle guidance](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md)
+for the installed SDK, regenerate native projects and cold-launch on the actual
+runtime. Keep any needed application compatibility work explicit in scope.
+
+If a new Xcode cannot import Expo's precompiled Swift modules, first verify the
+compiler and framework versions. Expo's `ios.usePrecompiledModules: false` (or
+`EXPO_USE_PRECOMPILED_MODULES=0` during Pod installation) is a supported source-build
+path. It may also require invalidating stale generated framework caches. Do not
+patch compiled interfaces, upgrade major SDK versions or bump the app version
+just to get a listing capture. Preserve the app's normal entry point: inject
+capture/demo content only into a disposable capture build.
+
 ## Build & launch
 ```sh
 # Expo (Release embeds the JS bundle; see ../driving/maestro.md)
-npx expo run:ios --configuration Release --device "iPhone 17 Pro Max"
+npx expo run:ios --configuration Release --device "iPhone 17 Pro"
 npx expo run:android --variant release
 # Bare RN
-npx react-native run-ios --mode Release --simulator "iPhone 17 Pro Max"
+npx react-native run-ios --mode Release --simulator "iPhone 17 Pro"
 npx react-native run-android --mode release
 ```
 

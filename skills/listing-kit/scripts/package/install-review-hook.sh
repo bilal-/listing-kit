@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install a git pre-commit hook that keeps listing-review.html in sync whenever
-# staged files under the app root's fastlane/ tree change.
+# staged listing metadata, Apple headers or the asset plan change.
 #
 # Usage: install-review-hook.sh [<app-root>]    (default: current directory)
 # Exit:  0 = installed/updated hook, 2 = usage / not a git worktree / can't install.
@@ -90,13 +90,13 @@ fi
 cd "$(git rev-parse --show-toplevel)" || exit 0
 set -o pipefail
 
-# Index paths build-review reads for one app (listing, flows, iPad signals), NUL-separated.
+# Index paths build-review reads for one app (listing, headers, plan, flows, iPad signals), NUL-separated.
 # Pathspecs are literal so app dirs with [ ] * ? in their names match exactly.
 snapshot_paths(){ # prefix
   git ls-files -z -- ":(literal)${1:-.}" | python3 -c '
 import re, sys
 pre = sys.argv[1]
-keep = re.compile(r"(fastlane/|\.listing-kit/flows/)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
+keep = re.compile(r"(fastlane/|store-assets/apple/|\.listing-kit/flows/|\.listing-kit/asset-plan\.json$)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
 for p in sys.stdin.buffer.read().split(b"\0"):
     rel = p.decode("utf-8", "surrogateescape")[len(pre):]
     if p and keep.match(rel):
@@ -106,7 +106,7 @@ for p in sys.stdin.buffer.read().split(b"\0"):
 
 for app in "${apps[@]}"; do
   p="${app:+$app/}"
-  git diff --cached --quiet -- ":(literal)${p}fastlane/" && continue
+  git diff --cached --quiet -- ":(literal)${p}fastlane/" ":(literal)${p}store-assets/apple/" ":(literal)${p}.listing-kit/asset-plan.json" && continue
   if [ -z "$(git ls-files -- ":(literal)${p}fastlane/")" ]; then   # listing removed entirely
     git rm -q --cached --ignore-unmatch -- ":(literal)${p}listing-review.html" && rm -f -- "${p}listing-review.html"
     continue

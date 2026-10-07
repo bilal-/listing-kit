@@ -35,6 +35,7 @@ sys.path.insert(0, lib_dir)
 from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
+import apple_assets
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -64,7 +65,9 @@ def copy_row(label, path):
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 
 # ---- iOS (deliver) ----
-ios_locs = listing.apple_locales(FL)
+ios_locs = sorted(set(listing.apple_locales(FL)) | {
+    os.path.join(FL, "metadata", loc) for loc in apple_assets.header_locales(root)
+})
 apple_default = listing.apple_default(FL)
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
@@ -75,7 +78,9 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         for f in images(os.path.join(FL, "screenshots", loc)):
             cls = devclass(dims(f))
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
-        locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=[]))
+        graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
+                    for f in images(apple_assets.header_dir(root, loc))]
+        locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics))
     applevel = [
         copy_row("Copyright", os.path.join(FL, "metadata", "copyright.txt")),
         copy_row("Primary category", os.path.join(FL, "metadata", "primary_category.txt")),

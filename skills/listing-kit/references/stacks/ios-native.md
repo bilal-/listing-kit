@@ -12,8 +12,17 @@ If both `.xcworkspace` and `.xcodeproj` exist, prefer the workspace (CocoaPods/S
 ## Doctor checks
 - `xcode-select -p` and `xcodebuild -version`
 - `xcrun simctl list devices` (a usable simulator runtime exists)
-- CocoaPods if a `Podfile` is present (`pod --version`); run `pod install`
+- CocoaPods if a `Podfile` is present (`pod --version`); run `pod install` from the directory containing that Podfile
 - Swift Package resolution if `Package.swift` / SPM dependencies
+
+Verify the selected device type **and runtime** (`xcrun simctl list devicetypes`
+and `xcrun simctl list runtimes`) before a long build. A newer device may need a
+side-by-side Xcode and a separate runtime download. Check disk space for the
+archive, extracted app, runtime, simulator data and build products. Use
+`DEVELOPER_DIR` consistently for build/install/capture without changing the
+machine's default Xcode. Preserve signed artifacts and personal simulator data.
+A successful build is not a successful launch: cold-launch and assert visible
+app content on the target runtime before driving every planned state.
 
 ## Discover signals (static, before building)
 - SwiftUI: `View` structs, `NavigationStack`/`NavigationLink` destinations, `TabView` items
@@ -24,10 +33,10 @@ If both `.xcworkspace` and `.xcodeproj` exist, prefer the workspace (CocoaPods/S
 ## Build & launch
 ```sh
 # Pick a simulator matching the required device class (see ../stores/apple-app-store.md).
-# Prefer the newest Pro Max (6.9"); list what's installed with `xcrun simctl list devicetypes`.
-xcrun simctl boot "iPhone 17 Pro Max"        # 6.9"
+# Dynamic Island medium is currently required; list installed types with `xcrun simctl list devicetypes`.
+xcrun simctl boot "iPhone 17 Pro"        # 1206×2622
 xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -derivedDataPath build build
 xcrun simctl install booted "build/Build/Products/Release-iphonesimulator/App.app"
 xcrun simctl launch booted <bundle-id>
@@ -43,3 +52,17 @@ Resolve `<bundle-id>` from `PRODUCT_BUNDLE_IDENTIFIER` (build settings) or the b
 xcrun simctl io booted screenshot --type=png "01_home.png"
 ```
 Full-resolution, status-bar override intact. Preferred over Maestro's `takeScreenshot`.
+
+For devices with multiple displays, enumerate them first:
+
+```sh
+xcrun simctl io "$DEVICE_UDID" enumerate
+xcrun simctl io "$DEVICE_UDID" screenshot --display "$DISPLAY_NAME" output.png
+```
+
+Select the screen showing the app, using the enumerated screen ID/name. Do not
+assume screen 2 is the inner display; it may be TV output. On Duo, change the pose
+in Device Hub, then check the active display's dimensions and app content. Reject
+black captures, system screens or clipped controls. If the runtime/automation
+cannot reach a state, report that limitation instead of fabricating or resizing
+another device's UI. A capture does not qualify display transitions or hardware.

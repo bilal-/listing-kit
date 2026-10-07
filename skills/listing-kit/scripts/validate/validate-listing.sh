@@ -115,7 +115,7 @@ if [ "$apple_present" = 1 ]; then
   [ -f "$ROOT/fastlane/metadata/copyright.txt" ] && pass "copyright.txt present" || warn "copyright.txt absent"
 
   # Screenshots: deliver assigns each image to a display class by its pixel size.
-  # Checked per locale: ≤10 per class, a 6.9" or 6.5" iPhone set, and a 13" iPad
+  # Checked per locale: ≤10 per class, Dynamic Island medium iPhone set, 13-inch iPad
   # set when the app runs on iPad.
   ipad_required=$(supports_ipad "$ROOT")
   shot_dirs=0
@@ -136,9 +136,9 @@ if [ "$apple_present" = 1 ]; then
     done < <(printf '%s' "$classes" | sort | uniq -c)
     # LK_SUPPORTS_IPHONE=0 for iPad-only apps (TARGETED_DEVICE_FAMILY = 2).
     if [ "${LK_SUPPORTS_IPHONE:-1}" != 0 ]; then
-      iphone_hero=$(( $(count_of 'iPhone 6.9"') + $(count_of 'iPhone 6.5"') ))
-      [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at 6.9\"/6.5\")" \
-        || fail "no 6.9\" or 6.5\" iPhone screenshots (App Store requires one of these sets)"
+      iphone_hero=$(count_of 'iPhone Dynamic Island (medium display)')
+      [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at Dynamic Island medium)" \
+        || fail 'no iPhone Dynamic Island (medium display) screenshots — capture 1206x2622 or 1179x2556; large-display images do not fill this slot'
     fi
     if [ "$ipad_required" = "True" ]; then
       ipad13=$(count_of 'iPad 13"')
@@ -148,6 +148,17 @@ if [ "$apple_present" = 1 ]; then
     [ "$badfmt" = 0 ] && pass "all screenshots are RGB/no-alpha"
   done
   [ "$shot_dirs" -gt 0 ] || fail "no fastlane/screenshots/<locale>/ directory (≥1 iPhone set required)"
+fi
+
+# Validate separate creative assets and the user's persisted Apple upload plan.
+asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT")"; asset_rc=$?
+[ "$asset_rc" = 0 ] || fail "could not validate Apple assets (exit $asset_rc)"
+while IFS=$'\t' read -r level msg; do
+  [ -n "$level" ] || continue
+  case "$level" in PASS) pass "$msg";; *) fail "$msg";; esac
+done <<<"$asset_result"
+if [ "$apple_present" = 1 ] && [ ! -f "$ROOT/.listing-kit/asset-plan.json" ]; then
+  warn "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"
 fi
 
 # ---------------- Google Play (supply) ----------------
@@ -238,6 +249,7 @@ scan(){ # dir label found-msg
 }
 [ -d "$ROOT/fastlane" ] && scan "$ROOT/fastlane" "secret scan" "credentials found in committed tree"
 # Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
+[ -d "$ROOT/store-assets" ] && scan "$ROOT/store-assets" "creative asset secret scan" "credentials found in creative assets"
 [ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
