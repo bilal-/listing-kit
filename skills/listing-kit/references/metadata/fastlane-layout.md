@@ -71,6 +71,11 @@ Keep numeric screenshot prefixes and a distinct device suffix, e.g.
 `01_home_iphone-medium.png` and `01_home_ipad.png`. Label the exact console slot
 in the review/handoff. If creating a ZIP, include headers and the plan, and check
 its file inventory and contents against the validated source tree.
+Exclude incidental hidden files and folders such as `.DS_Store`, editor backups
+and temporary capture directories. Include the approved plan explicitly rather
+than recursively archiving all hidden files. Reopen the final ZIP and verify the
+actual inventory and bytes after filtering; image validation alone does not
+audit archive metadata.
 
 ## Android — `fastlane/metadata/android/`
 ```

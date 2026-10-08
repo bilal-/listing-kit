@@ -70,3 +70,8 @@ in Device Hub, then check the active display's dimensions and app content. Rejec
 black captures, system screens or clipped controls. If the runtime/automation
 cannot reach a state, report that limitation instead of fabricating or resizing
 another device's UI. A capture does not qualify display transitions or hardware.
+
+Check the effect of rotation and Home/background automation on the active
+display: a command reporting success does not prove that the display rotated or
+the app left the foreground. Use Device Hub's pose controls for folding; screen
+power controls are not a substitute for a fold transition.
