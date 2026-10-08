@@ -24,6 +24,39 @@ machine's default Xcode. Preserve signed artifacts and personal simulator data.
 A successful build is not a successful launch: cold-launch and assert visible
 app content on the target runtime before driving every planned state.
 
+### Optional Duo capture
+
+Run the read-only preflight using the selected Xcode (it honors `DEVELOPER_DIR`):
+
+```sh
+# Handle exit 3 explicitly; do not let set -e abort the whole listing run.
+if python3 scripts/doctor/iphone-duo.py; then
+  echo "Duo tooling ready; propose it only if the user wants this target."
+else
+  status=$?
+  if [ "$status" -ne 3 ]; then exit "$status"; fi
+  echo "Duo unavailable; continue other targets and record the reported reason."
+fi
+```
+
+The helper checks iOS simulator SDK 27.1+, the Duo device type and an available
+compatible iOS runtime. A newer Xcode version alone is not enough. Exit 0 means
+those capabilities exist, not that the app launches or adapts correctly.
+
+If unavailable, omit Duo from the proposed active capture plan by default and
+record its reason in `deferredScreenshots` (see the
+[asset-plan format](../metadata/fastlane-layout.md#apple-asset-plan)). Continue
+medium iPhone, iPad and Android targets whose own tooling is available, plus
+headers and copy. Do not download Xcode/runtimes or switch the machine's default
+Xcode unless requested. A missing Xcode does not prevent reviewing existing assets.
+
+For an existing approved active Duo target, propose the concrete deferral while
+continuing independent work. Keep that target active and its missing-set failure
+until the scope change is accepted (or the user has already authorized skipping
+unavailable optional targets); never silently claim the full plan is done.
+Deferral cannot waive a current store requirement. When tooling becomes available,
+remove the deferral and add the approved count back to `screenshots` before capture.
+
 ## Discover signals (static, before building)
 - SwiftUI: `View` structs, `NavigationStack`/`NavigationLink` destinations, `TabView` items
 - UIKit: storyboard scenes + segues, `UITabBarController` items, `UIViewController` subclasses

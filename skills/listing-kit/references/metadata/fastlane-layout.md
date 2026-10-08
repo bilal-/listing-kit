@@ -63,8 +63,35 @@ Use the exact display-class labels in `scripts/lib/apple-screenshot-sizes.tsv`.
 Counts are the approved number (1–10) in that class and locale; the validator
 requires a match. Header entries are lower-case PNG/JPEG basenames within that
 locale's creative-assets folder. Either `screenshots` or `headers` may be omitted
-when only the other is planned. Do not put deferred targets or credentials here.
-Update the plan when the user changes scope. Without a plan, validation checks
+when only the other is planned.
+
+Optional `deferredScreenshots` maps display-class labels to a nonempty, single-line
+reason (up to 500 characters), for example:
+
+```json
+{
+  "apple": {
+    "en-US": {
+      "screenshots": {
+        "iPhone Dynamic Island (medium display)": 5
+      },
+      "headers": [
+        "header-16x9.png"
+      ],
+      "deferredScreenshots": {
+        "iPhone Duo": "Xcode 27.1 and a compatible Duo runtime are unavailable."
+      }
+    }
+  }
+}
+```
+
+Keep a deferred class out of `screenshots`; an active/deferred conflict fails
+validation. Deferrals produce warnings and a visible review notice, and hide any
+retained screenshots of that class from the active gallery without deleting them.
+They never waive store-required screenshot classes. Capture and archive only
+active targets; do not recursively include retained deferred screenshots in a
+delivery ZIP. Keep credentials out of the plan. Update the plan when the user changes scope. Without a plan, validation checks
 store minimums and present images but cannot prove that every requested set exists.
 
 Keep numeric screenshot prefixes and a distinct device suffix, e.g.

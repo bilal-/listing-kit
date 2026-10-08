@@ -43,8 +43,8 @@ bash "$SCRIPTS/package/build-review.sh" "$T" >/dev/null
 PAGE="$(cat "$T/listing-review.html")"
 assert_contains "$PAGE" 'Header Asset (manual console upload)'
 assert_contains "$PAGE" 'store-assets/apple/en-US/header-16x9.png'
-assert_contains "$PAGE" 'iPhone Dynamic Island (medium display)'
-assert_contains "$PAGE" 'iPhone Duo'
+assert_contains "$PAGE" '<div class="dc">iPhone Dynamic Island (medium display)'
+assert_contains "$PAGE" '<div class="dc">iPhone Duo'
 
 it "review includes a locale that only has header artwork"
 fake_png "$T/store-assets/apple/fr-FR/header.png" 3840 1646
@@ -83,4 +83,45 @@ printf '%s\n' '{"apple":{"de-DE":{"screenshots":{"iPhone Duo":1}}}}' > "$T/.list
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" 'planned de-DE/iPhone Duo: 0 of 1 screenshots'
+it "deferred Duo warns without failing the remaining listing"
+cat > "$T/.listing-kit/asset-plan.json" <<'JSON'
+{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":1},"headers":["header-16x9.png"],"deferredScreenshots":{"iPhone Duo":"Xcode 27.1 & runtime unavailable <check>"}}}}
+JSON
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" 'deferred en-US/iPhone Duo:'
+bash "$SCRIPTS/package/build-review.sh" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" 'Deferred screenshot targets'
+assert_contains "$PAGE" 'iPhone Duo — deferred'
+assert_contains "$PAGE" 'Xcode 27.1 &amp; runtime unavailable &lt;check&gt;'
+assert_contains "$PAGE" '<div class="dc">iPhone Dynamic Island (medium display)'
+assert_contains "$PAGE" 'Header Asset (manual console upload)'
+assert_not_contains "$PAGE" 'src="fastlane/screenshots/en-US/duo-outer.png"'
+assert_file "$SHOTS/duo-outer.png" "deferral preserves existing assets on disk"
+
+it "an active and deferred target conflict instead of silently skipping it"
+printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Duo":2},"deferredScreenshots":{"iPhone Duo":"No runtime"}}}}' > "$T/.listing-kit/asset-plan.json"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'both active and deferred'
+
+it "a malformed deferral cannot silently remove an expected target"
+for plan in \
+  '{"apple":{"en-US":{"deferredScreenshots":{"iPhone mystery":"No runtime"}}}}' \
+  '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":" "}}}}' \
+  '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":true}}}}' \
+  '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"line1\nline2"}}}}'; do
+  printf '%s\n' "$plan" > "$T/.listing-kit/asset-plan.json"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+done
+
+it "deferral does not waive required medium iPhone screenshots"
+printf '%s\n' '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"No compatible runtime"}}}}' > "$T/.listing-kit/asset-plan.json"
+rm "$SHOTS/medium.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'no iPhone Dynamic Island (medium display) screenshots'
+
 summary

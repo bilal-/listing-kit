@@ -63,10 +63,14 @@ def copy_row(label, path):
                 count=(len(v) if v is not None else None))
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
+try:
+    apple_plan = apple_assets.load_plan(root)
+except (OSError, ValueError):
+    apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
 ios_locs = sorted(set(listing.apple_locales(FL)) | {
-    os.path.join(FL, "metadata", loc) for loc in apple_assets.header_locales(root)
+    os.path.join(FL, "metadata", loc) for loc in set(apple_assets.header_locales(root)) | set(apple_plan)
 })
 apple_default = listing.apple_default(FL)
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
@@ -75,12 +79,15 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         loc = os.path.basename(ld)
         fields = store_fields.rows("apple", ld, apple_default)
         shots = {}
+        deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
         for f in images(os.path.join(FL, "screenshots", loc)):
             cls = devclass(dims(f))
+            if cls in deferred:
+                continue  # Preserve old files, but do not present them as active deliverables.
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
-        locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics))
+        locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
     applevel = [
         copy_row("Copyright", os.path.join(FL, "metadata", "copyright.txt")),
         copy_row("Primary category", os.path.join(FL, "metadata", "primary_category.txt")),
@@ -147,6 +154,12 @@ def render_shots(shots):
         out.append('</div>')
     return "".join(out)
 
+def render_deferred(deferred):
+    if not deferred: return ""
+    return '<div class="dc">Deferred screenshot targets</div>' + ''.join(
+        f'<p class="muted"><strong>{esc(display)} — deferred</strong>: {esc(reason)}</p>'
+        for display, reason in deferred.items())
+
 def render_graphics(graphics):
     if not graphics:
         return ""
@@ -164,7 +177,7 @@ for i, (plat, data) in enumerate(platforms.items()):
     body = []
     for L in data["locales"]:
         left = "".join(render_field(r) for r in L["fields"]) + "".join(render_field(r) for r in data["applevel"])
-        right = render_shots(L["shots"]) + render_graphics(L["graphics"])
+        right = render_shots(L["shots"]) + render_deferred(L.get("deferred", {})) + render_graphics(L["graphics"])
         body.append(f'<div class="loc"><div class="loclabel">locale: {esc(L["locale"])}</div>'
                     f'<div class="cols"><div class="left">{left}</div><div class="right">{right}</div></div></div>')
     panels.append(f'<section class="panel{on}" id="p-{plat}">{"".join(body)}</section>')

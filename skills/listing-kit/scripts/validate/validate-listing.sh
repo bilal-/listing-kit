@@ -155,7 +155,7 @@ asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT")"; asset_rc=$?
 [ "$asset_rc" = 0 ] || fail "could not validate Apple assets (exit $asset_rc)"
 while IFS=$'\t' read -r level msg; do
   [ -n "$level" ] || continue
-  case "$level" in PASS) pass "$msg";; *) fail "$msg";; esac
+  case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
 done <<<"$asset_result"
 if [ "$apple_present" = 1 ] && [ ! -f "$ROOT/.listing-kit/asset-plan.json" ]; then
   warn "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"

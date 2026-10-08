@@ -33,7 +33,12 @@ satisfy a missing planned class. Its size table is
 For Duo, check that Xcode and the installed runtime actually provide its device
 type before building (Xcode 27.1 / iOS 27.1 at this snapshot). See the
 [native capture guidance](../stacks/ios-native.md#capture) for multiple displays.
-Keep deferred targets out of the active plan and report them as deferred.
+Keep deferred targets out of active screenshot counts and record them in
+`deferredScreenshots` with a reason. The [Duo preflight](../stacks/ios-native.md#optional-duo-capture)
+lets other targets and creative assets proceed when compatible tooling is absent.
+Deferral does not waive store requirements: Apple has announced Duo screenshots
+will become required starting April 2027; recheck the linked specifications for
+the intended submission date.
 
 **Format (Validate must enforce):** PNG or JPEG, **RGB, flattened, no alpha/
 transparency**. Raw `xcrun simctl … screenshot` output is **32-bit RGBA** and must

@@ -40,6 +40,10 @@ Identify the stack from manifest signals. See `references/stacks/` (each stack d
 Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`, and `python3` (the validator, review page, and commit hook use it). Report **optional** tools and what their absence degrades to:
 - **ImageMagick** missing → screenshots can't be normalized to RGB at Capture (prompt to install it then), and feature-graphic generation falls back to asking the user for one.
 - **Maestro + JDK** missing → the Drive step falls back to manual-assist. (Do not install Maestro here; it is gated to first use in Drive.)
+- **Optional device tooling** missing → defer only that target, with a reason in
+  the plan and review; continue buildable targets and store copy/graphics. Check
+  stack-specific capabilities before proposing the plan. Do not install or
+  switch SDKs automatically, or silently drop an already approved active target.
 
 Fail fast with clear fix instructions. Building mobile apps is fragile — a clean Doctor report saves the user a long, confusing build failure later.
 
@@ -120,6 +124,7 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/capture/sanitize-status-bar.sh` | iOS `simctl status_bar` + Android demo-mode clean status bar |
 | `scripts/capture/normalize-screenshot.sh` | Flatten a raw capture to 24-bit RGB PNG; `--play` also crops to 9:16 |
 | `scripts/capture/capture-ios.sh` | Capture an explicit simulator display; reject wrong dimensions or blank frames before replacing an asset |
+| `scripts/doctor/iphone-duo.py` | Read-only SDK/device/runtime preflight; JSON result, exit 3 means Duo capture is unavailable |
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
