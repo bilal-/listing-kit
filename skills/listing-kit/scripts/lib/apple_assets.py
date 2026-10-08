@@ -59,7 +59,7 @@ def load_plan(root):
     return plan["apple"]
 
 
-def validate(root):
+def validate(root, required_displays=()):
     results = []
     for locale in header_locales(root):
         for path in images(header_dir(root, locale)):
@@ -78,7 +78,10 @@ def validate(root):
         for locale, target in load_plan(root).items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
             for display, reason in target.get("deferredScreenshots", {}).items():
-                results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
+                if display in required_displays:
+                    results.append(("FAIL", "cannot defer required screenshot class: {} ({})".format(display, locale)))
+                else:
+                    results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
             counts = Counter(apple_class(*image_info(path)[:2]) for path in images(
                 os.path.join(root, "fastlane", "screenshots", locale)))
             for display, expected in shots.items():
@@ -95,5 +98,5 @@ def validate(root):
 
 
 if __name__ == "__main__":
-    for level, message in validate(sys.argv[1]):
+    for level, message in validate(sys.argv[1], sys.argv[2:]):
         print(level + "\t" + message)

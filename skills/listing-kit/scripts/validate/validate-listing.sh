@@ -102,6 +102,7 @@ while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/listi
 while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")
 apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0
+required_classes=()
 { [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ]; } && apple_present=1
 [ -d "$ROOT/fastlane/metadata/android" ] && play_present=1
 
@@ -118,6 +119,8 @@ if [ "$apple_present" = 1 ]; then
   # Checked per locale: ≤10 per class, Dynamic Island medium iPhone set, 13-inch iPad
   # set when the app runs on iPad.
   ipad_required=$(supports_ipad "$ROOT")
+  [ "${LK_SUPPORTS_IPHONE:-1}" = 0 ] || required_classes+=('iPhone Dynamic Island (medium display)')
+  [ "$ipad_required" != True ] || required_classes+=('iPad 13"')
   shot_dirs=0
   for sdir in "$ROOT"/fastlane/screenshots/*/; do
     [ -d "$sdir" ] || continue
@@ -151,7 +154,7 @@ if [ "$apple_present" = 1 ]; then
 fi
 
 # Validate separate creative assets and the user's persisted Apple upload plan.
-asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT")"; asset_rc=$?
+asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})"; asset_rc=$?
 [ "$asset_rc" = 0 ] || fail "could not validate Apple assets (exit $asset_rc)"
 while IFS=$'\t' read -r level msg; do
   [ -n "$level" ] || continue

@@ -117,6 +117,20 @@ for plan in \
   assert_eq 1 "$RC"
 done
 
+it "existing required screenshots cannot be hidden by a deferral"
+for display in 'iPhone Dynamic Island (medium display)' 'iPad 13"'; do
+  python3 - "$T/.listing-kit/asset-plan.json" "$display" <<'PYTEST'
+import json, sys
+with open(sys.argv[1], 'w') as f:
+    json.dump({'apple': {'en-US': {'deferredScreenshots': {sys.argv[2]: 'No simulator'}}}}, f)
+PYTEST
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "cannot defer required screenshot class: $display"
+  OUT="$(LK_SUPPORTS_IPHONE=0 LK_SUPPORTS_IPAD=0 bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "the explicit supported-device overrides still apply"
+done
+
 it "deferral does not waive required medium iPhone screenshots"
 printf '%s\n' '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"No compatible runtime"}}}}' > "$T/.listing-kit/asset-plan.json"
 rm "$SHOTS/medium.png"
