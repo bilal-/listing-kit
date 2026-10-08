@@ -115,6 +115,21 @@ assert_contains "$PAGE" 'Header Asset (manual console upload)'
 assert_not_contains "$PAGE" 'src="fastlane/screenshots/en-US/duo-outer.png"'
 assert_file "$SHOTS/duo-outer.png" "deferral preserves existing assets on disk"
 
+it "the public plan is secret-scanned without scanning private local credentials"
+cp "$T/.listing-kit/asset-plan.json" "$T/clean-plan.json"
+printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$T/.listing-kit/secrets.local"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "private local credentials stay outside the public listing scan"
+python3 - "$T/.listing-kit/asset-plan.json" <<'PYTEST'
+import json, sys
+with open(sys.argv[1], 'w') as output:
+    json.dump({'apple': {'en-US': {'deferredScreenshots': {'iPhone Duo': 'ghp_' + 'A' * 36}}}}, output)
+PYTEST
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'asset plan secret scan: credentials found in asset-plan.json'
+cp "$T/clean-plan.json" "$T/.listing-kit/asset-plan.json"
+
 it "an active and deferred target conflict instead of silently skipping it"
 printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Duo":2},"deferredScreenshots":{"iPhone Duo":"No runtime"}}}}' > "$T/.listing-kit/asset-plan.json"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?

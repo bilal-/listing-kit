@@ -3,13 +3,13 @@
 # contain NO credentials. Run during Assemble; FAIL the run on any hit.
 #
 # Usage:
-#   secret-scan.sh [<dir>]    # default: fastlane
+#   secret-scan.sh [<file-or-dir>]    # default: fastlane
 #
 # Exit codes: 0 = clean, 1 = secret(s) found, 2 = scan error (e.g. unreadable file).
 set -euo pipefail
 
 dir="${1:-fastlane}"
-if [ ! -d "$dir" ]; then
+if [ ! -d "$dir" ] && [ ! -f "$dir" ]; then
   echo "Nothing to scan: '$dir' does not exist." >&2
   exit 0
 fi

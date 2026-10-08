@@ -254,6 +254,7 @@ scan(){ # dir label found-msg
 # Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
 [ -d "$ROOT/store-assets" ] && scan "$ROOT/store-assets" "creative asset secret scan" "credentials found in creative assets"
 [ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
+[ -f "$ROOT/.listing-kit/asset-plan.json" ] && scan "$ROOT/.listing-kit/asset-plan.json" "asset plan secret scan" "credentials found in asset-plan.json"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
 [ "$FAIL" -eq 0 ] && { echo "${G}LISTING VALID${Z}"; exit 0; } || { echo "${R}LISTING HAS FAILURES${Z}"; exit 1; }

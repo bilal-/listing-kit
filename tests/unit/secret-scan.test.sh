@@ -99,4 +99,14 @@ for c in \
   assert_eq 0 "$RC"
 done
 
+it "scans an explicitly selected public JSON file"
+mktree
+printf '%s\n' '{"note":"No runtime"}' > "$TREE/asset-plan.json"
+OUT="$(bash "$SUT" "$TREE/asset-plan.json" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/asset-plan.json"
+OUT="$(bash "$SUT" "$TREE/asset-plan.json" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'POTENTIAL SECRET'
+
 summary
