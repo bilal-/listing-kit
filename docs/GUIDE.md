@@ -105,8 +105,8 @@ placeholder if you don't have one). A **secret scan** runs over the committed tr
 and **fails the run** if anything leaked. Then the written tree is checked against
 current store rules: character limits, screenshot sizes and formats, and required
 assets. If the app is in a git repo, the agent also installs a pre-commit hook so
-commits that stage `fastlane/**` changes automatically refresh and stage
-`listing-review.html`.
+changes to [staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
+automatically refresh and stage `listing-review.html`.
 
 You get a **report**: per store/locale, what exists vs. required vs. missing,
 with next actions.
@@ -125,9 +125,10 @@ listing-review.html         # open in a browser: copy buttons, screenshots, vali
 
 Commit `fastlane/`. Review the copy like code. Re-run any time the app changes.
 Existing copy is the baseline on reruns, so the expected output is a focused diff,
-not a fresh rewrite. In git repos, changes under `fastlane/**` refresh
-`listing-review.html` at commit time. The saved Maestro flows make screenshot
-capture repeatable.
+not a fresh rewrite. In git repos, changes to
+[staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
+refresh `listing-review.html` at commit time. The saved Maestro flows make
+screenshot capture repeatable.
 
 ## 5. Re-running & CI
 

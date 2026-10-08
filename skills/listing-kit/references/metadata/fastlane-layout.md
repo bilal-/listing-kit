@@ -35,6 +35,75 @@ fastlane/metadata/
 fastlane/screenshots/<locale>/      # iPhone / iPad / Watch PNGs
 ```
 
+## Apple creative assets
+
+`store-assets/apple/<locale>/` contains Header Asset image variants. This is
+listing-kit's source layout for manual App Store Connect upload, separate from
+Fastlane's screenshot tree. The validator and review page include this folder.
+
+### Apple asset plan
+
+Persist approved Apple coverage in `.listing-kit/asset-plan.json` at the app root:
+
+```json
+{
+  "apple": {
+    "en-US": {
+      "screenshots": {
+        "iPhone Dynamic Island (medium display)": 5,
+        "iPad 13\"": 5
+      },
+      "headers": ["header-16x9.png", "header-21x9.png"]
+    }
+  }
+}
+```
+
+Use the exact display-class labels in `scripts/lib/apple-screenshot-sizes.tsv`.
+Counts are the approved number (1–10) in that class and locale; the validator
+requires a match. Header entries are lower-case PNG/JPEG basenames within that
+locale's creative-assets folder. Either `screenshots` or `headers` may be omitted
+when only the other is planned.
+
+Optional `deferredScreenshots` maps display-class labels to a nonempty, single-line
+reason (up to 500 characters), for example:
+
+```json
+{
+  "apple": {
+    "en-US": {
+      "screenshots": {
+        "iPhone Dynamic Island (medium display)": 5
+      },
+      "headers": [
+        "header-16x9.png"
+      ],
+      "deferredScreenshots": {
+        "iPhone Duo": "Xcode 27.1 and a compatible Duo runtime are unavailable."
+      }
+    }
+  }
+}
+```
+
+Keep a deferred class out of `screenshots`; an active/deferred conflict fails
+validation. Deferrals produce warnings and a visible review notice, and hide any
+retained screenshots of that class from the active gallery without deleting them.
+They never waive store-required screenshot classes. Capture and archive only
+active targets; do not recursively include retained deferred screenshots in a
+delivery ZIP. Keep credentials out of the plan. Update the plan when the user changes scope. Without a plan, validation checks
+store minimums and present images but cannot prove that every requested set exists.
+
+Keep numeric screenshot prefixes and a distinct device suffix, e.g.
+`01_home_iphone-medium.png` and `01_home_ipad.png`. Label the exact console slot
+in the review/handoff. If creating a ZIP, include headers and the plan, and check
+its file inventory and contents against the validated source tree.
+Exclude incidental hidden files and folders such as `.DS_Store`, editor backups
+and temporary capture directories. Include the approved plan explicitly rather
+than recursively archiving all hidden files. Reopen the final ZIP and verify the
+actual inventory and bytes after filtering; image validation alone does not
+audit archive metadata.
+
 ## Android — `fastlane/metadata/android/`
 ```
 fastlane/metadata/android/

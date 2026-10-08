@@ -93,12 +93,15 @@ Shared logic lives once in `scripts/lib/`:
 - `imginfo.py` reads PNG/JPEG headers (size, depth, alpha) with no ImageMagick.
 - `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
 - `fields.py` defines every copy field's limit, unit, and required flag.
-- `listing.py` decides which folders are locales and which files are images.
+- `listing.py` discovers locales and images within the fastlane tree.
+- `apple_assets.py` adds header and upload-plan locales for Apple, and validates
+  headers and planned upload sets.
 - `imagemagick.sh` finds ImageMagick 7 or 6.
 - `secret-scan.sh` enforces the secrets boundary.
 
-The validator and the review page both use `fields.py` and `listing.py`, so they
-can't disagree about a limit or a locale.
+The validator and review page share `fields.py` for copy rules,
+`apple_assets.apple_locales` for Apple locale discovery, and `listing.py` for Play
+locales and image discovery. This keeps the validation results and preview aligned.
 
 Scripts are bash 3.2+ (macOS's default) plus Python 3.8+ standard library. Each
 documents its exit codes in its header. Generally `0` is success, `1` means a check
@@ -110,9 +113,11 @@ optional tool is missing and the caller should fall back.
 The committed tree is the source of truth for non-secrets only. Login
 credentials, API tokens, and seed-data secrets live in a git-ignored
 `.listing-kit/secrets.local` or environment variables, and flows reference them
-rather than inlining them. `secret-scan.sh` scans `fastlane/` and
-`.listing-kit/flows/` for known credential formats and generic `key = value`
-assignments; Assemble and Validate both fail on a hit.
+rather than inlining them. `validate-listing.sh` runs `secret-scan.sh` on `fastlane/`,
+`store-assets/`, `.listing-kit/flows/`, and the public `.listing-kit/asset-plan.json`
+file. It checks known credential formats and generic `key = value` assignments;
+Assemble and Validate fail on a hit. Private `.listing-kit/secrets.local` files
+remain outside these scans.
 
 ## Store rules drift
 
@@ -136,4 +141,6 @@ A test fails CI if the committed copies drift from the generator.
 screenshots grouped by device class, the validator's output) for reviewing the
 listing and pasting copy into the store consoles. `install-review-hook.sh` adds a
 pre-commit hook that rebuilds the page from the staged tree whenever
-`fastlane/**` changes, without altering how an existing hook behaves.
+[staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
+change, without altering how an existing hook behaves. One path filter selects
+both the changes that trigger a refresh and the files copied into its snapshot.

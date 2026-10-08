@@ -2,7 +2,11 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/build-review.sh"
-APP="$ROOT/examples/expo-recipe-box"
+# Keep historical example captures unchanged; add a synthetic medium-size test fixture.
+APP="$(mktemp -d)"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
+fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
+trap 'rm -rf "$APP"' EXIT
 
 it "exits 2 when there is no fastlane tree"
 T="$(mktemp -d)"
@@ -27,8 +31,8 @@ it "renders char counts, screenshots, and graphics"
 assert_contains "$PAGE" '23/30'                        # name: "Recipe Box: Cook & Shop"
 assert_contains "$PAGE" 'fastlane/screenshots/en-US/'  # relative screenshot link (iOS)
 assert_contains "$PAGE" 'phoneScreenshots'             # android screenshot link
-assert_contains "$PAGE" 'iPhone 6.9'                   # device-class grouping (note: " is HTML-escaped)
-assert_not_contains "$PAGE" 'iPhone 6.9"'   # the " must be HTML-escaped (&quot;), never literal
+assert_contains "$PAGE" 'iPhone Dynamic Island (large display)' # device-class grouping
+assert_contains "$PAGE" 'iPad 13&quot;' # class labels are HTML-escaped
 assert_contains "$PAGE" 'Feature graphic'              # generated graphic
 
 it "embeds the validator output"
@@ -84,5 +88,42 @@ assert_contains "$PAGE" "images/featureGraphic.png"
 assert_contains "$PAGE" "Feature graphic 1024×500"
 assert_contains "$PAGE" "images/icon.png"
 rm -rf "$T"
+
+it "malformed URL hosts and ports fail validation without crashing the review"
+for url in 'https://[::1' 'https://example.test:abc/help' 'https://example.test:70000/help'; do
+  T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+  printf '%s\n' "$url" > "$T/fastlane/metadata/en-US/support_url.txt"
+  OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" 'support_url: not a single http(s) URL'
+  assert_not_contains "$OUT" Traceback
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" Traceback
+  if [ -f "$T/listing-review.html" ]; then
+    assert_contains "$(cat "$T/listing-review.html")" '<span class="b bad">check</span>'
+  else
+    fail 'review page was not generated for invalid URL'
+  fi
+  rm -rf "$T"
+done
+
+it "invalid UTF-8 in app-level copy fails validation and remains reviewable"
+for stem in copyright primary_category; do
+  T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+  printf 'Caf\xe9\n' > "$T/fastlane/metadata/$stem.txt"
+  OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$stem: not valid UTF-8"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" Traceback
+  if [ -f "$T/listing-review.html" ]; then
+    assert_contains "$(cat "$T/listing-review.html")" '<span class="b bad">not valid UTF-8</span>'
+  else
+    fail 'review page was not generated for invalid app-level copy'
+  fi
+  rm -rf "$T"
+done
 
 summary

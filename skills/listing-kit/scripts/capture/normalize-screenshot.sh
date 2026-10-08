@@ -47,7 +47,7 @@ fi
 mkdir -p "$(dirname "$out")"
 "${IM[@]}" "$in" ${crop[@]+"${crop[@]}"} \
   -background white -alpha remove -alpha off \
-  -depth 8 -define png:color-type=2 \
+  -strip -depth 8 -define png:color-type=2 \
   "PNG24:$out"
 
 echo "Wrote $out (24-bit RGB, no alpha${crop[0]:+, cropped to 9:16})."

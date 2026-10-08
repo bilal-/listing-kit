@@ -7,7 +7,7 @@ demo-data mode (populated screens, no login wall).
 
 | Example | Stack | Status |
 |---|---|---|
-| [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | app ✅ · iOS listing ✅ · Android listing ✅ ([report](expo-recipe-box/LISTING-REPORT.md)) |
+| [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | app and historical listing output ([report](expo-recipe-box/LISTING-REPORT.md)); iOS medium set needs recapture |
 | _native iOS (SwiftUI)_ | — | planned |
 | _native Android (Compose)_ | — | planned |
 | _Flutter_ | — | planned |
@@ -31,6 +31,11 @@ npx expo start            # press i (iOS sim) or a (Android emulator)
 ```
 
 ### Generate the store listing (Phase B)
+The committed iPhone captures predate Apple's Dynamic Island medium requirement.
+They remain examples of real UI, but the current validator correctly reports the
+missing medium set. Recapture it on a matching simulator; do not resize the old
+large images. Tests use temporary synthetic image headers for size-rule coverage.
+
 This is what produces the committed `expo-recipe-box/fastlane/` output, and is the
 first real end-to-end run of the skill. Requires Node, Xcode and/or Android SDK, a
 booted simulator/emulator, and Maestro.

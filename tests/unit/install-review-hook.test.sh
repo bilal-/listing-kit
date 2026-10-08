@@ -200,4 +200,70 @@ assert_contains "$(git -C "$T" show 'HEAD:apps/mobile[1]/listing-review.html')" 
 assert_not_contains "$(git -C "$T" ls-files)" "apps/mobile1/listing-review.html" "the look-alike dir is untouched"
 rm -rf "$T"
 
+it "header-only and plan-only commits refresh from staged assets"
+T="$(mktemp -d)"; git -C "$T" init -q
+git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
+fake_png "$T/store-assets/apple/en-US/header.png" 5244 2950
+git -C "$T" add store-assets
+# The unstaged working copy must not leak into the committed review.
+fake_png "$T/store-assets/apple/en-US/header.png" 1024 500 8 6
+git -C "$T" commit -qm "header" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'Header Asset (manual console upload)'
+assert_contains "$PAGE" '5244x2950 RGB/no-alpha'
+mkdir -p "$T/.listing-kit"
+printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Duo":5}}}}' > "$T/.listing-kit/asset-plan.json"
+git -C "$T" add .listing-kit/asset-plan.json
+git -C "$T" commit -qm "plan" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'iPhone Duo: 0 of 5 screenshots'
+rm -rf "$T"
+
+it "flow-only and app-config-only commits refresh validation from the index"
+T="$(mktemp -d)"; git -C "$T" init -q
+git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+rm "$T"/fastlane/screenshots/en-US/ipad13_*.png
+fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
+printf '%s\n' '{"expo":{"ios":{"supportsTablet":false}}}' > "$T/app.json"
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane app.json && git -C "$T" commit -qm "phone listing" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+mkdir -p "$T/.listing-kit/flows"
+printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/.listing-kit/flows/login.yaml"
+git -C "$T" add .listing-kit/flows && git -C "$T" commit -qm "add flow" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'LISTING HAS FAILURES'
+assert_contains "$PAGE" 'flow secret scan: credentials inlined'
+git -C "$T" mv .listing-kit/flows/login.yaml retired-flow.yaml
+git -C "$T" commit -qm "move flow outside listing inputs" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+it "creative-asset-only commits refresh validation for every asset folder"
+mkdir -p "$T/store-assets/promo"
+printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/store-assets/promo/notes.txt"
+git -C "$T" add store-assets && git -C "$T" commit -qm "add creative asset notes" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'LISTING HAS FAILURES'
+assert_contains "$PAGE" 'creative asset secret scan: credentials found'
+git -C "$T" mv store-assets/promo/notes.txt retired-asset.txt
+git -C "$T" commit -qm "move notes outside creative assets" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+
+it "app-config-only commits use the staged device support settings"
+printf '%s\n' '{"expo":{"ios":{"supportsTablet":true}}}' > "$T/app.json"
+git -C "$T" add app.json
+# The staged configuration must win over this unstaged edit.
+printf '%s\n' '{"expo":{"ios":{"supportsTablet":false}}}' > "$T/app.json"
+git -C "$T" commit -qm "enable tablet" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'app supports iPad but NO iPad screenshots'
+assert_contains "$PAGE" 'LISTING HAS FAILURES'
+git -C "$T" mv app.json retired-app.json
+git -C "$T" commit -qm "remove app config from listing inputs" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+rm -rf "$T"
+
 summary

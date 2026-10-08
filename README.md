@@ -43,8 +43,9 @@ existing publishing tooling can pick it up with zero translation.
 If a repo already has `fastlane/` metadata, listing-kit uses it as the baseline.
 Reruns should make focused edits for new features, missing fields, screenshots,
 or validation failures, not rewrite good store copy just because the model can.
-In git repos, listing-kit installs a pre-commit rule so any commit that stages
-`fastlane/**` changes also refreshes and stages `listing-review.html`.
+In git repos, listing-kit installs a pre-commit rule so changes to
+[staged listing inputs](skills/listing-kit/SKILL.md#commit-time-review-refresh)
+also refresh and stage `listing-review.html`.
 
 > **This is not "a screenshot tool."** Screenshots are one artifact among
 > several. The unit of value is a complete, version-controlled listing that

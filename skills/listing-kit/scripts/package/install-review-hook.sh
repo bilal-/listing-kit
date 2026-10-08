@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install a git pre-commit hook that keeps listing-review.html in sync whenever
-# staged files under the app root's fastlane/ tree change.
+# staged listing inputs change (including flows and device-support config).
 #
 # Usage: install-review-hook.sh [<app-root>]    (default: current directory)
 # Exit:  0 = installed/updated hook, 2 = usage / not a git worktree / can't install.
@@ -90,13 +90,13 @@ fi
 cd "$(git rev-parse --show-toplevel)" || exit 0
 set -o pipefail
 
-# Index paths build-review reads for one app (listing, flows, iPad signals), NUL-separated.
+# Index paths build-review reads for one app (listing, headers, plan, flows, iPad signals), NUL-separated.
 # Pathspecs are literal so app dirs with [ ] * ? in their names match exactly.
-snapshot_paths(){ # prefix
-  git ls-files -z -- ":(literal)${1:-.}" | python3 -c '
+review_paths(){ # prefix; NUL-separated paths on stdin
+  python3 -c '
 import re, sys
 pre = sys.argv[1]
-keep = re.compile(r"(fastlane/|\.listing-kit/flows/)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
+keep = re.compile(r"(fastlane/|store-assets/|\.listing-kit/flows/|\.listing-kit/asset-plan\.json$)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
 for p in sys.stdin.buffer.read().split(b"\0"):
     rel = p.decode("utf-8", "surrogateescape")[len(pre):]
     if p and keep.match(rel):
@@ -106,14 +106,16 @@ for p in sys.stdin.buffer.read().split(b"\0"):
 
 for app in "${apps[@]}"; do
   p="${app:+$app/}"
-  git diff --cached --quiet -- ":(literal)${p}fastlane/" && continue
+  # Disable rename detection so moving an input outside this set still refreshes.
+  changed_bytes="$(git diff --cached --name-only --no-renames -z -- ":(literal)${app:-.}" | review_paths "$p" | wc -c)"
+  [ "$changed_bytes" -gt 0 ] || continue
   if [ -z "$(git ls-files -- ":(literal)${p}fastlane/")" ]; then   # listing removed entirely
     git rm -q --cached --ignore-unmatch -- ":(literal)${p}listing-review.html" && rm -f -- "${p}listing-review.html"
     continue
   fi
   snap="$(mktemp -d)" || { warn "mktemp failed; listing-review.html not refreshed."; continue; }
   # --ignore-skip-worktree-bits: include files a sparse checkout hides.
-  if snapshot_paths "$p" | git checkout-index -z --stdin --ignore-skip-worktree-bits --prefix="$snap/" \
+  if git ls-files -z -- ":(literal)${app:-.}" | review_paths "$p" | git checkout-index -z --stdin --ignore-skip-worktree-bits --prefix="$snap/" \
      && "$build_review" "$snap/${app:-.}" >/dev/null 2>&1 \
      && cp "$snap/${p}listing-review.html" "${p}listing-review.html"; then
     git add -- ":(literal)${p}listing-review.html"

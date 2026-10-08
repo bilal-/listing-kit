@@ -96,12 +96,14 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 
 # Scope to the store(s) actually present, so a single-store listing (e.g. Play
 # only) is not failed for the store it never targeted.
-# Locales come from lib/listing.py, shared with build-review.sh.
+# Apple locales include headers/plans via apple_assets.py; Play uses listing.py.
+# Both discovery paths are shared with build-review.sh.
 apple_locales=(); play_locales=()
-while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/listing.py" apple-locales "$ROOT/fastlane")
+while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/apple_assets.py" --locales "$ROOT")
 while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")
 apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0
+required_classes=()
 { [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ]; } && apple_present=1
 [ -d "$ROOT/fastlane/metadata/android" ] && play_present=1
 
@@ -112,12 +114,14 @@ if [ "$apple_present" = 1 ]; then
     echo " locale $(basename "$loc"):"
     if [ -d "$apple_default" ]; then fields apple "$loc" "$apple_default"; else fields apple "$loc"; fi
   done
-  [ -f "$ROOT/fastlane/metadata/copyright.txt" ] && pass "copyright.txt present" || warn "copyright.txt absent"
+  fields apple-app "$ROOT/fastlane/metadata"
 
   # Screenshots: deliver assigns each image to a display class by its pixel size.
-  # Checked per locale: ≤10 per class, a 6.9" or 6.5" iPhone set, and a 13" iPad
+  # Checked per locale: ≤10 per class, Dynamic Island medium iPhone set, 13-inch iPad
   # set when the app runs on iPad.
   ipad_required=$(supports_ipad "$ROOT")
+  [ "${LK_SUPPORTS_IPHONE:-1}" = 0 ] || required_classes+=('iPhone Dynamic Island (medium display)')
+  [ "$ipad_required" != True ] || required_classes+=('iPad 13"')
   shot_dirs=0
   for sdir in "$ROOT"/fastlane/screenshots/*/; do
     [ -d "$sdir" ] || continue
@@ -136,9 +140,9 @@ if [ "$apple_present" = 1 ]; then
     done < <(printf '%s' "$classes" | sort | uniq -c)
     # LK_SUPPORTS_IPHONE=0 for iPad-only apps (TARGETED_DEVICE_FAMILY = 2).
     if [ "${LK_SUPPORTS_IPHONE:-1}" != 0 ]; then
-      iphone_hero=$(( $(count_of 'iPhone 6.9"') + $(count_of 'iPhone 6.5"') ))
-      [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at 6.9\"/6.5\")" \
-        || fail "no 6.9\" or 6.5\" iPhone screenshots (App Store requires one of these sets)"
+      iphone_hero=$(count_of 'iPhone Dynamic Island (medium display)')
+      [ "$iphone_hero" -ge 1 ] && pass "iPhone screenshots present ($iphone_hero at Dynamic Island medium)" \
+        || fail 'no iPhone Dynamic Island (medium display) screenshots — capture 1206x2622 or 1179x2556; large-display images do not fill this slot'
     fi
     if [ "$ipad_required" = "True" ]; then
       ipad13=$(count_of 'iPad 13"')
@@ -148,6 +152,17 @@ if [ "$apple_present" = 1 ]; then
     [ "$badfmt" = 0 ] && pass "all screenshots are RGB/no-alpha"
   done
   [ "$shot_dirs" -gt 0 ] || fail "no fastlane/screenshots/<locale>/ directory (≥1 iPhone set required)"
+fi
+
+# Validate separate creative assets and the user's persisted Apple upload plan.
+asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})"; asset_rc=$?
+[ "$asset_rc" = 0 ] || fail "could not validate Apple assets (exit $asset_rc)"
+while IFS=$'\t' read -r level msg; do
+  [ -n "$level" ] || continue
+  case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
+done <<<"$asset_result"
+if [ "$apple_present" = 1 ] && [ ! -f "$ROOT/.listing-kit/asset-plan.json" ]; then
+  warn "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"
 fi
 
 # ---------------- Google Play (supply) ----------------
@@ -238,7 +253,9 @@ scan(){ # dir label found-msg
 }
 [ -d "$ROOT/fastlane" ] && scan "$ROOT/fastlane" "secret scan" "credentials found in committed tree"
 # Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
+[ -d "$ROOT/store-assets" ] && scan "$ROOT/store-assets" "creative asset secret scan" "credentials found in creative assets"
 [ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
+[ -f "$ROOT/.listing-kit/asset-plan.json" ] && scan "$ROOT/.listing-kit/asset-plan.json" "asset plan secret scan" "credentials found in asset-plan.json"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
 [ "$FAIL" -eq 0 ] && { echo "${G}LISTING VALID${Z}"; exit 0; } || { echo "${R}LISTING HAS FAILURES${Z}"; exit 1; }
