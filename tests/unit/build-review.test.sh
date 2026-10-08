@@ -89,4 +89,23 @@ assert_contains "$PAGE" "Feature graphic 1024×500"
 assert_contains "$PAGE" "images/icon.png"
 rm -rf "$T"
 
+it "malformed URL hosts and ports fail validation without crashing the review"
+for url in 'https://[::1' 'https://example.test:abc/help' 'https://example.test:70000/help'; do
+  T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+  printf '%s\n' "$url" > "$T/fastlane/metadata/en-US/support_url.txt"
+  OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" 'support_url: not a single http(s) URL'
+  assert_not_contains "$OUT" Traceback
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" Traceback
+  if [ -f "$T/listing-review.html" ]; then
+    assert_contains "$(cat "$T/listing-review.html")" '<span class="b bad">check</span>'
+  else
+    fail 'review page was not generated for invalid URL'
+  fi
+  rm -rf "$T"
+done
+
 summary

@@ -51,7 +51,12 @@ def read(path):
 def is_url(value):
     if len(value.split()) != 1:
         return False
-    u = urlparse(value)
+    try:
+        u = urlparse(value)
+        # urllib validates malformed and out-of-range ports when accessed.
+        u.port
+    except ValueError:
+        return False
     return u.scheme in ("http", "https") and bool(u.hostname)
 
 
