@@ -98,7 +98,11 @@ Validate what Assemble actually wrote, so generated metadata and graphics are co
 
 Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-review.html` at the app root — a single static page (copy buttons, screenshots per device class, the validator's results) for reviewing the listing and pasting copy into the store consoles. It is read-only and never writes into `fastlane/`.
 
-If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html` whenever staged `fastlane/**`, `store-assets/apple/**`, or `.listing-kit/asset-plan.json` files change. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
+#### Commit-time review refresh
+
+If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html`.
+
+The hook watches staged changes to `fastlane/**`, `store-assets/apple/**`, `.listing-kit/asset-plan.json`, `.listing-kit/flows/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 
@@ -138,4 +142,4 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/validate/visual-diff.sh` | Per-screen regression report between a previous and current screenshot set (Validate step) |
 | `scripts/package/generate-manifests.sh` | Emit per-AI-platform install manifests from this canonical skill |
 | `scripts/package/build-review.sh` | Emit a static `listing-review.html` (copy buttons, screenshots, embedded validation) for human review |
-| `scripts/package/install-review-hook.sh` | Install the pre-commit hook that refreshes `listing-review.html` when staged `fastlane/**` files change |
+| `scripts/package/install-review-hook.sh` | Refresh `listing-review.html` when [staged listing inputs](#commit-time-review-refresh) change |

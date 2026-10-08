@@ -141,4 +141,6 @@ A test fails CI if the committed copies drift from the generator.
 screenshots grouped by device class, the validator's output) for reviewing the
 listing and pasting copy into the store consoles. `install-review-hook.sh` adds a
 pre-commit hook that rebuilds the page from the staged tree whenever
-`fastlane/**` changes, without altering how an existing hook behaves.
+[staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
+change, without altering how an existing hook behaves. One path filter selects
+both the changes that trigger a refresh and the files copied into its snapshot.
