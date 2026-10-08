@@ -102,7 +102,7 @@ Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-
 
 If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html`.
 
-The hook watches staged changes to `fastlane/**`, `store-assets/apple/**`, `.listing-kit/asset-plan.json`, `.listing-kit/flows/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
+The hook watches staged changes to `fastlane/**`, `store-assets/**`, `.listing-kit/asset-plan.json`, `.listing-kit/flows/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 

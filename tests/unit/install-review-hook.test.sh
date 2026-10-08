@@ -241,6 +241,18 @@ assert_contains "$PAGE" 'flow secret scan: credentials inlined'
 git -C "$T" mv .listing-kit/flows/login.yaml retired-flow.yaml
 git -C "$T" commit -qm "move flow outside listing inputs" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+it "creative-asset-only commits refresh validation for every asset folder"
+mkdir -p "$T/store-assets/promo"
+printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/store-assets/promo/notes.txt"
+git -C "$T" add store-assets && git -C "$T" commit -qm "add creative asset notes" >/dev/null 2>&1
+PAGE="$(git -C "$T" show HEAD:listing-review.html)"
+assert_contains "$PAGE" 'LISTING HAS FAILURES'
+assert_contains "$PAGE" 'creative asset secret scan: credentials found'
+git -C "$T" mv store-assets/promo/notes.txt retired-asset.txt
+git -C "$T" commit -qm "move notes outside creative assets" >/dev/null 2>&1
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+
+it "app-config-only commits use the staged device support settings"
 printf '%s\n' '{"expo":{"ios":{"supportsTablet":true}}}' > "$T/app.json"
 git -C "$T" add app.json
 # The staged configuration must win over this unstaged edit.

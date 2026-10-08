@@ -96,7 +96,7 @@ review_paths(){ # prefix; NUL-separated paths on stdin
   python3 -c '
 import re, sys
 pre = sys.argv[1]
-keep = re.compile(r"(fastlane/|store-assets/apple/|\.listing-kit/flows/|\.listing-kit/asset-plan\.json$)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
+keep = re.compile(r"(fastlane/|store-assets/|\.listing-kit/flows/|\.listing-kit/asset-plan\.json$)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
 for p in sys.stdin.buffer.read().split(b"\0"):
     rel = p.decode("utf-8", "surrogateescape")[len(pre):]
     if p and keep.match(rel):
