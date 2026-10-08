@@ -2,7 +2,7 @@
 inclusion: manual
 ---
 
-# listing-kit (v0.4.0)
+# listing-kit (v0.5.0)
 
 Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing (copy, metadata, graphics) into the repo as the source of truth — fastlane-compatible, cross-stack, cross-AI.
 
