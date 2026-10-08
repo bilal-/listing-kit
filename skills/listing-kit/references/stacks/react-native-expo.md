@@ -60,6 +60,14 @@ comes out blank. If the app doesn't set a style, ask before adding
 `<StatusBar style="dark" />` (from `expo-status-bar`) to the root layout.
 
 ## Sanitize, permissions & capture
+
+If a native margin stays white despite a configured dark `backgroundColor`,
+check that `expo-system-ui` and its config plugin are installed, then regenerate
+and rebuild. Expo applies the iOS root background through that plugin; React
+screen styling alone does not cover views outside the React tree. Verify the
+actual raw capture before attributing a margin to the app or editing its pixels.
+See [Expo SystemUI](https://docs.expo.dev/versions/latest/sdk/system-ui/).
+
 Same as the underlying platform — use the **platform** SDK tooling
 (`xcrun simctl` / `adb`) for status bar, permissions, and capture. See
 `ios-native.md` and `android-native.md`.

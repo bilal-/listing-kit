@@ -52,12 +52,16 @@ Resolve `<bundle-id>` from `PRODUCT_BUNDLE_IDENTIFIER` (build settings) or the b
 xcrun simctl io booted screenshot --type=png "01_home.png"
 ```
 Full-resolution, status-bar override intact. Preferred over Maestro's `takeScreenshot`.
+For delivery, prefer `scripts/capture/capture-ios.sh` with the explicit device,
+display and planned native dimensions. It normalizes to RGB, strips metadata and
+replaces the destination only after rejecting wrong-size and solid/blank frames.
+This does not replace visual review or assertions that the intended screen loaded.
 
 For devices with multiple displays, enumerate them first:
 
 ```sh
 xcrun simctl io "$DEVICE_UDID" enumerate
-xcrun simctl io "$DEVICE_UDID" screenshot --display "$DISPLAY_NAME" output.png
+bash scripts/capture/capture-ios.sh "$DEVICE_UDID" "$DISPLAY_NAME" 1398x2034 output.png
 ```
 
 Select the screen showing the app, using the enumerated screen ID/name. Do not

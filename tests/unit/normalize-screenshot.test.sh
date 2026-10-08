@@ -30,6 +30,7 @@ LOG="$(stub_log)"
 assert_eq 0 "$RC"
 assert_contains "$LOG" "-alpha remove -alpha off" "removes alpha"
 assert_contains "$LOG" "-depth 8" "forces 8-bit depth"
+assert_contains "$LOG" "-strip" "removes capture metadata"
 assert_contains "$LOG" "PNG24:$TMP/out.png" "writes PNG24"
 assert_not_contains "$LOG" "-crop" "no crop without --play"
 

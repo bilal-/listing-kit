@@ -119,6 +119,7 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 |---|---|
 | `scripts/capture/sanitize-status-bar.sh` | iOS `simctl status_bar` + Android demo-mode clean status bar |
 | `scripts/capture/normalize-screenshot.sh` | Flatten a raw capture to 24-bit RGB PNG; `--play` also crops to 9:16 |
+| `scripts/capture/capture-ios.sh` | Capture an explicit simulator display; reject wrong dimensions or blank frames before replacing an asset |
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
