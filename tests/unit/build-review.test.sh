@@ -108,4 +108,22 @@ for url in 'https://[::1' 'https://example.test:abc/help' 'https://example.test:
   rm -rf "$T"
 done
 
+it "invalid UTF-8 in app-level copy fails validation and remains reviewable"
+for stem in copyright primary_category; do
+  T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+  printf 'Caf\xe9\n' > "$T/fastlane/metadata/$stem.txt"
+  OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$stem: not valid UTF-8"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" Traceback
+  if [ -f "$T/listing-review.html" ]; then
+    assert_contains "$(cat "$T/listing-review.html")" '<span class="b bad">not valid UTF-8</span>'
+  else
+    fail 'review page was not generated for invalid app-level copy'
+  fi
+  rm -rf "$T"
+done
+
 summary

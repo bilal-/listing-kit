@@ -112,7 +112,7 @@ if [ "$apple_present" = 1 ]; then
     echo " locale $(basename "$loc"):"
     if [ -d "$apple_default" ]; then fields apple "$loc" "$apple_default"; else fields apple "$loc"; fi
   done
-  [ -f "$ROOT/fastlane/metadata/copyright.txt" ] && pass "copyright.txt present" || warn "copyright.txt absent"
+  fields apple-app "$ROOT/fastlane/metadata"
 
   # Screenshots: deliver assigns each image to a display class by its pixel size.
   # Checked per locale: ≤10 per class, Dynamic Island medium iPhone set, 13-inch iPad

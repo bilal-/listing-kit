@@ -2,7 +2,7 @@
 """Store copy fields (limits, units, required flags), shared by validate-listing.sh
 and build-review.sh so the two never disagree. Source: references/stores/*.md.
 
-CLI:    fields.py {apple|play} <locale-dir> [<fallback-dir>]
+CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>]
 Prints one "LEVEL<TAB>message" line per field, LEVEL in PASS / WARN / FAIL. A field
 missing from the locale is read from <fallback-dir> (fastlane's metadata/default/).
 """
@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 # (file stem, display label, limit or None, unit, required[, minimum])
 # unit: "chars" = Unicode code points, "bytes" = UTF-8 bytes, "url" = http(s) URL.
 FIELDS = {
+    "apple-app": [
+        ("copyright", "Copyright", None, "chars", False),
+        ("primary_category", "Primary category", None, "chars", False),
+    ],
     "apple": [
         ("name", "Name", 30, "chars", True, 2),
         ("subtitle", "Subtitle", 30, "chars", False),
@@ -116,6 +120,8 @@ def check(r):
         return "FAIL", f"{stem}: not a single http(s) URL: {value[:60]!r}"
     if r["count"] < r.get("minimum", 0):
         return "FAIL", f"{stem}: {r['count']} {r['unit']}, under the {r['minimum']}-{r['unit']} minimum"
+    if r["limit"] is None:
+        return "PASS", f"{stem}: set"
     if r["count"] > r["limit"]:
         return "FAIL", f"{stem}: {r['count']}/{r['limit']} {r['unit']} OVER LIMIT"
     return "PASS", f"{stem}: {r['count']}/{r['limit']} {r['unit']}"

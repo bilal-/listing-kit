@@ -56,12 +56,6 @@ def devclass(wh):
 def esc(s):
     return html.escape(s if s is not None else "")
 
-def copy_row(label, path):
-    """An app-level field with no limit (copyright, category)."""
-    v = read(path)
-    return dict(label=label, value=v, limit=None, unit="chars", required=False,
-                count=(len(v) if v is not None else None))
-
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
     apple_plan = apple_assets.load_plan(root)
@@ -88,10 +82,7 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
-    applevel = [
-        copy_row("Copyright", os.path.join(FL, "metadata", "copyright.txt")),
-        copy_row("Primary category", os.path.join(FL, "metadata", "primary_category.txt")),
-    ]
+    applevel = store_fields.rows("apple-app", os.path.join(FL, "metadata"))
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
 # ---- Android (supply) ----
