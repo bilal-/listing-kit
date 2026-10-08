@@ -61,6 +61,13 @@ comes out blank. If the app doesn't set a style, ask before adding
 
 ## Sanitize, permissions & capture
 
+For a dark app, check the navigation theme as well as individual screen colors.
+An Expo Router stack using its default light theme can expose white margins or
+light native controls on an adaptive display even when every screen is black.
+Use the installed Router version's `ThemeProvider` and `DarkTheme` API, rebuild
+the bundle and inspect a fresh native capture. See
+[Expo's navigation theme guidance](https://docs.expo.dev/router/advanced/stack-toolbar/#common-problems).
+
 If a native margin stays white despite a configured dark `backgroundColor`,
 check that `expo-system-ui` and its config plugin are installed, then regenerate
 and rebuild. Expo applies the iOS root background through that plugin; React
