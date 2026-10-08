@@ -98,7 +98,7 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 # only) is not failed for the store it never targeted.
 # Locales come from lib/listing.py, shared with build-review.sh.
 apple_locales=(); play_locales=()
-while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/listing.py" apple-locales "$ROOT/fastlane")
+while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/apple_assets.py" --locales "$ROOT")
 while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")
 apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0

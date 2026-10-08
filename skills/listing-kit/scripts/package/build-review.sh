@@ -63,9 +63,7 @@ except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
-ios_locs = sorted(set(listing.apple_locales(FL)) | {
-    os.path.join(FL, "metadata", loc) for loc in set(apple_assets.header_locales(root)) | set(apple_plan)
-})
+ios_locs = apple_assets.apple_locales(root)
 apple_default = listing.apple_default(FL)
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []

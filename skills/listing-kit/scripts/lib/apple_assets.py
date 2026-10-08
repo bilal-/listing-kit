@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Validate Apple headers and explicitly planned upload sets (stdlib only)."""
+"""Validate Apple headers and explicitly planned upload sets (stdlib only).
+
+CLI: apple_assets.py <root> [<required-display> ...]
+     apple_assets.py --locales <root>
+"""
 
 import json
 import os
@@ -8,7 +12,7 @@ import sys
 from collections import Counter
 
 from imginfo import APPLE_SIZES, apple_class, image_info
-from listing import images
+from listing import apple_locales as listing_apple_locales, images
 
 HEADER_SIZES = {(5244, 2950), (3840, 1646)}
 
@@ -59,6 +63,19 @@ def load_plan(root):
     return plan["apple"]
 
 
+def apple_locales(root):
+    """Metadata paths for every locale visible in the Apple asset preview."""
+    try:
+        planned = set(load_plan(root))
+    except (OSError, ValueError):
+        planned = set()  # validate() reports malformed plans separately.
+    fastlane = os.path.join(root, "fastlane")
+    return sorted(set(listing_apple_locales(fastlane)) | {
+        os.path.join(fastlane, "metadata", locale)
+        for locale in set(header_locales(root)) | planned
+    })
+
+
 def validate(root, required_displays=()):
     results = []
     for locale in header_locales(root):
@@ -98,5 +115,9 @@ def validate(root, required_displays=()):
 
 
 if __name__ == "__main__":
-    for level, message in validate(sys.argv[1], sys.argv[2:]):
-        print(level + "\t" + message)
+    if sys.argv[1] == "--locales":
+        for path in apple_locales(sys.argv[2]):
+            print(path)
+    else:
+        for level, message in validate(sys.argv[1], sys.argv[2:]):
+            print(level + "\t" + message)

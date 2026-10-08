@@ -50,6 +50,21 @@ it "review includes a locale that only has header artwork"
 fake_png "$T/store-assets/apple/fr-FR/header.png" 3840 1646
 bash "$SCRIPTS/package/build-review.sh" "$T" >/dev/null
 assert_contains "$(cat "$T/listing-review.html")" 'store-assets/apple/fr-FR/header.png'
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "header-only locale needs required store copy"
+assert_contains "$OUT" 'locale fr-FR:'
+assert_contains "$OUT" 'name: REQUIRED file missing'
+# Complete the locale before exercising unrelated header format checks below.
+cp -R "$T/fastlane/metadata/en-US" "$T/fastlane/metadata/fr-FR"
+
+it "a plan-only locale needs required store copy"
+printf '%s\n' '{"apple":{"de-DE":{"deferredScreenshots":{"iPhone Duo":"No runtime"}}}}' > "$T/.listing-kit/asset-plan.json"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'locale de-DE:'
+assert_contains "$OUT" 'name: REQUIRED file missing'
+# Restore the approved plan used by the remaining asset cases.
+printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":1,"iPhone Duo":2},"headers":["header-16x9.png","header-21x9.png"]}}}' > "$T/.listing-kit/asset-plan.json"
 
 it "transparent, deep-color and wrong-size headers fail"
 for spec in '5244 2950 8 6' '5244 2950 16 2' '1024 500 8 2'; do
