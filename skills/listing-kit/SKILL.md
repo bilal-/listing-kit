@@ -130,10 +130,10 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
 | `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
 | `scripts/lib/apple-screenshot-sizes.tsv` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
-| `scripts/lib/apple_assets.py` | Apple header format and persisted upload-plan validation |
+| `scripts/lib/apple_assets.py` | Apple locales across metadata, screenshots, headers and plans; header/plan validation |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |
-| `scripts/lib/listing.py` | Which locales and images a fastlane tree contains (shared by validate and review) |
+| `scripts/lib/listing.py` | Locale and image discovery within the fastlane tree |
 | `scripts/validate/validate-listing.sh` | Validate the listing tree against App Store + Play rules (Validate step) |
 | `scripts/validate/visual-diff.sh` | Per-screen regression report between a previous and current screenshot set (Validate step) |
 | `scripts/package/generate-manifests.sh` | Emit per-AI-platform install manifests from this canonical skill |
