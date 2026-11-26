@@ -285,7 +285,7 @@ class _Checker:
                     self.error(path, f"unknown bundled font {name!r}")
                     return
                 source = resolved = Path(__file__).resolve().parents[2] / "assets/fonts" / (name + ".ttf")
-                if not resolved.is_file():
+                if self.purpose != "capture" and not resolved.is_file():
                     self.error(path, f"missing bundled font {name!r}")
                     return
             else:
@@ -303,9 +303,8 @@ class _Checker:
         self.files[value] = source, resolved
         if flow and self.app_root / ".listing-kit/flows" not in resolved.parents:
             self.warn(path, "flow is outside .listing-kit/flows")
-        if not resolved.is_file():
-            report = self.error if self.purpose == "capture" else self.warn
-            report(path, "missing input file: " + value)
+        if self.purpose != "capture" and not resolved.is_file():
+            self.warn(path, "missing input file: " + value)
 
     def store_code(self, value, path):
         if value is None:
@@ -770,7 +769,7 @@ class _Checker:
                         self.error(f"graphics.{store}.{name}.draft", "draft cannot be published")
 
 
-def _inspect(data, rules, app_root, purpose=None, strict=True):
+def _inspect(data, rules, app_root, purpose=None, strict=True, capture_filter=None):
     if purpose not in (None, "capture", "publish"):
         raise ValueError("expected capture or publish")
     checker = _Checker(rules, app_root, purpose)
@@ -779,6 +778,13 @@ def _inspect(data, rules, app_root, purpose=None, strict=True):
         try:
             json_input.validate(data)
             checker.plan(data)
+            if purpose == "capture":
+                for job in checker.captures.values():
+                    if capture_filter is not None and not capture_filter(job):
+                        continue
+                    flow = job["flowPath"]
+                    if not (checker.app_root / flow).is_file():
+                        checker.error(f"{job['targetId']}/{job['screenId']}", f"missing input file: {flow}")
             checker.problems.extend(checker.tree_errors)
         except (OSError, ValueError, RuntimeError) as exc:
             checker.error("$", str(exc))
@@ -828,7 +834,7 @@ def _print(message, stream):
     print(str(message).encode(encoding, "backslashreplace").decode(encoding), file=stream)
 
 
-def _read(app_root, purpose=None):
+def _read(app_root, purpose=None, capture_filter=None):
     try:
         root = Path(app_root).resolve()
         with _destination(root, LISTING).open(encoding="utf-8") as f:
@@ -838,12 +844,17 @@ def _read(app_root, purpose=None):
         raise
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as exc:
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
-    return data, _inspect(data, rules, root, purpose)
+    return data, _inspect(data, rules, root, purpose, capture_filter=capture_filter)
 
 
 def load(app_root):
     """Return the validated plan. Raise FileNotFoundError or PlanError on failure."""
     return _read(app_root)[0]
+
+
+def load_manifest(app_root, purpose=None, capture_filter=None):
+    """Read the checked manifest. capture_filter limits which flow files must exist."""
+    return _read(app_root, purpose, capture_filter)[1].result
 
 
 def main(args):

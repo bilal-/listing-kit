@@ -67,11 +67,8 @@ Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `
 
 **Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would, and on an existing listing keep the user's voice (principle 2). **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
 
-### 7. Run — build, install, sanitize, launch
-Bootstrap dependencies, build, and install on each required simulator/emulator (see the per-stack doc for exact commands). Then, **before launching the app**:
-- **Sanitize status bars** to 9:41 AM, full battery/signal: run `scripts/capture/sanitize-status-bar.sh`.
-- **Pre-grant permissions** to avoid blocking dialogs: run `scripts/capture/grant-permissions.sh` (note its caveats — camera/ATT can't be pre-granted on iOS).
-- Then launch the app (Maestro's `launchApp` in Drive does this).
+### 7. Run — build and install
+Bootstrap dependencies, build and install the app on the planned device. Follow the commands for the app's stack in `references/stacks/`. The capture flow launches the installed app, clears its state and requests its permissions.
 
 ### 8. Drive — reach each curated state
 Driving is a **shared capability via Maestro** (one YAML flow language across all stacks/platforms). See `references/driving/maestro.md`. This is where Maestro + JDK get installed (prompt now, not earlier). For each screen:
@@ -84,9 +81,15 @@ Driving is a **shared capability via Maestro** (one YAML flow language across al
 Persist each Maestro flow — it is the rerunnable navigation recipe for next time.
 
 ### 9. Capture — screenshot at required dimensions
-Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Capture each selected upload slot at its accepted native size. For Apple, Dynamic Island medium is currently required; a larger iPhone capture does not fill that slot. Verify current specs and the active asset plan before picking simulators.
+For a format-2 listing plan, run `scripts/capture/capture.py` against the app root. Use `--dry-run` to list jobs and device choices. Repeat `--target ID` and `--screen ID` to select a subset. Use `--keep-going` to finish independent jobs after a failure.
 
-**Normalize captured images.** Run `scripts/capture/normalize-screenshot.sh` with the input and output paths. Use `--play` for Play phone promotion crops. Check the generated tables in `references/stores/` for the selected slot’s format and promotion criteria. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
+The command checks the plan and installed app, drives each flow, sanitizes the status bar, and writes a validated RGB PNG to the manifest’s raw path. Raw uploads must match the target dimensions exactly. For framed and band compositions, capture preserves the native frame for the composer. Specify `capture.nativeSize` in the planned orientation.
+
+Check selected upload slots against the generated tables in `references/stores/`. For Apple, the Dynamic Island medium slot needs its own capture. Include tablet sets when the app supports them (iPad if `supportsTablet` or device-family 2, Android tablet if unrestricted).
+
+To pin a simulator UDID or emulator serial per target, keep `{"devices":{"play-phone":"emulator-5554"}}` in the app’s git-ignored `.listing-kit/local.json`. An explicit `--device` takes precedence. Physical Android devices require `--allow-device` because flows can clear app data and status-bar sanitization changes demo mode. For manual navigation, select the target and screen with `--manual` and press Enter when ready.
+
+Without a listing plan, normalize captures yourself with `scripts/capture/normalize-screenshot.sh` (input and output paths; `--play` for Play phone promotion crops).
 
 ### 10. Assemble — write the fastlane tree, then assert the secrets boundary
 Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the icon specified in `references/stores/google-play.md` to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). For Apple headers, follow the Header Asset section in `references/stores/apple-app-store.md`; save them outside Fastlane screenshots under `store-assets/apple/<locale>/` and include them in the review/handoff.
