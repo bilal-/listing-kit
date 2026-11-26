@@ -10,6 +10,7 @@ set -uo pipefail
 ROOT=; prepared=0; review=0; options=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) echo "Usage: listing-kit validate [-h|--help] [app-root] [--as-of YYYY-MM-DD] [--ios-sdk X.Y] [--verbose]"; exit 0 ;;
     --verbose) options+=("$1") ;;
     --prepared) prepared=1 ;;
     --review) review=1 ;;
