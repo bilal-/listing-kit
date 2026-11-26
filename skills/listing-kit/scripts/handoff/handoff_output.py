@@ -1,7 +1,9 @@
-"""Install the handoff at its fixed path and preserve user additions on rebuild."""
+"""Install the handoff at its fixed path and refuse rebuilds over user changes."""
 
+import datetime
 import fcntl
 import hashlib
+import html
 import json
 import os
 import shutil
@@ -57,6 +59,20 @@ def check_owned(directory):
         refuse(sorted(unexpected))
 
 
+def remove_tree(directory):
+    # Keep the ownership record readable until every listed entry is gone.
+    marker = directory / MARKER
+    for entry in directory.iterdir():
+        if entry == marker:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    marker.unlink(missing_ok=True)
+    directory.rmdir()
+
+
 @contextmanager
 def locked_upload(root):
     # Lock the existing app root, including on the very first build.
@@ -67,13 +83,18 @@ def locked_upload(root):
         if upload.parent.is_symlink():
             raise ValueError("symlink in output path: %s" % upload.parent)
         for stage in upload.parent.glob(STAGE + "*"):
-            if not stage.is_symlink() and (stage / MARKER).is_file():
-                shutil.rmtree(stage)
+            if stage.is_symlink() or not stage.is_dir():
+                continue
+            marker = stage / MARKER
+            if not marker.is_symlink() and marker.is_file():
+                remove_tree(stage)
+            elif not any(stage.iterdir()):
+                stage.rmdir()
         previous = upload.with_name(PREVIOUS)
         if os.path.lexists(previous):
             if os.path.lexists(upload):
                 check_owned(previous)
-                shutil.rmtree(previous)
+                remove_tree(previous)
             elif previous.is_dir() and not previous.is_symlink():
                 previous.rename(upload)
             else:
@@ -83,37 +104,88 @@ def locked_upload(root):
         os.close(fd)
 
 
-def cell(value):
-    return "".join("%%%02X" % ord(c) if c in "%|`" or ord(c) < 32 else c for c in str(value))
+def markdown_cell(text):
+    if any(c in "|`" or ord(c) < 32 for c in text):
+        escaped = "".join("&#%d;" % ord(c) if c in "|`" or ord(c) < 32 else html.escape(c) for c in text)
+        return "<code>%s</code>" % escaped
+    return "`%s`" % text
+
+
+def guide(plan):
+    title = next((content.decode().strip() for _, path, _, content in plan.items
+                  if path.parts[2:] in (("text", "name.txt"), ("text", "title.txt"))), "")
+    yield "h1", "Upload your store listing" + (" — " + title if title else "")
+    yield "p", "Built " + datetime.date.today().isoformat()
+    yield "p", ("This folder is a copy. Edit the source files under fastlane/ or store-assets/ and rerun. "
+                "Rebuilds are refused if you edit files in this folder.")
+    yield "p", ("Paths are relative to the folder containing INDEX.md. In the console, pick or add the language "
+                "first. Copy and paste text into the named field. For categories, select the value shown. "
+                "Drag screenshots into their slot in file-name order. Upload each graphic to the field shown. "
+                "On a Mac, press Cmd+Shift+. in the file picker "
+                "to show hidden folders.")
+    if any(path.parts[1] == "default" for _, path, _, _ in plan.items):
+        yield "p", "A language marked default means use for every language."
+    for (store, locale), items in groupby(plan.items, key=lambda item: item[1].parts[:2]):
+        console = "App Store Connect" if store == "apple" else "Play Console"
+        language = "English (U.S.) (en-US)" if locale == "en-US" else locale
+        yield "h2", console + " — " + language
+        rows = []
+        for folder, files in groupby(items, key=lambda item: item[1].parent):
+            if folder.name[:1].isdigit() and len(folder.parts) == 3:
+                group = list(files)
+                action = " — drag all %d files in file-name order" % len(group)
+                rows.append((str(folder) + "/", group[0][2] + action))
+            else:
+                rows.extend((str(dest), place) for _, dest, place, _ in files)
+        yield "table", rows
+    if plan.missing:
+        yield "h2", "Missing"
+        yield "ul", plan.missing
+    yield "h2", "Not included"
+    yield "ul", plan.omitted + ["Complete the review contact and demo account, age rating, privacy answers, "
+                                 "and pricing in the console. Upload the build separately."]
+
+
+def indexes(plan):
+    md, page = [], ['<!doctype html><html lang="en"><meta charset="utf-8">',
+                    '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Listing upload</title>',
+                    '<style>body{font:1rem/1.5 system-ui,sans-serif;max-width:76rem;margin:auto;padding:1.5rem}'
+                    'table{border-collapse:collapse;width:100%}td,th{border:1px solid #aaa;padding:.5rem;'
+                    'text-align:left;overflow-wrap:anywhere}th{background:#eee}</style><body>']
+    for tag, value in guide(plan):
+        if tag == "table":
+            columns = ("File or folder", "Console page and field")
+            md.extend(["| %s | %s |" % columns, "|---|---|"])
+            page.append("<table><thead><tr><th>%s</th><th>%s</th></tr></thead><tbody>" % columns)
+            for row in value:
+                md.append("| %s | %s |" % tuple(map(markdown_cell, row)))
+                page.append("<tr><td><code>%s</code></td><td>%s</td></tr>" % tuple(map(html.escape, row)))
+            page.append("</tbody></table>")
+        elif tag == "ul":
+            md.extend("- " + html.escape(line, quote=False) for line in value)
+            page.append("<ul>" + "".join("<li>%s</li>" % html.escape(line) for line in value) + "</ul>")
+        else:
+            md.append({"h1": "# ", "h2": "## ", "p": ""}[tag] + html.escape(value, quote=False).replace("\n", " "))
+            page.append("<%s>%s</%s>" % (tag, html.escape(value), tag))
+        md.append("")
+    page.append("</body></html>")
+    return {"INDEX.md": "\n".join(md), "INDEX.html": "\n".join(page) + "\n"}
 
 
 def write_stage(stage, plan):
-    rows = ["# Upload your store listing", "",
-            "Open each text file, copy its contents, and paste into the named console field. "
-            "Drag screenshots from each numbered folder into its slot in file-name order.",
-            "The upload folder is hidden in Finder. Drag from the opened window or press Cmd+Shift+. "
-            "in the file picker to show hidden folders.",
-            "A language marked `default` means use for every language.", ""]
     hashes = {}
-    for (store, locale), items in groupby(plan.items, key=lambda item: item[1].parts[:2]):
-        console = "App Store Connect" if store == "apple" else "Play Console"
-        language = "English (U.S.) (en-US)" if locale == "en-US" else cell(locale)
-        rows.extend(["## %s — %s" % (console, language), "", "| File | Console page and field |", "|---|---|"])
-        for src, dest, place, content in items:
-            target = stage / dest
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if src is None:
-                target.write_bytes(content)
-            else:
-                shutil.copyfile(src, target)
-            hashes[str(dest)] = digest(target)
-            rows.append("| `%s` | `%s` |" % (cell(dest), cell(place)))
-        rows.append("")
-    rows.extend(["## Not included", "", *plan.deferred,
-                 "- Complete the review contact and demo account, age rating, privacy answers, "
-                 "and pricing in the console. Upload the build separately."])
-    for name, content in (("INDEX.md", "\n".join(rows) + "\n"), (".gitignore", "*\n")):
-        (stage / name).write_text(content, encoding="utf-8")
+    for src, dest, _, content in plan.items:
+        target = stage / dest
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if src is None:
+            target.write_bytes(content)
+        else:
+            shutil.copyfile(src, target)
+        hashes[str(dest)] = digest(target)
+    documents = indexes(plan)
+    documents[".gitignore"] = "*\n"
+    for name, text in documents.items():
+        (stage / name).write_text(text, encoding="utf-8")
         hashes[name] = digest(stage / name)
     (stage / MARKER).write_text(json.dumps(hashes, indent=2) + "\n", encoding="utf-8")
 
@@ -133,6 +205,6 @@ def install(upload, plan):
         if previous.exists() and not upload.exists():
             previous.rename(upload)
         if stage.exists():
-            shutil.rmtree(stage)
+            remove_tree(stage)
     if previous.exists():
-        shutil.rmtree(previous)
+        remove_tree(previous)

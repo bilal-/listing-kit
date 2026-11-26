@@ -140,6 +140,8 @@ def requirement(rule, conditions, as_of=None):
             return "optional", ""
         if value is None and "from" in rule:
             return "upcoming", "required from %s unless %s; that could not be determined" % (rule["from"], unless)
+        if value is None:
+            return "upcoming", "cannot tell whether the %r exception applies" % unless
     if "from" in rule:
         start = parse_date(rule["from"])
         if as_of < start:

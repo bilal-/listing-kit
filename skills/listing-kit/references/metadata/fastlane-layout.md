@@ -22,6 +22,8 @@ root.**
 this keeps the output directly usable. (This repo's own example follows the rule:
 `examples/expo-recipe-box/fastlane/` is at the *app* root, not the repo root.)
 
+For hand upload, the builder copies listing files to `.listing-kit/upload/`. Open `INDEX.html` there for console instructions.
+
 ## iOS — `fastlane/metadata/`
 ```
 fastlane/metadata/

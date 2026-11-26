@@ -21,3 +21,5 @@ Thumbs.db
 
 # brand kit: downloaded font cache
 brand/tools/.cache/
+
+__pycache__/

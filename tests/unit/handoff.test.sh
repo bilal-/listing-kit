@@ -29,10 +29,11 @@ O="$A/.listing-kit/upload"
 it "builds one numbered folder per console slot, in console order, plus text, graphics and an index"
 OUT="$(python3 "$SUT" "$A" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0"
-assert_contains "$OUT" "Upload folder: "
+assert_contains "$OUT" "$O/INDEX.html"
 # Expected layout, written out by hand (not derived from the rules file).
 EXPECT='.gitignore
 .listing-kit-upload
+INDEX.html
 INDEX.md
 apple/en-US/01 iPhone Dynamic Island (medium display)/01-home_iphone-medium.png
 apple/en-US/01 iPhone Dynamic Island (medium display)/02-list_iphone-medium.png
@@ -58,12 +59,13 @@ if cmp -s "$S/01_home_ipad.png" "$O/apple/en-US/04 iPad 13in/01-home_ipad.png"; 
 if cmp -s "$P/images/featureGraphic.png" "$O/play/en-US/graphics/featureGraphic.png"; then pass "feature graphic bytes"; else fail "feature graphic differs"; fi
 assert_eq "https://example.com/help" "$(cat "$O/apple/en-US/text/support_url.txt")" "default fallback"
 
-it "the index names every file and its console field"
+it "the index groups screenshots by slot and names each console field"
 IDX="$(cat "$O/INDEX.md")"
-assert_contains "$IDX" 'apple/en-US/02 iPhone Duo (outer display)/01-home_duo-outer.png'
-assert_contains "$IDX" "Version page > Screenshots > iPhone Duo (outer display)"
+assert_contains "$IDX" 'apple/en-US/02 iPhone Duo (outer display)/'
+assert_contains "$IDX" "1.0 Prepare for Submission) > Screenshots > iPhone Duo (outer display)"
 assert_contains "$IDX" "Main store listing > Feature graphic"
-assert_eq 16 "$(grep -c '^| `' "$O/INDEX.md")" "one row per file"
+assert_contains "$IDX" "drag all 2 files in file-name order"
+assert_eq 14 "$(grep -c '^| `' "$O/INDEX.md")" "one row per text file, graphic, or screenshot folder"
 
 it "a rebuild replaces the folder, so a file removed from the listing does not linger"
 rm "$S/02_list_iphone-medium.png"
@@ -100,17 +102,18 @@ assert_no_file "$T/elsewhere"
 python3 "$SUT" >/dev/null 2>&1; assert_eq 2 "$?" "no args"
 python3 "$SUT" "$T/nope" >/dev/null 2>&1; assert_eq 2 "$?" "missing dir"
 
-it "--open prints the path and does not fail when no file manager can be started"
+it "--open prints the index path when the browser cannot start"
 OUT="$(PATH="/usr/bin:/bin" python3 -c "
 import sys; sys.argv=['x']; sys.path.insert(0,'$SCRIPTS/handoff')
 import handoff, shutil
 handoff.shutil.which=lambda c: None
 sys.exit(handoff.main(['$A','--open']))" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0"
-assert_contains "$OUT" "Could not open a file manager"
+assert_contains "$OUT" "Could not open the instructions"
 
 it "passes the adversarial handoff regression cases"
 python3 "$(dirname "${BASH_SOURCE[0]}")/handoff_cases.py"
 assert_eq 0 "$?" "handoff regressions"
 
+assert_eq 1 "${PYTHONDONTWRITEBYTECODE:-}" "test helpers disable Python bytecode"
 summary

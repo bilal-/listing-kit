@@ -19,11 +19,31 @@ import specs
 import handoff_output as output
 
 
+ASC = "App Store Connect > your app > "
+VERSION = ASC + "the version under iOS App (for example 1.0 Prepare for Submission)"
+PLAY = "Play Console > your app > "
+MAIN_LISTING = PLAY + "Grow users > Store presence > Main store listing"
+CATEGORY_NAMES = {
+    "FOOD_AND_DRINK": "Food & Drink", "GRAPHICS_AND_DESIGN": "Graphics & Design",
+    "HEALTH_AND_FITNESS": "Health & Fitness", "MAGAZINES_AND_NEWSPAPERS": "Magazines & Newspapers",
+    "PHOTO_AND_VIDEO": "Photo & Video",
+}
+
+
 class Plan:
-    def __init__(self):
+    def __init__(self, root):
+        self.root = root
+        self.missing = []
         self.items = []
-        self.deferred = []
+        self.omitted = []
         self.paths = set()
+
+    def nonempty(self, path):
+        path = Path(path)
+        if path.stat().st_size:
+            return True
+        self.omitted.append("%s — empty file" % path.relative_to(self.root))
+        return False
 
     def add(self, src, dest, place, content=None):
         if dest.is_absolute() or ".." in dest.parts:
@@ -75,26 +95,40 @@ def read_text(path, apple=False):
     return raw.strip(b" \t\r\n\v\f\0") if apple else raw
 
 
-def apple_text(plan, data, meta, locale):
-    app_wide = locale is None
-    for field in specs.fields(data, "apple"):
+def field_place(store, field, content):
+    stem, label = field["stem"], field["label"]
+    if store == "play":
+        return MAIN_LISTING + " > " + ("App name" if stem == "title" else label)
+    page = VERSION
+    if stem == "privacy_url":
+        page = ASC + "App Privacy"
+    elif stem in ("name", "subtitle") or (field["scope"] == "app" and stem != "copyright"):
+        page = ASC + "App Information"
+    if stem == "release_notes":
+        label += " (updates only: not shown for a first version)"
+    if field.get("values") == "appleCategories" and content:
+        code = content.decode()
+        label += " — choose %s from the list" % CATEGORY_NAMES.get(code, code.replace("_", " ").title())
+    return page + " > " + label
+
+
+def text_fields(plan, data, store, directory, base):
+    app_wide = base == Path("apple/app-wide")
+    for field in specs.fields(data, store):
         if (field["scope"] == "app") != app_wide:
             continue
         name = field["stem"] + ".txt"
-        directory = meta if app_wide else meta / locale
-        content = read_text(child(directory, name), apple=True)
+        content = read_text(child(directory, name), apple=store == "apple")
         source = ""
-        if content is None and not app_wide and locale != "default" and directory.is_dir():
-            content = read_text(meta / "default" / name, apple=True)
+        if (content is None and store == "apple" and not app_wide and
+                directory.name != "default" and directory.is_dir()):
+            content = read_text(directory.parent / "default" / name, apple=True)
             source = " (from default)"
-        if content:
-            page = "Version page"
-            if name in ("name.txt", "subtitle.txt") or (app_wide and name != "copyright.txt"):
-                page = "App Information"
-            elif name == "privacy_url.txt":
-                page = "App Privacy"
-            base = Path("apple/app-wide") if app_wide else Path("apple") / locale / "text"
-            plan.add(None, base / name, page + " > " + field["label"] + source, content)
+        place = field_place(store, field, content)
+        if content and content.strip():
+            plan.add(None, base / name, place + source, content)
+        elif specs.requirement(field.get("required"), {})[0] == "required":
+            plan.missing.append("%s — %s" % (base.parts[1], place))
 
 
 def apple_slot(data, path, platform):
@@ -107,6 +141,8 @@ def apple_slot(data, path, platform):
         # A framed screenshot keeps the slot suffix before the framing suffix.
         stem = re.sub(r"_framed$", "", path.stem.lower())
         matches = [s for s in slots if re.search(r"(?:^|[-_ ])" + re.escape(s["suffix"]) + "$", stem)]
+        if not matches and {s["id"] for s in slots} == {"ipad-13", "ipad-12-9"}:
+            return specs.slot(data, "apple", "ipad-13")
         if len(matches) != 1:
             raise ValueError("%s: ambiguous %sx%s; end the name with %s" % (path, w, h, " or ".join(suffixes)))
         return matches[0]
@@ -115,10 +151,10 @@ def apple_slot(data, path, platform):
     return slots[0]
 
 
-def manual(data, root, store, locale, groups, deferred=()):
-    for slot_id, name in listing.manual_screenshots(root, store, locale):
+def manual(plan, data, store, locale, groups, deferred=()):
+    for slot_id, name in listing.manual_screenshots(plan.root, store, locale):
         path = Path(name)
-        if not path.stat().st_size:
+        if not plan.nonempty(path):
             continue
         slot = specs.slot(data, store, slot_id)
         if not slot:
@@ -145,45 +181,46 @@ def screenshots(plan, data, store, base, groups, place):
             safe = re.sub(r'[\\/:*?<>|]', "-", label.replace('"', "in")).strip(" .")
             folder = base / ("%02d %s" % (number, safe))
             for i, path in enumerate(sorted(paths, key=natural if store == "apple" else str), 1):
-                name = re.sub(r"^(?:[0-9]+[-_])+", "", path.name)
+                name = re.sub(r"^(?:[0-9]+[ ._-]+)+", "", path.stem) + path.suffix
                 plan.add(path, folder / ("%02d-%s" % (i, name)), place + " > Screenshots > " + label)
 
 
 def apple(root, data, plan):
     meta = root / "fastlane/metadata"
     targets = apple_assets.load_plan(root)
-    apple_text(plan, data, meta, None)
     locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets)}
     if (meta / "default").is_dir() and not any((meta / loc).is_dir() for loc in locales):
         locales.add("default")
+    if locales or any(child(meta, f["stem"] + ".txt").is_file() for f in specs.fields(data, "apple", "app")):
+        text_fields(plan, data, "apple", meta, Path("apple/app-wide"))
     for locale in sorted(locales):
         base = Path("apple") / locale
-        apple_text(plan, data, meta, locale)
+        text_fields(plan, data, "apple", meta / locale, base / "text")
         groups = defaultdict(list)
         deferred = targets.get(locale, {}).get("deferredScreenshots", {})
         for display, reason in deferred.items():
-            plan.deferred.append("- %s (%s) — %s" % (display, locale, reason))
-        for platform, name in apple_assets.active_screenshots(root, locale, deferred):
+            plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
+        for platform, name in apple_assets.active_screenshots(root, locale, deferred, data, plan.nonempty):
             path = Path(name)
             slot = apple_slot(data, path, platform)
             groups["iMessage" if platform == "iMessage" else "", slot["id"]].append(path)
-        manual(data, root, "apple", locale, groups, deferred)
-        screenshots(plan, data, "apple", base, groups, "Version page")
+        manual(plan, data, "apple", locale, groups, deferred)
+        screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]
         for path in sorted((root / "store-assets/apple" / locale).glob("*")):
-            if (path.name.startswith(".") or not path.is_file() or not path.stat().st_size or
-                    path.suffix.lower() not in imginfo.EXTENSIONS + (".mov", ".mp4")):
+            if (path.name.startswith(".") or not path.is_file() or
+                    path.suffix.lower() not in imginfo.EXTENSIONS + (".mov", ".mp4") or not plan.nonempty(path)):
                 continue
             size = list(imginfo.image_info(path)[:2])
             variant = next((g for g in headers if g["size"] == size), None)
             if variant is None:
                 variant = next((g for g in headers if g["id"] == path.stem.lower()), None)
             label = variant["label"] if variant else "Header Asset (16:9 or 21:9)"
-            plan.add(path, base / "graphics" / path.name, "Product page > " + label)
+            plan.add(path, base / "graphics" / path.name, ASC + "Product page > " + label)
 
 
-def play_images(directory):
-    return [Path(p) for p in listing.images(directory) if os.path.getsize(p)]
+def play_images(plan, directory):
+    return [Path(p) for p in listing.images(directory) if plan.nonempty(p)]
 
 
 def play(root, data, plan):
@@ -194,52 +231,50 @@ def play(root, data, plan):
     for locale in sorted(locales):
         loc = android / locale
         base = Path("play") / locale
-        page = "Main store listing"
-        for field in specs.fields(data, "play"):
-            name = field["stem"] + ".txt"
-            raw = read_text(child(loc, name))
-            if raw:
-                plan.add(None, base / "text" / name, page + " > " + field["label"], raw)
+        text_fields(plan, data, "play", loc, base / "text")
         for path in sorted((loc / "changelogs").glob("*.txt")):
+            if path.name.startswith("."):
+                continue
             raw = read_text(path)
             if raw:
                 plan.add(None, base / "text" / ("release-notes-" + path.name),
-                         "Release > Release notes (%s)" % path.stem, raw)
+                         PLAY + "Test and release > your release > Release notes (%s)" % path.stem, raw)
         images = loc / "images"
-        graphics = play_images(images)
+        graphics = play_images(plan, images)
         for graphic in data["stores"]["play"]["graphics"]:
             matches = [p for p in graphics if p.stem.casefold() == graphic["file"].casefold()]
             if len(matches) > 1:
                 raise ValueError("duplicate %s: %s" % (graphic["label"], ", ".join(map(str, matches))))
             if matches:
                 path = matches[0]
-                plan.add(path, base / "graphics" / path.name, page + " > " + graphic["label"])
+                plan.add(path, base / "graphics" / path.name, MAIN_LISTING + " > " + graphic["label"])
         groups = defaultdict(list)
         for slot in specs.slots(data, "play"):
             if slot.get("folder"):
-                groups["", slot["id"]].extend(play_images(child(images, slot["folder"])))
-        manual(data, root, "play", locale, groups)
-        screenshots(plan, data, "play", base, groups, page)
+                groups["", slot["id"]].extend(play_images(plan, child(images, slot["folder"])))
+        manual(plan, data, "play", locale, groups)
+        screenshots(plan, data, "play", base, groups, MAIN_LISTING)
 
 
 def build(root):
     root = Path(root).resolve()
     with output.locked_upload(root) as destination:
         check_inputs(root)
-        plan = Plan()
+        plan = Plan(root)
         data = specs.load(root)
         try:
             apple(root, data, plan)
             play(root, data, plan)
         except KeyError as error:
-            raise ValueError("store rules override is missing %s" % error)
+            rules = "store rules override" if data.get("_override") else "store rules"
+            raise ValueError("%s missing %s" % (rules, error))
         if not plan.items:
             raise ValueError("nothing to hand over from %s" % root)
         output.install(destination, plan)
     return str(destination), len(plan.items)
 
 
-def open_folder(path):
+def open_index(path):
     cmd = "open" if sys.platform == "darwin" else "xdg-open"
     if not shutil.which(cmd):
         return False
@@ -269,10 +304,10 @@ def main(argv):
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as error:
         print("handoff: %s" % error, file=sys.stderr)
         return 1
-    print("Upload folder: %s (%d listing files). Open INDEX.md for instructions." % (path, count))
-    print("Drag from the opened Finder window or press Cmd+Shift+. in a file picker to show the hidden folder.")
-    if args.open and not open_folder(path):
-        print("Could not open a file manager. Open the folder above.")
+    index = str(Path(path) / "INDEX.html")
+    print("Upload instructions: %s (%d listing files)." % (index, count))
+    if args.open and not open_index(index):
+        print("Could not open the instructions. Open the INDEX.html file above.")
     return 0
 
 

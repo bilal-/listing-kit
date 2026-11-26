@@ -1,5 +1,7 @@
 """Exercise handoff rebuilds against disposable app roots, including interrupted installs."""
+import datetime
 import hashlib
+import html
 import io
 import json
 import os
@@ -116,7 +118,9 @@ class HandoffTests(unittest.TestCase):
         for n in ("one", "two"):
             self.put(".listing-kit/.upload-stage-" + n + "/.listing-kit-upload", b"")
             self.put(".listing-kit/.upload-stage-" + n + "/partial", b"partial")
+        (self.out.parent / ".upload-stage-empty").mkdir()
         personal = self.put(".listing-kit/.upload-stage-personal/recipe", b"mine")
+        (personal.parent / ".listing-kit-upload").symlink_to(self.name)
         self.name.write_bytes(b"\xff")
         self.run_build(success=False)
         self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
@@ -126,7 +130,7 @@ class HandoffTests(unittest.TestCase):
     def test_user_file_added_during_rebuild(self):
         self.run_build()
         with handoff.output.locked_upload(self.app) as upload:
-            plan = handoff.Plan()
+            plan = handoff.Plan(self.app)
             plan.add(None, Path("apple/en-US/text/name.txt"), "App Information > Name", b"Changed")
             personal = self.put(".listing-kit/upload/notes-to-self.txt", b"mine")
             with self.assertRaisesRegex(ValueError, "notes-to-self.txt"):
@@ -211,6 +215,7 @@ class HandoffTests(unittest.TestCase):
         self.put("fastlane/metadata/android/en-US/title.txt", b"Play")
         self.run_build()
         self.assertEqual((self.out / "apple/default/text/name.txt").read_bytes(), b"Default")
+        self.assertIn("use for every language", (self.out / "INDEX.md").read_text())
         self.put("store-assets/apple/de-DE/header.jpg", b"header")
         self.png("store-assets/play/it-IT/screenshots/xr/x.png", 1920, 1200)
         self.png("fastlane/screenshots/fr-FR/a.png", 1206, 2622)
@@ -222,6 +227,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_06_shared_sizes(self):
         cases = (("home_tv", 3840, 2160, "Apple TV"), ("home_vision", 3840, 2160, "Apple Vision Pro"),
+                 ("home", 2732, 2048, "iPad 13in"), ("home_ipad", 2048, 2732, "iPad 13in"),
                  ("home_ipad13", 2048, 2732, "iPad 13in"), ("home_ipad-12.9", 2732, 2048, "iPad 12.9in"))
         for name, w, h, _ in cases:
             self.png("fastlane/screenshots/en-US/" + name + ".png", w, h)
@@ -232,9 +238,9 @@ class HandoffTests(unittest.TestCase):
         self.assertTrue(list((self.out / "apple/en-US").glob("*Apple TV/*else_vision.png")))
 
     def test_ambiguous_size(self):
-        self.png("fastlane/screenshots/en-US/home.png", 2048, 2732)
+        self.png("fastlane/screenshots/en-US/home.png", 3840, 2160)
         log = self.run_build(success=False)
-        for hint in ("home.png", "ambiguous", "ipad13", "ipad-12.9"):
+        for hint in ("home.png", "ambiguous", "tv", "vision"):
             self.assertIn(hint, log)
 
     def test_manual_slot(self):
@@ -258,11 +264,12 @@ class HandoffTests(unittest.TestCase):
         self.assertTrue(list(self.out.rglob("01-home.png")))
 
     def test_07_active_set(self):
-        for name, wh in (("duo_framed", (1398, 2034)), ("2_framed", (1206, 2622)), ("2", (1206, 2622)), ("unframed", (1206, 2622)), ("watch", (422, 514))):
+        for name, wh in (("duo_framed", (1398, 2034)), ("2_framed", (1206, 2622)), ("2", (1206, 2622)), ("unframed", (1206, 2622)), ("03_watchlist", (1206, 2622)),
+                         ("03_watchlist_framed", (1206, 2622)), ("wrist", (422, 514))):
             self.png("fastlane/screenshots/en-US/" + name + ".png", *wh)
         self.put(".listing-kit/asset-plan.json", b'{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"Later"}}}}')
         self.run_build()
-        self.assertEqual(sorted(p.name.split("-", 1)[-1] for p in self.out.rglob("*.png")), ["framed.png", "watch.png"])
+        self.assertEqual(sorted(p.name.split("-", 1)[-1] for p in self.out.rglob("*.png")), ["framed.png", "watchlist_framed.png", "wrist.png"])
 
     def test_07_review_and_handoff_manual_set(self):
         self.png("store-assets/apple/en-US/screenshots/mac/mac.png", 1280, 800)
@@ -342,8 +349,9 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual([p.name for p in self.out.rglob("*.txt")], ["title.txt"])
         self.assertFalse((self.out / "apple").exists())
         index = (self.out / "INDEX.md").read_text()
+        self.assertIn("Play", index.splitlines()[0])
         self.assertIn("fr-FR", index)
-        self.assertNotIn("## App Store Connect", index)
+        self.assertNotIn("App Store Connect", index)
 
     def test_empty_assets(self):
         self.png("fastlane/screenshots/en-US/home.png", 1206, 2622)
@@ -357,6 +365,10 @@ class HandoffTests(unittest.TestCase):
         self.run_build()
         self.assertEqual(sorted(p.name for p in self.out.rglob("*.png")), ["01-home.png", "icon.png"])
         self.assertFalse(list(self.out.rglob("*.jpg")))
+        omitted = (self.out / "INDEX.md").read_text().split("## Not included")[1]
+        for path in self.app.rglob("*"):
+            if path.is_file() and path.suffix in (".png", ".jpg") and path.stat().st_size == 0:
+                self.assertIn(str(path.relative_to(self.app)), omitted)
 
     def test_manifest(self):
         self.put("store-assets/apple/en-US/a|`%0A\nb.mov", b"movie")
@@ -368,6 +380,9 @@ class HandoffTests(unittest.TestCase):
         index = (self.out / "INDEX.md").read_text()
         self.assertNotIn("SHA-256", index)
         self.assertNotIn("a|`", index)
+        # Both guides must display a path that can be copied verbatim.
+        self.assertIn("a|`%0A\nb.mov", html.unescape(index))
+        self.assertIn("a|`%0A\nb.mov", html.unescape((self.out / "INDEX.html").read_text()))
         self.run_build()
 
     def test_first_time_index(self):
@@ -377,15 +392,115 @@ class HandoffTests(unittest.TestCase):
         self.put(".listing-kit/asset-plan.json", b'{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"Awaiting artwork"}}}}')
         self.run_build()
         index = (self.out / "INDEX.md").read_text()
-        for term in ("copy", "paste", "drag", "file-name order", "cmd+shift+.", "use for every language",
+        for term in ("copy", "paste", "drag", "file-name order", "cmd+shift+.",
                      "english (u.s.)", "## not included", "review contact", "demo account", "age rating",
                      "privacy answers", "pricing", "the build", "iphone duo", "awaiting artwork"):
             self.assertIn(term, index.lower())
-        for filename, instruction in (("copyright.txt", "Version page"), ("name.txt", "App Information"),
-                                      ("description.txt", "Version page"), ("privacy_url.txt", "App Privacy"),
+        for filename, instruction in (("copyright.txt", "the version under iOS App"), ("name.txt", "App Information"),
+                                      ("description.txt", "the version under iOS App"), ("privacy_url.txt", "App Privacy"),
                                       ("privacy_url.txt", "from default")):
             self.assertTrue(any(filename in line and instruction in line for line in index.splitlines()))
         self.assertEqual(list(self.out.rglob("copyright.txt")), [self.out / "apple/app-wide/copyright.txt"])
+
+    def test_backup_marker_survives_interrupted_removal(self):
+        self.run_build()
+        previous = self.out.with_name(".upload-previous")
+        marker = previous / ".listing-kit-upload"
+        rmtree = handoff.shutil.rmtree
+
+        def interrupt(path, *args, **kwargs):
+            path = Path(path)
+            if path == previous:
+                marker.unlink()  # rmtree may visit the marker first.
+            elif previous not in path.parents:
+                return rmtree(path, *args, **kwargs)
+            raise OSError("cleanup interrupted")
+
+        with patch.object(handoff.shutil, "rmtree", side_effect=interrupt):
+            self.assertIn("cleanup interrupted", self.run_build(success=False))
+        self.assertTrue(marker.is_file())
+        self.run_build()
+        self.assertFalse(previous.exists())
+
+    def test_bundled_rules_error(self):
+        with patch.object(handoff, "apple", side_effect=KeyError("broken")):
+            error = self.run_build(success=False)
+        self.assertIn("broken", error)
+        self.assertNotIn("override", error)
+
+    def test_hidden_changelog(self):
+        self.put("fastlane/metadata/android/en-US/changelogs/._default.txt", b"\xff")
+        self.run_build()
+        self.assertFalse(list(self.out.rglob("*._default*")))
+
+    def test_order_prefixes(self):
+        for folder in ("fastlane/screenshots/en-US", "fastlane/metadata/android/en-US/images/phoneScreenshots"):
+            for name in ("01. Home", "02 - Notes", "03_Shop", "3D_maps"):
+                self.png(folder + "/" + name + ".png", 1206, 2622)
+        self.run_build()
+        for store in ("apple", "play"):
+            self.assertEqual(sorted(p.name for p in (self.out / store).rglob("*.png")),
+                             ["01-Home.png", "02-Notes.png", "03-Shop.png", "04-3D_maps.png"])
+
+    def test_console_instructions(self):
+        meta = "fastlane/metadata/"
+        for name, value in (("primary_category", "FOOD_AND_DRINK"), ("secondary_category", "DEVELOPER_TOOLS"),
+                            ("en-US/release_notes", "Changes"), ("en-US/privacy_url", "https://example.org"),
+                            ("android/en-US/title", "Android")):
+            self.put(meta + name + ".txt", value.encode())
+        msg = self.run_build()
+        index = (self.out / "INDEX.md").read_text()
+        for term, content in ((str(self.out / "INDEX.html"), msg), ("Example", index.splitlines()[0]),
+                              (datetime.date.today().isoformat(), index.split("##")[0])):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+        for term, content in (("opened Finder", msg), ("use for every language", index)):
+            with self.subTest(term=term):
+                self.assertNotIn(term, content)
+        for term in ("App Store Connect > your app > App Information", "App Store Connect > your app > App Privacy",
+                     "the version under iOS App (for example 1.0 Prepare for Submission)",
+                     "Play Console > your app > Grow users > Store presence > Main store listing > App name",
+                     "choose Food & Drink from the list", "choose Developer Tools from the list",
+                     "updates only: not shown for a first version", "pick or add the language", "relative to the folder",
+                     "folder is a copy", "fastlane/", "rerun", "refused", "upload each graphic"):
+            with self.subTest(term=term):
+                self.assertIn(term.lower(), index.lower())
+
+    def test_missing_fields(self):
+        self.put("fastlane/metadata/default/keywords.txt", b"fallback")
+        self.put("fastlane/metadata/android/fr-FR/short_description.txt", b"Bonjour")
+        self.put("fastlane/metadata/en-US/description.txt", b"  ")
+        override = {"stores": {"apple": {"fields": [
+            {"stem": "custom", "scope": "locale", "label": "Custom field", "required": {"rule": "always"}},
+            {"stem": "maybe", "scope": "locale", "label": "Unknown field",
+             "required": {"rule": "if", "condition": "unknown"}},
+            {"stem": "exception", "scope": "locale", "label": "Possible exception",
+             "required": {"rule": "always", "unless": "unknown"}}]}}}
+        self.put(".listing-kit/specs.override.json", json.dumps(override).encode())
+        self.run_build()
+        missing = (self.out / "INDEX.md").read_text().split("## Missing")[1].split("## ")[0]
+        for label in ("Custom field", "Description", "Copyright", "Primary category", "App name", "Full description"):
+            self.assertIn(label, missing)
+        for label in ("Keywords", "What's new", "Subtitle", "Unknown field", "Possible exception", "Short description"):
+            self.assertNotIn(label, missing)
+        self.assertIn("en-US", missing)
+        self.assertIn("fr-FR", missing)
+
+    def test_html_matches_markdown(self):
+        self.name.write_text("A <script> & Co")
+        self.png("fastlane/screenshots/en-US/01_home.png", 1206, 2622)
+        self.run_build()
+        page = (self.out / "INDEX.html").read_text()
+        self.assertNotIn("<script", page.lower())
+        self.assertNotRegex(page.lower(), r"(?:src|href)=[\"'](?:https?:)?//")
+        self.assertIn("A &lt;script&gt; &amp; Co", page)
+        visible = html.unescape(page)
+        for line in (self.out / "INDEX.md").read_text().splitlines():
+            if not line or line.startswith("|---"):
+                continue
+            for cell in line.strip("|").split("|"):
+                content = html.unescape(cell.strip().lstrip("#- ").replace(chr(96), ""))
+                self.assertIn(content, visible)
 
     def test_open_nonzero(self):
         opener = self.put("bin/open", b'#!/bin/sh\nprintf "%s" "$1" > "$0.called"\nexit 2\n')
@@ -394,22 +509,22 @@ class HandoffTests(unittest.TestCase):
             log = io.StringIO()
             with redirect_stdout(log):
                 self.assertEqual(handoff.main([str(self.app), "--open"]), 0)
-            self.assertEqual(opener.with_suffix(".called").read_text(), str(self.out))
+            self.assertEqual(opener.with_suffix(".called").read_text(), str(self.out / "INDEX.html"))
             self.assertIn("Could not open", log.getvalue())
-            self.assertIn("Cmd+Shift+.", log.getvalue())
+            self.assertNotIn("opened Finder", log.getvalue())
 
     def test_12_opener(self):
         for platform, command in (("darwin", "open"), ("linux", "xdg-open")):
             with self.subTest(platform=platform), patch.object(sys, "platform", platform), \
                     patch.object(handoff.shutil, "which", return_value=command), \
                     patch.object(subprocess, "call", return_value=0) as call, patch.object(subprocess, "Popen") as popen:
-                self.assertTrue(handoff.open_folder("folder"))
+                self.assertTrue(handoff.open_index("INDEX.html"))
                 if platform == "linux":
-                    self.assertEqual(popen.call_args[0][0], [command, "folder"])
+                    self.assertEqual(popen.call_args[0][0], [command, "INDEX.html"])
                     self.assertTrue(popen.call_args[1]["start_new_session"])
                     self.assertFalse(popen.return_value.method_calls)
                 else:
-                    self.assertEqual(call.call_args[0][0], [command, "folder"])
+                    self.assertEqual(call.call_args[0][0], [command, "INDEX.html"])
 
 
 if __name__ == "__main__":

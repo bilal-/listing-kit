@@ -2,6 +2,7 @@
 # Tiny zero-dependency assertion + stubbing library for listing-kit tests.
 # Source this from a *.test.sh file, write assertions, end with `summary`.
 set -uo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 
 # A caller (including a Git hook) may have exported paths into its own repository.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR

@@ -12,6 +12,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import specs
 from imginfo import APPLE_SIZES, apple_class, image_info
 from listing import apple_locales as listing_apple_locales, apple_screenshot_dirs, images
 
@@ -68,15 +69,19 @@ def is_deferred(path, deferred):
     return bool(deferred) and apple_class(*image_info(path)[:2]) in deferred
 
 
-def active_screenshots(root, locale, deferred):
+def active_screenshots(root, locale, deferred, data=None, nonempty=os.path.getsize):
     """Yield (deliver platform folder, path) after deliver's framing and plan filters."""
     for platform, directory in apple_screenshot_dirs(os.path.join(root, "fastlane"), locale):
-        paths = [p for p in images(directory) if os.path.getsize(p)]
+        paths = [p for p in images(directory) if nonempty(p)]
         framed = any(Path(p).stem.lower().endswith("_framed") for p in paths)
         for path in paths:
             name = Path(path).stem.lower()
-            if framed and not (name.endswith("_framed") or "watch" in name):
-                continue
+            if framed and not name.endswith("_framed"):
+                # Deliver uses the name, while hand upload uses the Watch console slot.
+                watch = ("watch" in name if data is None else
+                         any(s["id"] == "watch" for s in specs.apple_slots_for_size(data, *image_info(path)[:2])))
+                if not watch:
+                    continue
             if is_deferred(path, deferred):
                 continue
             yield platform, path
