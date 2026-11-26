@@ -12,8 +12,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import apple_assets
+import detect
 import imginfo
 import listing
+import rules_check
 import screenshots as store_shots
 import specs
 
@@ -135,9 +137,10 @@ def text_fields(plan, data, store, directory, base):
             plan.missing.append("%s — %s" % (base.parts[1], place))
 
 
-def screenshot_groups(plan, data, store, locale, deferred=()):
+def screenshot_groups(plan, data, store, locale, deferred=(), suffixes=None):
     groups = defaultdict(list)
-    for shot in store_shots.active(plan.root, store, locale, data, deferred, plan.nonempty, tree=plan.trees[store]):
+    for shot in store_shots.active(plan.root, store, locale, data, deferred, plan.nonempty,
+                                   tree=plan.trees[store], suffixes=suffixes):
         if shot.error:
             if not shot.manual:
                 raise ValueError("{}: {}x{} matches no App Store slot".format(shot.path, *shot.size))
@@ -166,10 +169,23 @@ def screenshots(plan, data, store, base, groups, place):
                 plan.add(path, folder / ("%02d-%s" % (i, name)), place + " > Screenshots > " + label)
 
 
-def apple(root, data, plan):
+def screenshot_shortfalls(plan, data, store, locale, entry, groups):
+    for key, wanted in entry.get("screenshots", {}).items():
+        actual = len(groups.get(("", key), ()))
+        if actual < wanted:
+            label = specs.slot(data, store, key)["label"] if store == "apple" else key
+            plan.missing.append(f"{store} {locale}/{label}: {actual} of {wanted} screenshots")
+
+
+def apple(root, data, plan, coverage):
     tree = plan.trees["apple"]
     meta = tree["metadata"]
-    targets = apple_assets.load_plan(root, data)
+    targets = coverage["apple"]
+    planned = "play" in coverage
+    if planned:
+        capture_locales = apple_assets.planned_screenshot_locales(targets)
+        requirements = detect.Requirements(root, data)
+        requirements.apply_inferred(coverage["inferred"])
     locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets, tree)}
     if listing.apple_default(meta, data) and not any((meta / loc).is_dir() for loc in locales):
         locales.add("default")
@@ -178,13 +194,24 @@ def apple(root, data, plan):
     for locale in sorted(locales):
         base = Path("apple") / locale
         text_fields(plan, data, "apple", meta / locale, base / "text")
-        deferred = targets.get(locale, {}).get("deferredScreenshots", {})
-        for display, reason in deferred.items():
+        entry = targets.get(locale, {})
+        for display, reason in apple_assets.reported_deferrals(entry, data, planned):
             plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
-        deferred_ids = apple_assets.deferred_slots(data, deferred)
-        groups = screenshot_groups(plan, data, "apple", locale, deferred_ids)
+        deferred_ids = apple_assets.deferred_slots(data, entry.get("deferredScreenshots", {}), planned)
+        groups = screenshot_groups(plan, data, "apple", locale, deferred_ids, entry.get("suffixes"))
+        if planned and (not capture_locales or locale in capture_locales):
+            screenshot_shortfalls(plan, data, "apple", locale, entry, groups)
+            counts = {key: len(files) for (platform, key), files in groups.items() if not platform}
+            for key in sorted(deferred_ids):
+                slot = specs.slot(data, "apple", key)
+                if requirements.evaluate(slot["required"])[0] == "required":
+                    plan.missing.append(f"cannot defer required screenshot class: {slot['label']} ({locale})")
+                for level, message in rules_check.apple_count_rows(slot, counts, requirements, deferred=True):
+                    if level == "FAIL":
+                        plan.missing.append(f"{locale}: {message}")
         screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]
+        packaged_headers = set()
         for path in apple_assets.header_files(tree, locale):
             if not plan.nonempty(path):
                 continue
@@ -194,19 +221,20 @@ def apple(root, data, plan):
                 variant = next((g for g in headers if g["id"] == path.stem.lower()), None)
             label = variant["label"] if variant else "Header Asset (16:9 or 21:9)"
             plan.add(path, base / "graphics" / path.name, ASC + "Product page > " + label)
+            packaged_headers.add(path.name)
+        if planned:
+            for name in entry.get("headers", []):
+                if name not in packaged_headers:
+                    plan.missing.append(f"Apple header {locale}/{name}: MISSING")
 
 
 def play_images(plan, directory):
     return [Path(p) for p in listing.images(directory) if plan.nonempty(p)]
 
 
-def play(root, data, plan):
+def play(root, data, plan, coverage):
     android = plan.trees["play"]["metadata"]
-    assets = plan.trees["play"]["storeAssets"]
-    locales = {Path(p).name for p in listing.play_locales(android)}
-    if assets.is_dir():
-        locales.update(p.name for p in assets.iterdir() if p.is_dir() and not p.name.startswith("."))
-    for locale in sorted(locales):
+    for locale in listing.play_asset_locales(plan.trees["play"], coverage):
         loc = android / locale
         base = Path("play") / locale
         text_fields(plan, data, "play", loc, base / "text")
@@ -219,6 +247,7 @@ def play(root, data, plan):
                          PLAY + "Test and release > your release > Release notes (%s)" % path.stem, raw)
         images = loc / "images"
         graphics = play_images(plan, images)
+        packaged_graphics = set()
         for graphic in data["stores"]["play"]["graphics"]:
             matches = [p for p in graphics if p.stem.casefold() == graphic["file"].casefold()]
             if len(matches) > 1:
@@ -226,7 +255,13 @@ def play(root, data, plan):
             if matches:
                 path = matches[0]
                 plan.add(path, base / "graphics" / path.name, MAIN_LISTING + " > " + graphic["label"])
+                packaged_graphics.add(path.name)
+        entry = coverage.get(locale, {})
+        for name in entry.get("graphics", []):
+            if name not in packaged_graphics:
+                plan.missing.append(f"Play graphic {locale}/{name}: MISSING")
         groups = screenshot_groups(plan, data, "play", locale)
+        screenshot_shortfalls(plan, data, "play", locale, entry, groups)
         screenshots(plan, data, "play", base, groups, MAIN_LISTING)
 
 
@@ -237,12 +272,14 @@ def build(root):
         check_inputs(root, plan.trees)
         data = specs.load(root)
         try:
-            apple(root, data, plan)
-            play(root, data, plan)
+            coverage = apple_assets.load_coverage(root, data)
+            apple(root, data, plan, coverage)
+            play(root, data, plan, coverage.get("play", {}))
         except KeyError as error:
             rules = "store rules override" if data.get("_override") else "store rules"
             raise ValueError("%s missing %s" % (rules, error))
-        if not plan.items:
+        planned_assets = "play" in coverage and (coverage["apple"] or coverage["play"])
+        if not plan.items and not (planned_assets and plan.missing):
             raise ValueError("nothing to hand over from %s" % root)
         output.install(destination, plan)
     return str(destination), len(plan.items)

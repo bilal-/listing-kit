@@ -9,11 +9,12 @@
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
-ROOT=; prepared=0; options=()
+ROOT=; prepared=0; coverage_view=; options=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) echo "Usage: listing-kit review [app-root] [--verbose] [--as-of YYYY-MM-DD] [--ios-sdk X.Y]"; exit 0 ;;
     --prepared) prepared=1 ;;
+    --coverage-view) [ "$#" -ge 2 ] || exit 2; coverage_view="$2"; options+=("$1" "$2"); shift ;;
     --verbose) options+=("$1") ;;
     --as-of|--ios-sdk)
       [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "$1 needs a value" >&2; exit 2; }
@@ -62,7 +63,7 @@ case "$val_rc/$verdict" in
 esac
 
 OUT="$ROOT/listing-review.html"
-python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
+python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" "$coverage_view" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -106,13 +107,17 @@ def esc(s):
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
-    apple_plan = apple_assets.load_plan(root, rules)
+    coverage = apple_assets.load_coverage(root, rules, sys.argv[6])
 except (OSError, ValueError):
-    apple_plan = {}  # The validation section displays the malformed plan error.
+    coverage = {"apple": {}}  # The validation section displays the malformed plan error.
 
-def screenshot_groups(store, locale, deferred=()):
+apple_plan = coverage["apple"]
+planned = "play" in coverage
+requirements.apply_inferred(coverage.get("inferred", {}))
+
+def screenshot_groups(store, locale, deferred=(), suffixes=None):
     groups = {}
-    for shot in screenshots.active(root, store, locale, rules, deferred, tree=trees[store]):
+    for shot in screenshots.active(root, store, locale, rules, deferred, suffixes=suffixes, tree=trees[store]):
         if shot.manual and shot.error:
             sys.exit(shot.error)
         label = shot.slot["label"] if shot.slot else "{}×{}".format(*shot.size)
@@ -124,14 +129,17 @@ def screenshot_groups(store, locale, deferred=()):
 # ---- iOS (deliver) ----
 ios_locs = apple_assets.apple_locales(root, rules, apple_plan, apple_tree)
 apple_default = listing.apple_default(apple_tree["metadata"], rules)
-if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
+# A filtered legacy view has a generated listing.json that only pins its layout.
+legacy_view = sys.argv[6] and not planned and os.path.isfile(os.path.join(root, apple_assets.LEGACY))
+if legacy_view or apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
         fields = field_rows("apple", ld, apple_default)
-        deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        deferred_ids = apple_assets.deferred_slots(rules, deferred)
-        shots = screenshot_groups("apple", loc, deferred_ids)
+        entry = apple_plan.get(loc, {})
+        deferred = list(apple_assets.reported_deferrals(entry, rules, planned))
+        deferred_ids = apple_assets.deferred_slots(rules, entry.get("deferredScreenshots", {}), planned)
+        shots = screenshot_groups("apple", loc, deferred_ids, entry.get("suffixes"))
         graphics = []
         for f in images(apple_assets.header_dir(apple_tree, loc)):
             info = image_info(f)
@@ -149,9 +157,11 @@ if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
 
 # ---- Android (supply) ----
 A = play_tree["metadata"]
-if os.path.isdir(A):
+play_locales = ([A / code for code in listing.play_asset_locales(play_tree, coverage["play"])]
+                if planned else listing.play_locales(A))
+if os.path.isdir(A) or play_locales:
     locs = []
-    for ld in listing.play_locales(A):
+    for ld in play_locales:
         loc = os.path.basename(ld)
         fields = field_rows("play", ld)
         shots = screenshot_groups("play", loc)
@@ -208,7 +218,7 @@ def render_deferred(deferred):
     if not deferred: return ""
     return '<div class="dc">Deferred screenshot targets</div>' + ''.join(
         f'<p class="muted"><strong>{esc(display)} — deferred</strong>: {esc(reason)}</p>'
-        for display, reason in deferred.items())
+        for display, reason in deferred)
 
 def render_graphics(graphics):
     if not graphics:

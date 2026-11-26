@@ -95,23 +95,11 @@ git config --local --add listingKit.reviewedDeviceBlob "$(git rev-parse :app.jso
 
 For another declaration, use its repository-relative path in both places. The exception covers only that staged blob at that path. Review it again after an edit.
 
-## Apple asset plan
+## Listing coverage
 
-For each Apple listing, including a new one, commit the approved coverage in `.listing-kit/asset-plan.json`. Validate, review and handoff read this file for coverage and deferrals. The targets in `.listing-kit/listing.json` drive capture and compose. They do not replace the asset plan yet.
+New listings commit only [listing.json](../plan-file.md) for asset coverage. Each active target contributes one screenshot per applicable screen in each selected store locale. Apple graphics supply the expected header filenames. To postpone an optional Apple display, mark its target `deferred` and give a single-line reason. Review and handoff show that reason. Validation fails when a required display is deferred.
 
-```json
-{
-  "apple": {
-    "en-US": {
-      "screenshots": {"iPhone Dynamic Island (medium display)": 5},
-      "headers": ["header-16x9.png"],
-      "deferredScreenshots": {"iPhone Duo (outer display)": "No Duo runtime installed."}
-    }
-  }
-}
-```
-
-Use one entry per Apple locale. Each needs at least one count, header filename or deferral. Use [Apple display labels](../stores/apple-app-store.md) for exact screenshot counts and single-line deferral reasons. Only defer sets that are optional for the submission. Validation fails if a required set is deferred.
+**Older listings.** When `.listing-kit/asset-plan.json` is the only plan, the kit still reads its Apple counts, header filenames and deferral reasons. When both files exist, validation uses `listing.json` and lists any older declarations missing from the new plan.
 
 ## Store management
 

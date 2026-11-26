@@ -242,6 +242,12 @@ class Requirements:
         self.as_of = as_of
         self.used = set()
 
+    def apply_inferred(self, inferred):
+        for name, value in inferred.items():
+            if self.values.get(name) is None:
+                self.values[name] = value
+                self.facts[name] = value, str(plan.LISTING)
+
     def evaluate(self, rule):
         return specs.requirement(rule, self.values, self.as_of, self.used)
 

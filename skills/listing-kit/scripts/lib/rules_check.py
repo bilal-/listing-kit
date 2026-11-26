@@ -72,12 +72,22 @@ def byte_limit(path, rule):
         yield "FAIL", f'{path.name}: exceeds {rule["maxBytes"]} bytes'
 
 
-def apple_shots(root, locale, rules, requirements, deferred=(), tree=None):
+def apple_count_rows(slot, counts, requirements, deferred):
+    if deferred:
+        level, _ = requirements.evaluate(slot["required"])
+        if level == "optional" or level == "upcoming" and "from" in slot["required"]:
+            return
+    family = PRIMARY.get(slot["required"].get("condition"))
+    family_count = sum(n for key, n in counts.items() if family and key.startswith(family + "-"))
+    yield from count_rows(slot, counts.get(slot["id"], 0), requirements, "App Store", family_count)
+
+
+def apple_shots(root, locale, rules, requirements, deferred=(), tree=None, planned=False, suffixes=None):
     counts = Counter()
     message_counts = Counter()
     base = rules["stores"]["apple"]["screenshots"]
     selected = []
-    for shot in screenshots.active(root, "apple", locale, rules, deferred, tree=tree):
+    for shot in screenshots.active(root, "apple", locale, rules, deferred, tree=tree, suffixes=suffixes):
         if shot.manual and shot.error:
             yield "FAIL", shot.error
         else:
@@ -111,9 +121,7 @@ def apple_shots(root, locale, rules, requirements, deferred=(), tree=None):
         elif message_count:
             yield "PASS", f'iMessage {slot["label"]} screenshots present ({message_count})'
         count = counts[slot["id"]]
-        family = PRIMARY.get(slot["required"].get("condition"))
-        family_count = sum(n for key, n in counts.items() if family and key.startswith(family + "-"))
-        yield from count_rows(slot, count, requirements, "App Store", family_count)
+        yield from apple_count_rows(slot, counts, requirements, planned and slot["id"] in deferred)
         if count and count <= slot["max"]:
             yield "PASS", f'{slot["label"]} screenshots present ({count})'
 
@@ -123,7 +131,17 @@ def promoted(rule, w, h):
             and specs.ratio_matches(w, h, rule["ratios"]))
 
 
-def play_shots(root, locale, rules, requirements, tree=None):
+def play_coverage(locale, expected, counts):
+    for slot, wanted in expected.items():
+        if wanted == 0:
+            yield "WARN", f"planned Play {locale}/{slot}: nothing planned yet"
+            continue
+        actual = counts.get(slot, 0)
+        level = "PASS" if wanted == actual else "WARN"
+        yield level, f"planned Play {locale}/{slot}: {actual} of {wanted} screenshots"
+
+
+def play_shots(root, locale, rules, requirements, tree=None, expected=None, coverage_only=False):
     shots = rules["stores"]["play"]["screenshots"]
     groups = {}
     for shot in screenshots.active(root, "play", locale, rules, tree=tree):
@@ -131,13 +149,14 @@ def play_shots(root, locale, rules, requirements, tree=None):
             yield "FAIL", shot.error
         else:
             groups.setdefault(shot.slot["id"], []).append(shot.path)
+    valid = Counter()
     total = 0
     for slot in shots["slots"]:
         paths = groups.get(slot["id"], [])
-        total += len(paths)
         count = len(paths)
         label = slot["label"]
-        yield from count_rows(slot, count, requirements, "Play", count)
+        if expected is None:
+            yield from count_rows(slot, count, requirements, "Play", count)
         promotion = slot.get("promotion")
         eligible = 0
         sizes = Counter()
@@ -145,16 +164,26 @@ def play_shots(root, locale, rules, requirements, tree=None):
             yield from notes
             if status.startswith("bad: "):
                 continue
-            sizes[(w, h)] += 1
-            for error in specs.play_size_errors(slot, w, h):
-                yield "FAIL", f"{path.name}: {error}"
+            errors = [("FAIL", f"{path.name}: {error}") for error in specs.play_size_errors(slot, w, h)]
             if slot.get("formats") and not imginfo.format_allowed(path, slot["formats"]):
-                yield "FAIL", f'{path.name}: expected {" or ".join(slot["formats"])}'
+                errors.append(("FAIL", f'{path.name}: expected {" or ".join(slot["formats"])}'))
             if depth != slot.get("bitDepth", depth) or (slot.get("alpha") is False and color != 2):
-                yield "FAIL", f'{path.name}: must be {3 * slot.get("bitDepth", depth)}-bit no-alpha (depth={depth} colortype={color})'
-            yield from byte_limit(path, slot)
+                errors.append(("FAIL", f'{path.name}: must be {3 * slot.get("bitDepth", depth)}-bit no-alpha (depth={depth} colortype={color})'))
+            errors.extend(byte_limit(path, slot))
+            yield from errors
+            if not errors and not any(level == "FAIL" for level, _ in notes):
+                valid[slot["id"]] += 1
+            elif expected is not None:
+                continue
+            sizes[(w, h)] += 1
             if promotion and promoted(promotion, w, h):
                 eligible += 1
+        if coverage_only:
+            continue
+        if expected is not None:
+            count = valid[slot["id"]]
+            yield from count_rows(slot, count, requirements, "Play", count)
+        total += count
         if count:
             yield "NOTE", f"{label} screenshots: {count}"
             if "minPerSize" in slot:
@@ -164,6 +193,10 @@ def play_shots(root, locale, rules, requirements, tree=None):
             if promotion and eligible < promotion["count"]:
                 yield "WARN", (f'{label}: only {eligible} screenshot(s) at ≥{promotion["shortSideMin"]}px; '
                                f'need {promotion["count"]} at {" or ".join(promotion["ratios"])} for promotion eligibility')
+    if expected:
+        yield from play_coverage(locale, expected, valid)
+    if coverage_only:
+        return
     minimum = shots["minTotal"]
     if total < minimum:
         yield "FAIL", f"screenshots: {total} across device types (need ≥{minimum})"
@@ -216,14 +249,18 @@ if __name__ == "__main__":
     requirements = detect.Requirements(args.root, rules)
     tree = listing.paths(args.root)[args.store]
     if args.store == "apple":
-        deferred = apple_assets.load_plan(args.root, rules).get(args.locale, {}).get("deferredScreenshots", {})
-        rows = apple_shots(args.root, args.locale, rules, requirements, apple_assets.deferred_slots(rules, deferred), tree)
+        coverage = apple_assets.load_coverage(args.root, rules)
+        requirements.apply_inferred(coverage.get("inferred", {}))
+        deferred = coverage["apple"].get(args.locale, {}).get("deferredScreenshots", {})
+        rows = apple_shots(args.root, args.locale, rules, requirements, apple_assets.deferred_slots(rules, deferred, "play" in coverage),
+                           tree, planned="play" in coverage, suffixes=coverage["apple"].get(args.locale, {}).get("suffixes"))
     else:
         images = tree["metadata"] / args.locale / "images"
         if args.graphic:
             graphic = next(g for g in rules["stores"]["play"]["graphics"] if g["id"] == args.graphic)
             rows = play_graphic(images, graphic, requirements)
         else:
-            rows = play_shots(args.root, args.locale, rules, requirements, tree)
+            expected = apple_assets.load_coverage(args.root, rules).get("play", {}).get(args.locale, {})
+            rows = play_shots(args.root, args.locale, rules, requirements, tree, expected.get("screenshots"))
     for level, message in rows:
         print(level, message, sep="\t")
