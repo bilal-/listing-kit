@@ -1,4 +1,4 @@
-# Apple App Store — requirements reference
+# Apple App Store requirements
 
 The tables below are generated from `specs/stores.json`. Record app-specific differences and their source URLs in `.listing-kit/specs.override.json`.
 

@@ -7,7 +7,7 @@ Flutter app on iOS **and** Android? Driving is shared (see `../driving/maestro.m
 - `pubspec.yaml` with a `flutter:` section
 - `lib/main.dart`
 
-Flutter produces **both** iOS and Android — confirm which store(s) to target.
+Confirm which stores to target for the Flutter app.
 
 ## Doctor checks
 - `flutter --version` and `flutter doctor` (resolves Android toolchain + Xcode)

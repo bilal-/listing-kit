@@ -34,7 +34,7 @@ Ignore local state in the app's gitignore. Keep the plan and flows trackable.
 .listing-kit/*.local
 ```
 
-Setup saves store credential paths in private `.listing-kit/local.json`. This file can also hold device pins. Keep store key files outside the whole repository. The agent may help set a path but must never request, open or print the credential contents.
+Setup saves paths supplied through its key-path options in private `.listing-kit/local.json`. This file can also hold device pins. Keep store key files outside the whole repository. The agent may help set a path but must never request, open or print the credential contents.
 
 ## Apple asset plan
 
