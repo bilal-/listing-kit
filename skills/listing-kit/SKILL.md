@@ -17,7 +17,7 @@ Use when the user points you at a mobile-app repository and wants store listing 
 
 1. **The repo is the source of truth — for non-secrets only.** Listing copy, screenshots, and graphics get committed. **Credentials and seed secrets NEVER get committed** — see `references/metadata/fastlane-layout.md` §secrets and `scripts/lib/secret-scan.sh`.
 2. **Preserve existing listings on reruns.** If `fastlane/` already contains metadata or screenshots, treat it as the baseline, not disposable generated output. Read the existing `.txt` files before drafting copy, keep wording that is still accurate and within limits, and make surgical edits for new features, changed positioning, missing required fields, or validation failures. Do not rewrite a good description, title, subtitle, keyword list, release note, or caption just to make it sound new. Prefer a short inserted sentence or phrase in the best existing spot, then show the diff for review.
-3. **Store specs drift.** The numbers in `references/stores/*.md` are a snapshot. When a build actually targets the stores, prefer verifying against current App Store Connect / Play Console docs (use web search if available) and treat the reference docs as defaults, not gospel.
+3. **Store specs drift.** Use the kit’s rules by default. When a live store page disagrees, record the difference and its source URL in `.listing-kit/specs.override.json` and tell the user what changed.
 4. **Stay portable.** Core logic is markdown + shell. Shell out to `xcrun simctl`, `adb`, `flutter`, the Expo/RN CLI, `maestro`, and ImageMagick — never to an agent-specific browser/MCP capability. See `references/platforms/tool-mapping.md` for tool-name equivalents across AI platforms.
 5. **Gate heavy dependencies.** Maestro + JDK are only needed at the **Drive** step; ImageMagick only from **Capture** onward (screenshot normalization, feature graphic). Don't make the user install them up front.
 6. **Preserve release metadata.** Preparing listing assets does not require a marketing-version bump. Keep the app's current release version and follow its existing build-number policy; do not invent a release to capture screenshots.
@@ -71,11 +71,8 @@ Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `
 
 **Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would, and on an existing listing keep the user's voice (principle 2). **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
 
-### 7. Run — build, install, sanitize, launch
-Bootstrap dependencies, build, and install on each required simulator/emulator (see the per-stack doc for exact commands). Then, **before launching the app**:
-- **Sanitize status bars** to 9:41 AM, full battery/signal: run `scripts/capture/sanitize-status-bar.sh`.
-- **Pre-grant permissions** to avoid blocking dialogs: run `scripts/capture/grant-permissions.sh` (note its caveats — camera/ATT can't be pre-granted on iOS).
-- Then launch the app (Maestro's `launchApp` in Drive does this).
+### 7. Run — build and install
+Bootstrap dependencies, build and install the app on the planned device. Follow the commands for the app's stack in `references/stacks/`. The capture flow launches the installed app, clears its state and requests its permissions.
 
 ### 8. Drive — reach each curated state
 Driving is a **shared capability via Maestro** (one YAML flow language across all stacks/platforms). See `references/driving/maestro.md`. This is where Maestro + JDK get installed (prompt now, not earlier). For each screen:
@@ -88,12 +85,18 @@ Driving is a **shared capability via Maestro** (one YAML flow language across al
 Persist each Maestro flow — it is the rerunnable navigation recipe for next time.
 
 ### 9. Capture — screenshot at required dimensions
-Capture with **SDK tooling** (`xcrun simctl io ... screenshot`, `adb exec-out screencap`) rather than Maestro's own `takeScreenshot`, for clean full-resolution output with the status-bar override intact. Sizes come from `references/stores/`. Capture each selected upload slot at its accepted native size. For Apple, Dynamic Island medium is currently required; a larger iPhone capture does not fill that slot. Verify current specs and the active asset plan before picking simulators.
+For a format-2 listing plan, run `scripts/capture/capture.py` against the app root. Use `--dry-run` to list jobs and device choices. Repeat `--target ID` and `--screen ID` to select a subset. Use `--keep-going` to finish independent jobs after a failure.
 
-**Normalize the format — raw `simctl`/`adb` output is 32-bit RGBA, which both stores reject for screenshots.** Flatten every screenshot to RGB / no-alpha / 8-bit by running `scripts/capture/normalize-screenshot.sh` (input, output); add `--play` for Play phone screenshots to also crop anything taller than 9:16 to exactly 9:16 (top-aligned), which meets Play's 2:1 limit and its promotion bar. **Capture tablet sets when the app supports them** (iPad if `supportsTablet`/device-family 2; Android tablet if not restricted) — see the detection sections in `references/stores/`.
+The command checks the plan and installed app, drives each flow, sanitizes the status bar, and writes a validated RGB PNG to the manifest’s raw path. Raw uploads must match the target dimensions exactly. For framed and band compositions, capture preserves the native frame for the composer. Specify `capture.nativeSize` in the planned orientation.
+
+Check selected upload slots against the generated tables in `references/stores/`. For Apple, the Dynamic Island medium slot needs its own capture. Include tablet sets when the app supports them (iPad if `supportsTablet` or device-family 2, Android tablet if unrestricted).
+
+To pin a simulator UDID or emulator serial per target, keep `{"devices":{"play-phone":"emulator-5554"}}` in the app’s git-ignored `.listing-kit/local.json`. An explicit `--device` takes precedence. Physical Android devices require `--allow-device` because flows can clear app data and status-bar sanitization changes demo mode. For manual navigation, select the target and screen with `--manual` and press Enter when ready.
+
+Without a listing plan, normalize captures yourself with `scripts/capture/normalize-screenshot.sh` (input and output paths; `--play` for Play phone promotion crops).
 
 ### 10. Assemble — write the fastlane tree, then assert the secrets boundary
-Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the 512×512 icon to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). For Apple headers, follow the Header Asset section in `references/stores/apple-app-store.md`; save them outside Fastlane screenshots under `store-assets/apple/<locale>/` and include them in the review/handoff.
+Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the icon specified in `references/stores/google-play.md` to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). For Apple headers, follow the Header Asset section in `references/stores/apple-app-store.md`; save them outside Fastlane screenshots under `store-assets/apple/<locale>/` and include them in the review/handoff.
 
 **Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
 
@@ -144,10 +147,10 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/capture/capture-ios.sh` | Capture an explicit simulator display; reject wrong dimensions or blank frames before replacing an asset |
 | `scripts/doctor/iphone-duo.py` | Read-only SDK/device/runtime preflight; JSON result, exit 3 means Duo capture is unavailable |
 | `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
-| `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
+| `scripts/generate/feature-graphic.sh` | Icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
 | `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
-| `scripts/lib/apple-screenshot-sizes.tsv` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
+| `specs/stores.json` | Canonical store rules for planning, validation and the generated reference tables |
 | `scripts/lib/apple_assets.py` | Apple locales across metadata, screenshots, headers and plans; header/plan validation |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |

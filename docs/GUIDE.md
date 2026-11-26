@@ -108,6 +108,8 @@ assets. If the app is in a git repo, the agent also installs a pre-commit hook s
 changes to [staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
 automatically refresh and stage `listing-review.html`.
 
+The validator reports when the store rules were verified and which project files or flags established platform support. To check a planned submission, run `validate-listing.sh <app-root> --as-of YYYY-MM-DD --ios-sdk X.Y`. A valid listing plan’s `platforms` flags take precedence over the iPhone/iPad environment overrides and static detection. The [Apple](../skills/listing-kit/references/stores/apple-app-store.md) and [Play](../skills/listing-kit/references/stores/google-play.md) tables show the bundled rules.
+
 You get a **report**: per store/locale, what exists vs. required vs. missing,
 with next actions.
 
@@ -145,7 +147,7 @@ instead of hanging, and relies on the flows captured in a prior interactive run.
 | Doctor fails on iOS | Run `xcode-select --install`; `pod install` if a Podfile exists |
 | Maestro can't find a screen | Add accessibility labels; for Flutter, add `Semantics`/`semanticLabel` |
 | Permission dialog blocks a flow | Camera/ATT can't be pre-granted on iOS — handled in-flow or manually |
-| Feature graphic step skipped | Install ImageMagick (`brew install imagemagick`) or supply a 1024×500 PNG |
+| Feature graphic step skipped | Install ImageMagick (`brew install imagemagick`) or supply a graphic matching the [Play graphics table](../skills/listing-kit/references/stores/google-play.md#graphics) |
 | Validator: "must be RGB no-alpha" | A raw capture slipped through: run `scripts/capture/normalize-screenshot.sh in.png out.png` (add `--play` for Play) |
 | Secret scan failed the run | A credential reached the listing tree — move it to `.listing-kit/secrets.local` |
 

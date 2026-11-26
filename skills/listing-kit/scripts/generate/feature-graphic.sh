@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a Google Play feature graphic: 1024x500, 24-bit PNG, NO alpha,
+# Generate a Google Play feature graphic with an opaque background,
 # app icon composited on a brand gradient.
 #
 # Usage:
@@ -28,15 +28,17 @@ _here="${BASH_SOURCE[0]%/*}"; [ "$_here" = "${BASH_SOURCE[0]}" ] && _here=.
 . "$_here/../lib/imagemagick.sh"
 if ! im_resolve; then
   echo "ImageMagick not found. Cannot auto-generate the feature graphic." >&2
-  echo "FALLBACK: ask the user to supply a 1024x500 PNG/JPEG (no alpha), or install ImageMagick (brew install imagemagick)." >&2
+  echo "FALLBACK: ask the user to supply artwork matching the Play graphics table, or install ImageMagick (brew install imagemagick)." >&2
   exit 3
 fi
 
-# Play requires a 24-bit PNG (8-bit depth, RGB, NO alpha). Force all three.
-"${IM[@]}" -size 1024x500 "gradient:${color_a}-${color_b}" \
-  \( "$icon" -resize 300x300 \) -gravity center -composite \
-  -background white -alpha remove -alpha off \
-  -depth 8 -define png:color-type=2 \
-  "PNG24:$out"
-
-echo "Wrote feature graphic: $out (1024x500, no alpha)."
+settings="$(python3 -I -B "$_here/../lib/specs.py" feature-graphic "$out")"
+IFS=$'\t' read -r size encoder depth alpha <<<"$settings"
+width="${size%x*}"; height="${size#*x}"
+short="$height"; [ "$width" -ge "$height" ] || short="$width"
+inset=$((short * 3 / 5))
+im_channels "$alpha"
+"${IM[@]}" -size "$size" "gradient:${color_a}-${color_b}" \
+  \( "$icon" -resize "${inset}x${inset}" \) -gravity center -composite \
+  "${CHANNELS[@]}" -depth "$depth" "$encoder:$out"
+echo "Wrote feature graphic: $out ($size, $encoder)."

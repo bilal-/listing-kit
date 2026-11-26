@@ -92,8 +92,8 @@ Shared logic lives once in `scripts/lib/`:
 - `imginfo.py` checks PNG/JPEG stream structure (size, depth, alpha, CRCs, row
   filters, tables) in pure Python and runs a full pixel decode via ImageMagick
   when installed (`--decode`).
-- `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
-- `fields.py` defines every copy field's limit, unit, and required flag.
+- `specs/stores.json` maps App Store sizes to display classes.
+- `fields.py` validates the metadata fields declared in the rules.
 - `listing.py` discovers locales and images within the fastlane tree.
 - `apple_assets.py` adds header and upload-plan locales for Apple, and validates
   headers and planned upload sets.
@@ -121,10 +121,7 @@ Credentials in staged listing inputs block the commit before the review page is 
 
 ## Store rules drift
 
-Apple and Google change sizes and limits often. The numbers in
-`references/stores/*.md` (and the size table) are a dated snapshot. The skill
-tells agents to re-verify against live store docs when a build targets the
-stores, and the validator's checks are kept in sync with the references.
+`specs/stores.json` holds the verified store rules. The plan checker, validator, and review page read them through `scripts/lib/specs.py`, which merges an app’s `.listing-kit/specs.override.json`. The reference tables in `references/stores/` are generated with `scripts/specs/render.py`. The validator reports the verification date, the conditions it used, and any active override.
 
 ## Cross-agent portability
 

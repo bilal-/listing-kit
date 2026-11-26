@@ -7,7 +7,11 @@ if [ "${1:-}" = --status ]; then status=1; shift; fi
 [ "$#" -le 1 ] || { echo "Usage: install-review-hook.sh [--status] [app-root]" >&2; exit 2; }
 ROOT="${1:-.}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-body="$SELF_DIR/../lib/review_hook.py"
+# The runner must still work after the recorded installation disappears.
+runner_body() {
+  cat "$SELF_DIR/../lib/install_lookup.py"
+  sed '/^from install_lookup import /d' "$SELF_DIR/../lib/review_hook.py"
+}
 [ -x "$SELF_DIR/build-review.sh" ] || { echo "inactive (review builder missing)" >&2; exit 2; }
 [ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || {
   echo "inactive (Not inside a git worktree: $ROOT)" >&2
@@ -105,7 +109,7 @@ check_status() {
     echo "inactive (runner call must precede existing hook commands)"; return 1
   fi
   if [ ! -x "$runner" ]; then echo "inactive (runner missing or disabled)"; return 1; fi
-  if ! sed -n '/^# listing-kit isolated review runner$/,/^PYREVIEW$/{ /^# listing-kit isolated review runner$/d; /^PYREVIEW$/d; p; }' "$runner" | cmp -s - "$body"; then
+  if ! sed -n '/^# listing-kit isolated review runner$/,/^PYREVIEW$/{ /^# listing-kit isolated review runner$/d; /^PYREVIEW$/d; p; }' "$runner" | cmp -s - <(runner_body); then
     echo outdated; return 1
   fi
   if ! grep -Fxq "apps+=($q)" "$runner"; then echo "inactive (app is not registered)"; return 1; fi
@@ -114,7 +118,7 @@ import json, sys
 from pathlib import Path
 kit, runner = map(Path, sys.argv[1:])
 sys.path.insert(0, str(kit / "scripts/lib"))
-from review_hook import newest, version
+from install_lookup import newest, version
 with runner.open() as stream:
     for line in stream:
         if line.startswith("# installation "):
@@ -301,9 +305,17 @@ git diff --cached --name-only --no-renames -z "${base[@]}" -- | (
       case "$path" in "$prefix"*) rel="${path:${#prefix}}" ;; *) continue ;; esac
       case "$rel" in
         fastlane/*|store-assets/*|.listing-kit/*|app.json) found=0 ;;
-        *.pbxproj|Info.plist|*/Info.plist)
+        *.pbxproj|Info.plist|*/Info.plist|AndroidManifest.xml|*/AndroidManifest.xml|build.gradle|*/build.gradle|build.gradle.kts|*/build.gradle.kts)
           case "/$rel/" in
-            */node_modules/*|*/.git/*|*/Pods/*|*/build/*|*/DerivedData/*|*/.expo/*|*/dist/*|*/.dart_tool/*|*.framework/*|*.xcframework/*) ;;
+RUN
+  python3 -I -B - "$SELF_DIR/../lib" <<'PYSKIP'
+import sys
+sys.path.insert(0, sys.argv[1])
+from review_hook import SKIP, SKIP_SUFFIXES
+patterns = ["*/" + name + "/*" for name in sorted(SKIP)] + ["*" + ext + "/*" for ext in SKIP_SUFFIXES]
+print("            " + "|".join(patterns) + ") ;;")
+PYSKIP
+  cat <<'RUN'
             *) found=0 ;;
           esac ;;
         app.config.*) case "$rel" in */*) ;; *) found=0 ;; esac ;;
@@ -322,7 +334,7 @@ fi
 python3 -I -B - "$recorded_kit" "$channel" "${base[0]:-}" "${apps[@]}" <<'PYREVIEW' || {
 # listing-kit isolated review runner
 RUN
-  cat "$body"
+  runner_body
   cat <<'RUN'
 PYREVIEW
   echo "listing-kit: Commit blocked. Check python3 and fix the cause, or knowingly commit with --no-verify." >&2

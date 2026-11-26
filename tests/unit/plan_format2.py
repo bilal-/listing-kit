@@ -89,7 +89,7 @@ class FormatTwo(unittest.TestCase):
         for target, original in zip(new["targets"], old["targets"]):
             self.assertEqual(target.get("status"), original.get("status"))
         for name, header in new["graphics"]["apple"].items():
-            self.assertEqual(header["template"], "shellbell-" + name)
+            self.assertEqual(header["template"], "header")
             self.assertEqual(header["status"], old["appleHeaders"]["status"])
         self.assertEqual(new["graphics"]["play"]["featureGraphic"]["status"], old["featureGraphic"]["status"])
         self.assertEqual(new["graphics"]["play"]["icon"]["from"], "repo:brand/android/play-store-512.png")
@@ -106,7 +106,10 @@ class FormatTwo(unittest.TestCase):
         expected = [("WARN", "screens[0].flow", "flow is outside .listing-kit/flows"),
                     ("WARN", "screens[0].flow", "missing input file: flows/missing.yaml")]
         self.assertEqual(self.check(), expected)
-        self.assertEqual(self.check(purpose="capture"), [expected[0], ("ERROR", *expected[1][1:])])
+        self.data["app"]["demoEntry"] = "missing.ts"
+        self.data["screens"][1]["flows"] = {"apple": ".listing-kit/flows/unused.yaml"}
+        self.assertEqual(self.check(purpose="capture"), [expected[0], (
+            "ERROR", "phone/one", "missing input file: flows/missing.yaml")])
 
     def test_empty_outputs(self):
         self.target.update(slot="seven-inch", size=[1920, 1080])
@@ -201,7 +204,7 @@ class FormatTwo(unittest.TestCase):
         self.data["screens"][0].update(draft=True, flows={"play": self.flow})
         self.target["capture"] = {"runtime": "35", "nativeSize": [1080, 2400], "appId": "example.beta",
                                   "deviceType": "Pixel", "orientation": "portrait", "display": "internal"}
-        self.data["style"] = {"mode": "framed", "template": "caption"}
+        self.data["style"] = {"mode": "framed", "template": "caption-top"}
         self.data["graphics"] = {"play": {"tvBanner": {"headline": {"en-US": "TV"}}}}
         self.data["trees"] = {"play": {"metadata": "localized/play"}}
         rules = self.rules["stores"]["play"]["graphics"]
@@ -221,7 +224,7 @@ class FormatTwo(unittest.TestCase):
         first, _, last = manifest["outputs"]
         expected = {"kind": "screenshot", "targetId": "phone", "screenId": "one",
                                  "localeId": "en-US", "storeCode": "en-US", "store": "play", "slotId": "phone",
-                                 "index": 1, "size": [1080, 1920], "styleMode": "framed", "template": "caption",
+                                 "index": 1, "size": [1080, 1920], "styleMode": "framed", "template": "caption-top",
                                  "flowPath": self.flow, "rawPath": ".listing-kit/raw/phone/en-US/one.png",
                                  "outputPath": "localized/play/en-US/images/phoneScreenshots/01_one.png",
                                  "upload": "fastlane", "draft": True, "textFallback": False}
@@ -426,10 +429,10 @@ class FormatTwo(unittest.TestCase):
         self.assertEqual(m["app"]["apple"], "new.ios")
         self.assertEqual(m["captures"][0], dict(jobs[0], **target["capture"], flowPath="../../alt.yaml",
                                                  demoEntry=self.flow))
-        self.data["style"] = dict(mode="framed", template="base", fit="contain", palette={"ink": "black"}, bezel={"color": "silver"},
+        self.data["style"] = dict(mode="framed", template="feature", fit="contain", palette={"ink": "#000000"}, bezel={"color": "#c0c0c0"},
                                   logo="repo:mark.png", fonts={"default": {"headline": ["bundled:Inter"], "detail": ["base.ttf"]}})
-        target["style"] = dict(template="target", fit="cover", palette={"detail": "grey"})
-        screen["style"] = dict(template="screen", bezel={"bleed": True}, fonts={"zh": {"detail": ["repo:zh.ttf"]}})
+        target["style"] = dict(template="panel", fit="cover", palette={"detail": "#808080"})
+        screen["style"] = dict(template="caption-top", bezel={"bleed": True}, fonts={"zh": {"detail": ["repo:zh.ttf"]}})
         screen.update(detail={"zh": "詳"}, altText={"en-US": ""})
         self.data["screens"].append(dict(id="panel", panel=dict(headline={"en-US": "End"}, rows=[
             dict(label={"zh": "甲"}, text={"en-US": "Bye"})])))
@@ -441,8 +444,8 @@ class FormatTwo(unittest.TestCase):
             return dict(value=value, fallback=fallback)
         self.assertEqual(row["text"], dict(caption=string("Open the app", True), detail=string("詳"), altText=string("", True)))
         bundled = Path(plan.__file__).resolve().parents[2] / "assets/fonts/Inter.ttf"
-        self.assertEqual(row["style"], dict(mode="framed", template="screen", fit="cover", palette=dict(ink="black", detail="grey"),
-                         bezel=dict(color="silver", bleed=True), logo="../../mark.png",
+        self.assertEqual(row["style"], dict(mode="framed", template="caption-top", fit="cover", palette=dict(ink="#000000", detail="#808080"),
+                         bezel=dict(color="#c0c0c0", bleed=True), logo="../../mark.png",
                          fonts={"headline": [Path(os.path.relpath(bundled, self.app)).as_posix()], "detail": ["../../zh.ttf"]}))
         panel = next(r for r in m["outputs"] if r["screenId"] == "panel" and r["localeId"] == "zh")
         self.assertEqual(panel["text"]["panel"], dict(headline=string("End", True), rows=[dict(label=string("甲"), text=string("Bye", True))]))
@@ -455,7 +458,7 @@ class FormatTwo(unittest.TestCase):
         self.assertIsNone(graphic["style"]["template"])
         self.assertIsNone(graphic["style"]["fit"])
         self.assertEqual(graphic["style"]["bezel"], {})
-        self.assertEqual(graphic["style"]["palette"], {"ink": "black"})
+        self.assertEqual(graphic["style"]["palette"], {"ink": "#000000"})
         self.assertEqual(graphic["style"]["logo"], row["style"]["logo"])
         self.assertEqual(graphic["style"]["fonts"], {"headline": row["style"]["fonts"]["headline"], "detail": ["base.ttf"]})
         self.assertEqual(graphic["from"], "../../icon.png")
@@ -492,7 +495,7 @@ class FormatTwo(unittest.TestCase):
             changes.append((panel["rows"][0][key], "en-US", "New", ("outputs", 2, "text", "panel", "rows", 0, key)))
         for key in ("headline", "detail", "altText"):
             changes.append((graphic[key], "en-US", "New", ("outputs", 3, "text", key)))
-        for key, value in dict(mode="framed", template="poster", fit="cover", palette={"ink": "red"},
+        for key, value in dict(mode="framed", template="band", fit="cover", palette={"ink": "#ff0000"},
                                bezel={"bleed": True}, logo="logo.png").items():
             changes.append((screen["style"], key, value, ("outputs", 0, "style", key)))
         for role in ("headline", "detail"):

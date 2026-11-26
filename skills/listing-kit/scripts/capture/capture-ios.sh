@@ -20,9 +20,13 @@ mkdir -p "$(dirname "$out")"
 tmp="$(mktemp -d "$(dirname "$out")/.listing-capture.XXXXXX")"
 trap 'rm -r "$tmp"' EXIT
 xcrun simctl io "$device" screenshot --type=png --display "$display" "$tmp/raw.png"
-info="$(python3 "$here/../lib/imginfo.py" "$tmp/raw.png")"
+info="$(python3 -I -B "$here/../lib/imginfo.py" "$tmp/raw.png")"
 IFS=$'\t' read -r width height rest <<< "$info"
 if [ "${width}x${height}" != "$size" ]; then
+  if [ "${height}x${width}" = "$size" ]; then
+    echo "Capture size ${width}x${height} has the wrong orientation for $size. Set the orientation in the flow." >&2
+    exit 1
+  fi
   echo "Capture size ${width}x${height} does not match planned $size; existing asset preserved." >&2
   exit 1
 fi

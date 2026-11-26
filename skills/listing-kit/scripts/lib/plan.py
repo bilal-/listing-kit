@@ -7,7 +7,6 @@ Usage: plan.py {check [--for capture|publish]|manifest|outputs} <app-root>
 import argparse
 from collections import Counter, defaultdict
 import difflib
-from fractions import Fraction
 from functools import partial
 import json
 import os
@@ -17,10 +16,11 @@ import sys
 import unicodedata
 
 if __package__:
-    from . import json_input, specs
+    from . import json_input, specs, template_values
 else:
     import json_input
     import specs
+    import template_values
 
 
 FORMAT = 2
@@ -174,21 +174,7 @@ def _size_accepted(rules, store, slot, size):
     if store == "apple":
         return slot in specs.apple_slots_for_size(rules, w, h)
 
-    if "sizes" in slot and list(size) not in slot["sizes"]:
-        return False
-    side = slot.get("side", {})
-    if min(size) < side.get("min", 0) or max(size) > side.get("max", float("inf")):
-        return False
-    if any(n < limit for n, limit in zip(size, slot.get("minSize", []))):
-        return False
-    if "maxRatio" in slot and Fraction(max(size), min(size)) > Fraction(str(slot["maxRatio"])):
-        return False
-    ratios = [slot["ratio"]] if "ratio" in slot else slot.get("ratios", [])
-    for ratio in ratios:
-        rw, rh = map(int, ratio.split(":"))
-        if w * rh == h * rw:
-            return True
-    return not ratios
+    return not any(specs.play_size_errors(slot, w, h))
 
 
 def _key(path, name):
@@ -225,11 +211,20 @@ class _Checker:
         self.flow = partial(self.file_ref, flow=True)
         font = partial(self.file_ref, font=True)
         self.font_roles = dict(headline=[font], detail=[font])
-        self.palette = dict(background=[str], ink=str, detail=str)
-        self.style = dict(mode=("raw", "framed"), template=self.nonempty, fit=self.nonempty, palette=self.palette,
-                          bezel=dict(color=str, bleed=bool), fonts=self.fonts, logo=self.file_ref)
+        colour = partial(self.expect, template_values.colour, "expected #RRGGBB or #RRGGBBAA")
+        self.palette = dict(background=self.background, ink=colour, detail=colour)
+        def measure(limit):
+            return partial(self.expect, lambda v: template_values.measurement(v, limit), "expected number in [0, %d]" % limit)
+        self.style = dict(mode=("raw", "framed"), template=template_values.TEMPLATES, fit=("contain", "cover", "bleed"), palette=self.palette,
+                          bezel=dict(color=colour, shadow=colour, width=measure(10), radius=measure(50), bleed=bool), fonts=self.fonts, logo=self.file_ref)
         self.capture = dict(deviceType=self.nonempty, display=self.nonempty, orientation=("portrait", "landscape"),
                             nativeSize=self.size, runtime=self.nonempty, appId=self.nonempty)
+
+    def background(self, value, path):
+        if not isinstance(value, list) or not value:
+            self.error(path, "expected non-empty array of colours")
+        else:
+            self.visit(value, path, [self.palette["ink"]])
 
     def error(self, path, message):
         self.problems.append(("ERROR", path or "$", message))
@@ -300,7 +295,7 @@ class _Checker:
                     self.error(path, f"unknown bundled font {name!r}")
                     return
                 source = resolved = Path(__file__).resolve().parents[2] / "assets/fonts" / (name + ".ttf")
-                if not resolved.is_file():
+                if self.purpose != "capture" and not resolved.is_file():
                     self.error(path, f"missing bundled font {name!r}")
                     return
             else:
@@ -318,9 +313,8 @@ class _Checker:
         self.files[value] = source, resolved
         if flow and self.app_root / ".listing-kit/flows" not in resolved.parents:
             self.warn(path, "flow is outside .listing-kit/flows")
-        if not resolved.is_file():
-            report = self.error if self.purpose == "capture" else self.warn
-            report(path, "missing input file: " + value)
+        if self.purpose != "capture" and not resolved.is_file():
+            self.warn(path, "missing input file: " + value)
 
     def store_code(self, value, path):
         if value is None:
@@ -467,7 +461,7 @@ class _Checker:
     def graphic(self, value, path):
         is_icon = path == "graphics.play.icon"
         self.obj(value, path,
-                 dict(template=self.nonempty, headline=self.localized, detail=self.localized,
+                 dict(template=template_values.TEMPLATES, headline=self.localized, detail=self.localized,
                  altText=self.localized, draft=bool, status=self.nonempty, palette=self.palette,
                  logo=self.file_ref, **({"from": self.file_ref} if is_icon else {})), ("from",) if is_icon else ("headline",))
 
@@ -599,6 +593,8 @@ class _Checker:
             panel = item["panel"]
             strings["panel"] = dict(copy(panel, path + ".panel"), rows=[
                 copy(row, f"{path}.panel.rows[{i}]") for i, row in enumerate(panel["rows"])])
+        if style.get("template") is not None and style["template"] not in template_values.TEMPLATES:
+            self.error(path + ".template", "unknown bundled template: %r" % style["template"])
         profiles = style.get("fonts", {})
         roles = {**profiles.get("default", {}), **profiles.get(loc, {})}
         style = dict(style, logo=self.resolved(style.get("logo")), fonts={
@@ -785,7 +781,7 @@ class _Checker:
                         self.error(f"graphics.{store}.{name}.draft", "draft cannot be published")
 
 
-def _inspect(data, rules, app_root, purpose=None, strict=True):
+def _inspect(data, rules, app_root, purpose=None, strict=True, capture_filter=None):
     if purpose not in (None, "capture", "publish"):
         raise ValueError("expected capture or publish")
     checker = _Checker(rules, app_root, purpose)
@@ -794,6 +790,13 @@ def _inspect(data, rules, app_root, purpose=None, strict=True):
         try:
             json_input.validate(data)
             checker.plan(data)
+            if purpose == "capture":
+                for job in checker.captures.values():
+                    if capture_filter is not None and not capture_filter(job):
+                        continue
+                    flow = job["flowPath"]
+                    if not (checker.app_root / flow).is_file():
+                        checker.error(f"{job['targetId']}/{job['screenId']}", f"missing input file: {flow}")
             checker.problems.extend(checker.tree_errors)
         except (OSError, ValueError, RuntimeError) as exc:
             checker.error("$", str(exc))
@@ -843,7 +846,7 @@ def _print(message, stream):
     print(str(message).encode(encoding, "backslashreplace").decode(encoding), file=stream)
 
 
-def _read(app_root, purpose=None):
+def _read(app_root, purpose=None, capture_filter=None):
     try:
         root = Path(app_root).resolve()
         with _destination(root, LISTING).open(encoding="utf-8") as f:
@@ -853,12 +856,17 @@ def _read(app_root, purpose=None):
         raise
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as exc:
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
-    return data, _inspect(data, rules, root, purpose)
+    return data, _inspect(data, rules, root, purpose, capture_filter=capture_filter)
 
 
 def load(app_root):
     """Return the validated plan. Raise FileNotFoundError or PlanError on failure."""
     return _read(app_root)[0]
+
+
+def load_manifest(app_root, purpose=None, capture_filter=None):
+    """Read the checked manifest. capture_filter limits which flow files must exist."""
+    return _read(app_root, purpose, capture_filter)[1].result
 
 
 def main(args):

@@ -250,6 +250,8 @@ class HandoffTests(unittest.TestCase):
 
     def test_manual_slot(self):
         self.png("store-assets/play/en-US/screenshots/xr/x.png", 1206, 2622)
+        self.assertIn("does not fit Play slot xr", self.run_build(success=False))
+        self.png("store-assets/play/en-US/screenshots/xr/x.png", 1920, 1200)
         self.run_build()
         self.png("store-assets/apple/en-US/screenshots/vision-pro/wrong.png", 1206, 2622)
         self.assertIn("wrong.png", self.run_build(success=False))
@@ -287,6 +289,23 @@ class HandoffTests(unittest.TestCase):
         self.assertIn('src="store-assets/apple/en-US/screenshots/mac/mac.png"', page)
         self.assertNotIn('src="store-assets/apple/en-US/screenshots/iphone-duo-outer/old.png"', page)
         self.assertEqual([p.name for p in self.out.rglob("*.png")], ["01-mac.png"])
+
+    def test_review_and_handoff_defer_overridden_shared_slot(self):
+        slot = {"id": "ipad-12-9", "label": "Legacy tablet", "suffix": "legacy-tablet"}
+        self.put(".listing-kit/specs.override.json", json.dumps(
+            {"stores": {"apple": {"screenshots": {"slots": [slot]}}}}).encode())
+        self.put(".listing-kit/asset-plan.json", json.dumps(
+            {"apple": {"en-US": {"deferredScreenshots": {"Legacy tablet": "Later"}}}}).encode())
+        shots = "fastlane/screenshots/en-US/"
+        for name in ("home", "home_legacy-tablet"):
+            self.png(shots + name + ".png", 2048, 2732)
+        self.run_build()
+        self.assertEqual([p.name for p in self.out.rglob("*.png")], ["01-home.png"])
+        subprocess.run(["bash", str(SCRIPTS / "package/build-review.sh"), str(self.app)],
+                       check=True, stdout=subprocess.DEVNULL)
+        page = (self.app / "listing-review.html").read_text()
+        self.assertIn(f'src="{shots}home.png"', page)
+        self.assertNotIn(f'src="{shots}home_legacy-tablet.png"', page)
 
     def test_08_text_bytes(self):
         self.name.write_bytes(b"  Example\r\n")

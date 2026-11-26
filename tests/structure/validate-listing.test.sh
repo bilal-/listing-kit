@@ -13,9 +13,9 @@ it "a current-size fixture passes validation (both stores, exit 0)"
 OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0"
 assert_contains "$OUT" "LISTING VALID"
-assert_contains "$OUT" "iPhone screenshots present"
-assert_contains "$OUT" "iPad screenshots present"            # required since supportsTablet
-assert_contains "$OUT" "feature graphic 1024x500 24-bit no-alpha"
+assert_contains "$OUT" "iPhone Dynamic Island (medium display) screenshots present"
+assert_contains "$OUT" 'iPad 13" screenshots present'            # required since supportsTablet
+assert_contains "$OUT" "Feature graphic 1024x500"
 assert_contains "$OUT" "secret scan: clean"
 
 it "empty and whitespace-only demo_password.txt pass validation"
@@ -41,7 +41,7 @@ new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
 rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 when iPad set missing"
-assert_contains "$OUT" "NO iPad screenshots"
+assert_contains "$OUT" 'no iPad 13" screenshots'
 remove_fixture "$T"
 
 it "fails when the Play feature graphic is missing"
@@ -49,7 +49,7 @@ new_tempdir T; cp -R "$APP/fastlane" "$T/"
 rm -f "$T"/fastlane/metadata/android/en-US/images/featureGraphic.png
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 when feature graphic missing"
-assert_contains "$OUT" "feature graphic MISSING"
+assert_contains "$OUT" "Feature graphic MISSING"
 remove_fixture "$T"
 
 # --- #3: a field at exactly the limit with a trailing newline must NOT over-count ---
@@ -86,10 +86,10 @@ remove_fixture "$T"
 it "fails on a native-iOS universal app (TARGETED_DEVICE_FAMILY=2) with no iPad screenshots"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"            # NOTE: no app.json → not the Expo path
 rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
-mkdir -p "$T/App.xcodeproj"; printf 'TARGETED_DEVICE_FAMILY = "1,2";\n' > "$T/App.xcodeproj/project.pbxproj"
+cp -R "$ROOT/tests/fixtures/platforms/flutter/ios/Runner.xcodeproj" "$T/"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 — native iPad support detected, iPad shots required"
-assert_contains "$OUT" "NO iPad screenshots"
+assert_contains "$OUT" 'no iPad 13" screenshots'
 remove_fixture "$T"
 
 # --- store-rule checks driven by tiny synthetic images (tests/helpers.sh) ---
@@ -119,7 +119,7 @@ apple_only; rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
 png "$T/fastlane/screenshots/en-US/ipad11_01.png" 1668 2420
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "NO iPad screenshots"
+assert_contains "$OUT" 'no iPad 13" screenshots'
 remove_fixture "$T"
 
 it "landscape screenshots are recognized"
@@ -159,19 +159,24 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "05_deep.png: must be 24-bit no-alpha (depth=16"
 remove_fixture "$T"
 
-it "a Play screenshot over 2:1 fails"
-play_only; png "$T/$PHONE/05_tall.png" 1080 2400
+it "Play phone screenshots allow 2.3:1 and reject larger ratios"
+play_only; png "$T/$PHONE/05_tall.png" 1000 2300
+OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
+png "$T/$PHONE/05_tall.png" 1000 2301
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" "05_tall.png: aspect"
 remove_fixture "$T"
 
-it "Play's 2-screenshot minimum counts across device types"
+it "a phone listing needs two phone images as well as two overall"
 play_only; rm -f "$T/$PHONE"/*.png
+mkdir -p "$T/app/src/main"
+echo 'plugins { id("com.android.application") }' > "$T/app/build.gradle.kts"
+printf '<manifest/>\n' > "$T/app/src/main/AndroidManifest.xml"
 png "$T/$PHONE/01_home.png" 1080 1920
 png "$T/fastlane/metadata/android/en-US/images/tenInchScreenshots/01_home.png" 1920 1080
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "1 phone + 1 tablet passes"
+assert_eq 1 "$RC" "one phone image falls short of the phone slot minimum"
 assert_contains "$OUT" "screenshots across device types: 2"
 assert_contains "$OUT" "promotion eligibility"
 remove_fixture "$T"
@@ -206,14 +211,14 @@ play_only; rm "$T/$IMG/featureGraphic.png"
 fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
-assert_contains "$OUT" "feature graphic 1024x500"
+assert_contains "$OUT" "Feature graphic 1024x500"
 remove_fixture "$T"
 
 it "a missing Play icon fails (it's required)"
 play_only; rm "$T/$IMG/icon.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "Play icon MISSING"
+assert_contains "$OUT" "App icon MISSING"
 remove_fixture "$T"
 
 it "Wear OS screenshots are validated"
@@ -250,7 +255,7 @@ apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screensho
 fake_jpeg "$T/fastlane/screenshots/en-US/01_home.jpeg" 1179 2556
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
-assert_contains "$OUT" "iPhone screenshots present (1 at"
+assert_contains "$OUT" "iPhone Dynamic Island (medium display) screenshots present (1"
 remove_fixture "$T"
 
 # --- iPad detection beyond app.json ---
@@ -259,7 +264,7 @@ apple_only; rm "$T/app.json" "$T"/fastlane/screenshots/en-US/ipad13_*.png
 printf 'export default { ios: { supportsTablet: true } };\n' > "$T/app.config.ts"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "NO iPad screenshots"
+assert_contains "$OUT" 'no iPad 13" screenshots'
 remove_fixture "$T"
 
 it "LK_SUPPORTS_IPAD=0 overrides detection"
@@ -374,7 +379,7 @@ open(sys.argv[1],"wb").write(b"\xff\xd8\xff\xc0"+struct.pack(">H",len(sof)+2)+so
 ' "$T/$IMG/featureGraphic.jpg"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "feature graphic must be 1024x500"
+assert_contains "$OUT" "Feature graphic must be 1024x500"
 rm -rf "$T"
 
 it "a JPEG saved as icon.png fails"
@@ -462,11 +467,11 @@ SHIM="$SHIM_ROOT/scripts"
 mkdir -p "$SHIM"
 cp -R "$SKILL_DIR/specs" "$SHIM_ROOT/"
 cp -R "$SCRIPTS/validate" "$SCRIPTS/lib" "$SHIM/"
-printf '\ndef apple_locales(root): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
+printf '\ndef apple_locales(root, rules=None, plan=None): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
 apple_only
 OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "apple_assets.py --locales failure exits 1"
-assert_contains "$OUT" "apple_assets.py"
+assert_contains "$OUT" "RuntimeError: apple_assets.py failed"
 assert_not_contains "$OUT" "LISTING VALID"
 rm -rf "$T"
 # 2. listing.py failing on play-locales
@@ -538,7 +543,7 @@ open(sys.argv[1], "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + b"\x01\xff\x
 PY
   OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
   assert_eq 1 "$RC" "real IM rejects corrupt scan in 1024x500 featureGraphic.jpg"
-  assert_not_contains "$OUT" "✓ feature graphic 1024x500"
+  assert_not_contains "$OUT" "✓ Feature graphic 1024x500"
   rm -rf "$T"
 fi
 
@@ -563,11 +568,11 @@ assert_contains "$OUT" "tvBanner.png"
 fake_png "$T/$IMG/tvBanner.png" 1280 720
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "valid TV banner passes"
-assert_contains "$OUT" "TV banner 1280x720, no alpha"
+assert_contains "$OUT" "TV banner 1280x720"
 fake_png "$T/$IMG/tvBanner.png" 1280 720 8 6
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "RGBA TV banner fails Play 24-bit no-alpha rule"
-assert_contains "$OUT" "TV banner must be 1280x720 JPEG or 24-bit PNG without alpha"
+assert_contains "$OUT" "TV banner must be 1280x720"
 rm -f "$T/$IMG/tvBanner.png"; fake_png "$T/$IMG/tvBanner.png" 1280 720 8 0
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "a grayscale PNG banner is not a 24-bit PNG"
@@ -584,7 +589,7 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" "duplicate featureGraphic"
 assert_contains "$OUT" "featureGraphic.png: image failed"
-assert_not_contains "$OUT" "✓ feature graphic" "ambiguous duplicate graphic does not report pass"
+assert_not_contains "$OUT" "✓ Feature graphic" "ambiguous duplicate graphic does not report pass"
 rm -rf "$T"
 
 it "rejects a two-frame APNG screenshot with a damaged second frame with a clear acTL reason"
@@ -615,7 +620,7 @@ it "reports the decoder's resource limit as a warning on each blocked asset"
 play_only
 fake_png "$T/store-assets/apple/en-US/header.png" 3840 1646
 cp -R "$APP/fastlane/screenshots" "$T/fastlane/"
-cp -R "$APP/fastlane/metadata/en-US" "$T/fastlane/metadata/"
+cp -R "$APP/fastlane/metadata/en-US" "$APP/fastlane/metadata/"*.txt "$T/fastlane/metadata/"
 new_stubdir
 cat > "$STUB_BIN/magick" <<'LIMIT'
 #!/bin/sh
