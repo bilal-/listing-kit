@@ -88,11 +88,11 @@ class Composer(unittest.TestCase):
         self.rec = dict(kind="screenshot", size=[2, 2], outputPath="shots/a.png",
                         rawPath="raw.png", styleMode="raw", targetId="a", screenId="a")
         self.man = dict(outputs=[self.rec], stale=[])
-        for fn, result in [(compose.plan.load, {}), (compose.specs.load, {}),
-                           (compose.plan.manifest, self.man)]:
-            p = patch(fn.__module__ + "." + fn.__name__, return_value=result)
-            p.start()
-            self.addCleanup(p.stop)
+        fonts = ROOT / "skills/listing-kit/assets/fonts"
+        fixture = patch.object(compose.plan, "compose_inputs", return_value=(
+            self.man, {}, {fonts / "Inter.ttf": fonts}))
+        fixture.start()
+        self.addCleanup(fixture.stop)
 
     def run_cli(self, *args):
         log = io.StringIO()
@@ -102,7 +102,8 @@ class Composer(unittest.TestCase):
         return code
 
     def job(self):
-        return compose.Job(str(self.root), self.rec)
+        fonts = ROOT / "skills/listing-kit/assets/fonts"
+        return compose.Job(str(self.root), self.rec, input_roots={fonts / "Inter.ttf": fonts})
 
     @unittest.skipUnless(compose.magick(), "ImageMagick required")
     def test_01_unowned_and_edited_require_listed_adoption(self):
@@ -353,6 +354,21 @@ class Composer(unittest.TestCase):
         self.rec.update(text={"caption": {"value": "new copy"}}, style={"palette": {"ink": "#ffffff"}})
         self.assertEqual(self.job().keys(), before)
 
+    def test_restart_after_render_failure(self):
+        self.rec.update(styleMode="framed", style={"fonts": {}})
+        self.man["outputs"].append(dict(self.rec, outputPath="shots/b.png"))
+        for error in (cdp.BrowserError("renderer failed"), subprocess.TimeoutExpired("render", 1)):
+            with self.subTest(error=error):
+                first, second = Mock(), Mock()
+                first.version_major.return_value = second.version_major.return_value = "123"
+                with patch.object(cdp, "find_browser", return_value="fixture"), patch.object(
+                    render, "open_browser", side_effect=[(first, "first"), (second, "second")]
+                ), patch.object(compose, "build", side_effect=[error, None]) as build:
+                    self.assertEqual(self.run_cli(), 1)
+                    self.assertEqual([call.args[1] for call in build.call_args_list], ["first", "second"])
+                    first.close.assert_called_once()
+                    second.close.assert_called_once()
+
     def test_14_timeout_validated_before_spawning(self):
         with patch.dict(os.environ, LK_BROWSER_TIMEOUT="bad"), patch("subprocess.Popen", side_effect=AssertionError("spawned")):
             with self.assertRaisesRegex(cdp.BrowserError, "LK_BROWSER_TIMEOUT"):
@@ -425,7 +441,7 @@ class Layout(unittest.TestCase):
         rec = dict(kind="graphic", size=[600, 300], outputPath="header.png", slotId="header-16x9",
                    style=dict(fonts=dict(headline=[font], detail=[font]), palette=dict(background=["#000000"], ink="#ffffff")),
                    text=dict(headline={"value": "Header"}))
-        page = compose.preview_page([compose.Job(".", rec)])
+        page = compose.preview_page([compose.Job(".", rec, input_roots={Path(font): Path(font).parent})])
         probe = """(()=>{const r=document.querySelector('iframe').getBoundingClientRect();
                    return [r.left+3,r.top+3,r.left+5,r.top+5]})()"""
         shot, rect = self.renderer.render({"/index.html": page}, 400, 300, csp=False, probe=probe)

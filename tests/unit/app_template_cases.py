@@ -38,7 +38,7 @@ class UserTemplates(unittest.TestCase):
         self.folder.mkdir(parents=True)
         self.plan = self.folder.parent / "listing.json"
         self.data = dict(format=2, app="example.app", locales=["en-US"],
-                         style=dict(template="acorn", mode="framed",
+                         style=dict(template="user:acorn", mode="framed",
                                     palette=dict(background=["#ffffff"], ink="#111111"),
                                     fonts=dict(default=dict(headline=["bundled:Inter"], detail=["bundled:Inter"]))),
                          targets=[dict(id="phone", store="play", slot="phone", size=[360, 640], state="active")],
@@ -57,8 +57,8 @@ class UserTemplates(unittest.TestCase):
     def save(self):
         self.plan.write_text(json.dumps(self.data, indent=2))
 
-    def cli(self, *args, rc=0, **env):
-        result = subprocess.run([str(KIT / "bin/listing-kit"), *args], cwd=self.root, text=True,
+    def cli(self, *args, rc=0, timeout=60, **env):
+        result = subprocess.run([str(KIT / "bin/listing-kit"), *args], cwd=self.root, text=True, timeout=timeout,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=dict(os.environ, GIT_CEILING_DIRECTORIES=str(self.root.parent), **env))
         self.assertEqual(result.returncode, rc, result.stdout)
         return result.stdout
@@ -79,14 +79,186 @@ class UserTemplates(unittest.TestCase):
                 line = next(i for i, s in enumerate(self.plan.read_text().splitlines(), 1) if json.dumps(name) in s)
                 self.assertIn(f"listing.json:{line}", self.cli("plan", "check", rc=1))
 
+    def test_explicit_opt_in(self):
+        for name in ("acorn", "absent"):
+            with self.subTest(name=name):
+                self.data["style"]["template"] = name
+                self.save()
+                error = self.cli("plan", "check", rc=1)
+                for bundled in compose.template_values.TEMPLATES:
+                    self.assertIn(bundled, error)
+                self.assertEqual("user:" + name in error, name == "acorn")
+
+    def test_loader_work_bounds(self):
+        page = self.folder / "acorn.html"
+        with self.subTest("large identifier"):
+            page.write_text("<style>" + "a" * 2_000_000 + "</style>")
+            self.assertIn("byte", self.cli("plan", "check", rc=1, timeout=4))
+        with self.subTest("identifier below the byte cap"):
+            page.write_text("<style>" + "a" * 120_000 + "{color:red}</style>")
+            self.cli("plan", "check", timeout=4)
+        with self.subTest("many attributes"):
+            page.write_text("<p" + " title" * 150_000 + ">")
+            self.assertIn("attribute", self.cli("plan", "check", rc=1, timeout=4))
+
+    def test_exhausted_budget_never_opens_an_asset(self):
+        with patch("os.open", side_effect=AssertionError("opened file with negative budget")):
+            with self.assertRaisesRegex(ValueError, "byte limit"):
+                compose.read_regular(self.root, "home.yaml", -2)
+
+    def test_template_asset_budget(self):
+        loader = compose.user_templates
+        for limit, value in (("MAX_ASSETS", 1), ("MAX_TEMPLATE_BYTES", len(HTML.encode()) + 4),
+                             ("MAX_IMAGE_BYTES", 5), ("MAX_FONT_BYTES", 5)):
+            with self.subTest(limit=limit), patch.object(loader, limit, value, create=True):
+                (self.folder / "acorn.css").write_text('@font-face{src:url(sample.ttf)}')
+                (self.folder / "sample.ttf").write_bytes(b"fixture")
+                with self.assertRaisesRegex(ValueError, "limit|byte|too many"):
+                    loader.resolve(self.root, "user:acorn")
+
+    def test_multiple_templates_share_budget_and_deadline(self):
+        self.data["screens"][0]["template"] = "user:second"
+        (self.folder / "second.html").write_text(HTML)
+        self.save()
+        loader = compose.user_templates
+        with patch.object(loader, "new_deadline", wraps=loader.new_deadline) as deadline:
+            plan.compose_inputs(self.root)
+            deadline.assert_called_once()
+        with patch.object(loader, "MAX_PLAN_TEMPLATE_BYTES", len(HTML.encode()) * 2):
+            with self.assertRaisesRegex(plan.PlanError, "byte limit"):
+                plan.compose_inputs(self.root)
+
+    def test_template_loading_deadline(self):
+        for args, rc in ((("plan", "check"), 1), (("compose", "--dry-run"), 2)):
+            with self.subTest(args=args):
+                self.assertIn("template loading timed out", self.cli(*args, rc=rc, LK_BROWSER_TIMEOUT="1e-12"))
+
+    def test_brand_confined_and_bounded(self):
+        meta = self.root / "store"
+        locale = meta / "en-US"
+        locale.mkdir(parents=True)
+        title = locale / "title.txt"
+        other = self.root / "other"
+        other.mkdir()
+        (other / title.name).write_text("other name")
+        def name():
+            return compose.listing_name(self.root, {"trees": {"play": {"metadata": "store"}}},
+                                        {"store": "play", "storeCode": "en-US"})
+        title.symlink_to(other / title.name)
+        self.assertIsNone(name())
+        title.unlink()
+        locale.rmdir()
+        locale.symlink_to(other)
+        self.assertIsNone(name())
+        locale.unlink()
+        locale.mkdir()
+        os.mkfifo(title)
+        # Enforce a wall-clock bound even if a blocking reader is reintroduced.
+        result = subprocess.run([sys.executable, "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); import compose; "
+            "print(compose.listing_name('.', {'trees': {'play': {'metadata': 'store'}}}, {'store':'play'}))",
+            str(KIT / "scripts/compose")], cwd=self.root, timeout=3, check=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), b"None")
+        title.unlink()
+        title.write_text("x" * 64_000)
+        self.assertIsNone(name())
+        title.write_text("Example")
+        self.assertEqual(name(), "Example")
+
+    def test_render_uses_fingerprinted_inputs(self):
+        font = self.root / "local.ttf"
+        original_font = (KIT / "assets/fonts/Inter.ttf").read_bytes()
+        font.write_bytes(original_font)
+        logo = self.root / "logo.png"
+        logo.write_bytes(png())
+        self.data["style"].update(logo="logo.png", fonts={"default": dict.fromkeys(
+            ("headline", "detail"), ["local.ttf"])})
+        self.save()
+        man, templates, roots = plan.compose_inputs(self.root)
+        row = man["outputs"][0]
+        job = compose.Job(self.root, row, templates, roots)
+        keys = job.keys()
+        raw = self.root / row["rawPath"]
+        for path in (font, logo, raw):
+            path.unlink()
+            path.symlink_to(self.folder / "stamp.png")
+        args = job.asset_args()
+        assets = compose.render.page_assets(**args)
+        self.assertEqual(args["shot_size"], (3, 5))
+        self.assertEqual(assets["/raw.png"], png(3, 5))
+        self.assertEqual(assets["/logo.png"], png())
+        self.assertEqual(assets["/fonts/headline-0.ttf"], original_font)
+        self.assertEqual(job.keys(), keys)
+        with self.assertRaises((ValueError, OSError)):
+            compose.Job(self.root, row).keys()
+
+    def test_repo_font_and_logo_use_the_validated_root(self):
+        app = self.root / "app"
+        app.mkdir()
+        (self.root / ".listing-kit").rename(app / ".listing-kit")
+        art = self.root / "art"
+        art.mkdir()
+        (art / "logo.png").write_bytes(png())
+        (art / "font.ttf").write_bytes((KIT / "assets/fonts/Inter.ttf").read_bytes())
+        self.data["style"].update(logo="repo:art/logo.png", fonts={"default": dict.fromkeys(
+            ("headline", "detail"), ["repo:art/font.ttf"])})
+        (app / ".listing-kit/listing.json").write_text(json.dumps(self.data))
+        man, templates, roots = plan.compose_inputs(app)
+        row = man["outputs"][0]
+        job = compose.Job(app, row, templates, roots)
+        with patch.object(compose, "read_regular", wraps=compose.read_regular) as reads:
+            job.keys()
+            moved = self.root / "moved"
+            art.rename(moved)
+            art.symlink_to(moved)
+            assets = compose.render.page_assets(**job.asset_args())
+            self.assertEqual(assets["/logo.png"], png())
+            self.assertEqual(assets["/fonts/detail-0.ttf"], (moved / "font.ttf").read_bytes())
+            self.assertEqual(reads.call_count, 3)
+        with self.assertRaises((ValueError, OSError)):
+            compose.Job(app, row, templates, roots).keys()
+
+    def test_capture_dependency_for_each_output(self):
+        self.data["screens"][1] = dict(id="panel", panel=dict(headline={"en-US": "Example"}, rows=[]))
+        self.save()
+        for markup in ('<img src="/raw.png">', '<style>body{background:url(/raw.png)}</style>'):
+            with self.subTest(markup=markup):
+                (self.folder / "acorn.html").write_text(markup)
+                self.assertIn("/raw.png", self.cli("plan", "check", rc=1))
+
+        self.data["screens"].pop()
+        self.data["graphics"] = {"play": {"featureGraphic": {"template": "user:acorn", "headline": {"en-US": "Hello"}}}}
+        self.save()
+        self.assertIn("/raw.png", self.cli("plan", "check", rc=1))
+
+    def test_placeholder_must_be_one_validated_token(self):
+        (self.folder / "acorn.html").write_text("<p>{{cap<!-- note -->tion}}</p>")
+        self.assertIn("placeholder", self.cli("plan", "check", rc=1))
+
+    @unittest.skipUnless(compose.render.cdp.find_browser() or os.getenv("LK_REQUIRE_RENDER") == "1", "no browser")
+    def test_computed_srgb_contrast(self):
+        for color in ("color(srgb 1 1 1)", "color(srgb 1 1 1 / .5)", "rgba(255,255,255,.5)"):
+            with self.subTest(color=color):
+                (self.folder / "acorn.css").write_text(CSS + ".headline{color:" + color + "}")
+                self.assertIn("contrast 1.00:1", self.cli("compose", "--screen", "home", rc=1))
+
+    @unittest.skipUnless(compose.render.cdp.find_browser() or os.getenv("LK_REQUIRE_RENDER") == "1", "no browser")
+    def test_probe_preserves_srgb_channels_at_low_alpha(self):
+        browser, renderer = compose.render.open_browser()
+        self.addCleanup(browser.close)
+        page = b"""<p data-check="text" style="color:color(srgb .1 .2 .3 / .006)">A</p>
+                   <p data-check="text" style="color:color(srgb .1 none .3 / none)">B</p>"""
+        _, info = renderer.render({"/index.html": page}, 100, 100, probe=compose.render.PROBE + "(true)")
+        self.assertEqual([box["rgba"] for box in info["text"]], [[26, 51, 77, .006], [26, 0, 77, 0]])
+
     def test_starter(self):
         self.cli("template", "new", "con")
-        self.data["style"]["template"] = "con"
+        self.data["style"]["template"] = "user:con"
         self.save()
         self.cli("plan", "check")
         self.cli("template", "new", "mint")
         path = self.folder / "mint.html"
-        self.assertIn("<!--", path.read_text())
+        self.assertIn("user:mint", path.read_text())
         path.write_text("keep")
         self.cli("template", "new", "mint", rc=1)
         self.assertEqual(path.read_text(), "keep")
@@ -168,11 +340,13 @@ class UserTemplates(unittest.TestCase):
         self.data["screens"].append(dict(id="last", flow="home.yaml"))
         self.data["screens"][0] = dict(id="home", panel=dict(headline={"en-US": "Today"}, rows=[]))
         (self.folder / "acorn.html").write_text('<body data-fit="{{fit}}"><h1 data-check="text">{{headline}}</h1>')
-        record = plan.manifest(self.data, specs.load(self.root), self.root)["outputs"][0]
-        original = compose.Job(self.root, record).keys()
+        self.save()
+        man, templates, roots = plan.compose_inputs(self.root)
+        record = man["outputs"][0]
+        original = compose.Job(self.root, record, templates, roots).keys()
         for setting in ({"fit": "cover"}, {"bezel": {"width": 5}}):
             changed = dict(record, style=dict(record["style"], **setting))
-            content, style = compose.Job(self.root, changed).keys()
+            content, style = compose.Job(self.root, changed, templates, roots).keys()
             self.assertEqual(content, original[0])
             self.assertNotEqual(style, original[1])
 
@@ -215,8 +389,10 @@ class UserTemplates(unittest.TestCase):
 
     @unittest.skipUnless(compose.render.cdp.find_browser() or os.getenv("LK_REQUIRE_RENDER") == "1", "no browser")
     def test_csp_blocks_page_scripts_independently_of_source_validation(self):
-        row = plan.manifest(self.data, specs.load(self.root), self.root)["outputs"][0]
-        job = compose.Job(self.root, row)
+        self.save()
+        man, templates, roots = plan.compose_inputs(self.root)
+        row = man["outputs"][0]
+        job = compose.Job(self.root, row, templates, roots)
         assets = compose.render.page_assets(**job.asset_args())
         # Inject harmless sentinels after load checks to exercise the second boundary.
         assets["/index.html"] += b'<script>window.inlineRan=1</script><script src="/test.js"></script>'
@@ -229,6 +405,7 @@ class UserTemplates(unittest.TestCase):
         headers = [header["value"] for call in commands.call_args_list if call.args[0] == "Fetch.fulfillRequest"
                    for header in call.args[1]["responseHeaders"] if header["name"] == "Content-Security-Policy"]
         self.assertTrue(headers)
+        self.assertTrue(all("form-action 'none'" in policy for policy in headers))
         self.assertTrue(all("script-src 'none'" in policy for policy in headers))
 
     def test_reference_and_example(self):
@@ -239,7 +416,7 @@ class UserTemplates(unittest.TestCase):
         if compose.render.cdp.find_browser() and compose.magick():
             self.cli("compose", "--preview")
             self.cli("template", "new", "starter")
-            self.data["style"]["template"] = "starter"
+            self.data["style"]["template"] = "user:starter"
             self.save()
             self.cli("compose", "--preview")
         for doc in (KIT / "SKILL.md", KIT.parents[1] / "docs/GUIDE.md"):

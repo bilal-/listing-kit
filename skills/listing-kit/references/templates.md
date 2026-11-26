@@ -2,9 +2,9 @@
 
 From the app root, run `listing-kit template new acorn`. Edit the commented starter at `.listing-kit/templates/acorn.html`. Add an optional `acorn.css` beside it for styles that apply after the HTML's stylesheets. The command refuses to overwrite an existing file.
 
-Set `style.mode` to `framed` and `style.template` to `acorn` in the plan. A target can override the plan, and a screen can override the target. Both accept `style.template` or a direct `template` key. A direct key takes precedence within the same screen or target. A graphic takes a direct `template` key. Raw screenshots and derived icons keep their own rendering paths.
+Set `style.mode` to `framed` and `style.template` to `user:acorn` in the plan. A target can override the plan, and a screen can override the target. Both accept `style.template` or a direct `template` key. A direct key takes precedence within the same screen or target. A graphic takes a direct `template` key. Raw screenshots and derived icons keep their own rendering paths.
 
-Names match `[a-z0-9-]+`. The kit reserves the bare names `caption-top`, `band`, `panel`, `feature` and `header`. To select an app file with one of those names, use the explicit form, for example `user:band` for `.listing-kit/templates/band.html`.
+Use `user:<name>` for every app template. Names match `[a-z0-9-]+`. The kit reserves the bare names `caption-top`, `band`, `panel`, `feature` and `header`. To select an app file with one of those names, use the explicit form, for example `user:band` for `.listing-kit/templates/band.html`.
 
 ## A screenshot template
 
@@ -47,5 +47,7 @@ Use the two plan font roles on measured text. Point a role at an app font such a
 Use ordinary layout and text elements, `img src`, stylesheet links, inline styles and CSS `url(...)`. Image files can be PNG, JPEG, WebP or standalone SVG shapes. SVG gradients and other definitions can refer to IDs in the same image. Local CSS can reference fonts in TTF, OTF, WOFF or WOFF2 format. Resource paths are relative to the containing file. Use portable filenames and forward slashes for nested folders. Quote CSS URLs containing spaces. Use `bundled:fonts/Inter.ttf` to address a file under the kit's assets directory. The three virtual URLs in the table are supplied by the composer.
 
 The loader checks each reference before rendering. It rejects symlinks, parent traversal, filesystem paths, remote and data URLs, scripts, event attributes, navigation, embedded documents and network hints. Use a stylesheet link for additional CSS. The loader accepts layout, color and transform functions and rejects CSS escapes and indirect resource functions such as `image-set()`.
+
+Each template can use up to 128 assets and 32 MiB total, including its HTML. HTML, CSS and SVG files can each use up to 1 MiB, raster images 16 MiB and fonts 8 MiB. The plan can load up to 128 MiB across its distinct templates. Template loading shares one deadline across the plan, 60 seconds by default. Set `LK_BROWSER_TIMEOUT` in seconds to adjust it.
 
 Run `listing-kit plan check` for file and line diagnostics. Run `listing-kit compose --preview` to inspect the layout. A user template needs the headless renderer for preview. The preview embeds its rendered PNG so opening the gallery never loads app markup. Changes to the HTML, companion CSS or referenced files go through the usual `listing-kit compose --restyle` approval when existing images would change style.

@@ -111,7 +111,7 @@ In the initialized copy, run `listing-kit hook install`, then `listing-kit hook 
 
 ## Use your own screenshot layout
 
-Run `listing-kit template new acorn` in the app root. Edit `.listing-kit/templates/acorn.html`, add an optional `acorn.css`, and select `acorn` in the framed plan's `style.template`. A target or screen can select a different layout with its `template` key. Use `user:band` to select an app layout named `band`. Check the plan, then inspect `listing-kit compose --preview`. The gallery embeds a PNG of each app layout. [Template values and working example](../skills/listing-kit/references/templates.md)
+Run `listing-kit template new acorn` in the app root. Edit `.listing-kit/templates/acorn.html`, add an optional `acorn.css`, and select `user:acorn` in the framed plan's `style.template`. A target or screen can select a different layout with its `template` key. Use `user:band` to select an app layout named `band`. Check the plan, then inspect `listing-kit compose --preview`. The gallery embeds a PNG of each app layout. [Template values and working example](../skills/listing-kit/references/templates.md)
 
 ## Hand over
 

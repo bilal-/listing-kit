@@ -269,7 +269,7 @@ class Renderer:
                         "responseHeaders": [
                             {"name": "Content-Type", "value": MIME.get(ext, "application/octet-stream")}
                         ] + ([{"name": "Content-Security-Policy",
-                               "value": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; script-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; connect-src 'none'; base-uri 'none' "}]
+                               "value": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; script-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none' "}]
                              if csp else []),
                         "body": base64.b64encode(body).decode()}, sid)
             elif m == "Page.loadEventFired" and sid == session:

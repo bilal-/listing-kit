@@ -1,13 +1,19 @@
 """Load a declarative app template into a closed map of virtual URLs and bytes."""
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import html
 from html.parser import HTMLParser
+from itertools import groupby
 import os
 from pathlib import Path, PurePosixPath
 import re
+import signal
+import stat
 import sys
+import threading
+import time
 from urllib.parse import quote, unquote
 from xml.parsers import expat
 
@@ -21,6 +27,13 @@ else:
 
 KIT = Path(__file__).resolve().parents[2]
 FOLDER = ".listing-kit/templates"
+MAX_TEXT_BYTES = 1 << 20
+MAX_IMAGE_BYTES = 16 << 20
+MAX_FONT_BYTES = 8 << 20
+MAX_TEMPLATE_BYTES = 32 << 20
+MAX_ASSETS = 128
+MAX_PLAN_TEMPLATE_BYTES = 128 << 20
+ATTRIBUTE = re.compile(r"""\s*([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?""")
 NAME = re.compile(r"[a-z0-9-]+")
 IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
 FONT = {".otf", ".ttf", ".woff", ".woff2"}
@@ -32,7 +45,7 @@ TAGS = set(("html head title meta link style body main section article header fo
 ATTRS = set("id class lang dir title alt width height role data-fit data-check".split())
 CSS_TOKEN = re.compile(r"""/\*.*?(?:\*/|$)|"[^"\n\r\f]*"|'[^'\n\r\f]*'|(?P<bad_quote>["'])|
     (?P<url>url\(\s*(?P<argument>"[^"\n\r\f]*"|'[^'\n\r\f]*'|[^'"()\s]+)\s*\))|
-    (?P<function>[-\w]+)\(|(?P<rule>@[-\w]+)""", re.S | re.I | re.X)
+    (?P<function>[-\w]+)(?P<call>\()?|(?P<rule>@[-\w]+)""", re.S | re.I | re.X)
 # Functions that compute values or select elements, without fetching resources.
 FUNCTIONS = set(("calc min max clamp var env rgb rgba hsl hsla hwb lab lch oklab oklch color color-mix "
                  "linear-gradient radial-gradient conic-gradient repeating-linear-gradient repeating-radial-gradient "
@@ -42,26 +55,88 @@ FUNCTIONS = set(("calc min max clamp var env rgb rgba hsl hsla hwb lab lch oklab
                  "has not is where nth-child nth-of-type format tech supports selector").split())
 
 
+def new_deadline():
+    seconds = float(os.environ.get("LK_BROWSER_TIMEOUT", "60"))
+    if not 0 < seconds <= 86400:
+        raise ValueError("LK_BROWSER_TIMEOUT must be a positive number of seconds (up to 86400)")
+    return time.monotonic() + seconds
+
+
+class _LoadingAlarm(BaseException):
+    """Interrupt a synchronous parser without being caught as malformed input."""
+
+
+class TemplateTimeout(ValueError):
+    pass
+
+
+def remaining(deadline):
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TemplateTimeout("template loading timed out")
+    return left
+
+
+@contextmanager
+def loading(deadline):
+    # Interrupt synchronous parsers in the CLI, including work inside HTMLParser.
+    # Library callers on other threads still check the same deadline between tokens.
+    def expired(*_):
+        raise _LoadingAlarm
+
+    left = remaining(deadline)
+    if threading.current_thread() is threading.main_thread() and not signal.getitimer(signal.ITIMER_REAL)[0]:
+        previous = signal.signal(signal.SIGALRM, expired)
+        try:
+            signal.setitimer(signal.ITIMER_REAL, left)
+            yield
+        except _LoadingAlarm:
+            raise TemplateTimeout("template loading timed out") from None
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+    else:
+        yield
+    remaining(deadline)
+
+
+@dataclass(frozen=True)
+class Placeholder:
+    name: str
+
+
 @dataclass
 class Template:
-    page: str
+    tokens: list
     assets: dict
     digests: dict
+    virtual: set
+    size: int
+
+    def fill(self, values):
+        return "".join(values[token.name] if isinstance(token, Placeholder) else token for token in self.tokens)
 
 
 class Loader:
-    def __init__(self, root):
+    def __init__(self, root, deadline, byte_limit):
         self.root = root
+        self.deadline = deadline
+        self.byte_limit = min(byte_limit, MAX_TEMPLATE_BYTES)
+        self.total = 0
+        self.virtual = set()
         self.assets = {}
         self.digests = {}
         self.errors = []
 
     def error(self, source, line, message):
+        if len(self.errors) >= 32:
+            raise ValueError("\n".join(self.errors))
         self.errors.append(f"{FOLDER}/{source}:{line}: {message}")
 
     def asset(self, ref, source, line, types):
         # These three kit-supplied resources are the bundled template interface.
         if ref in VIRTUAL and PurePosixPath(ref).suffix in types:
+            self.virtual.add(ref)
             return ref
         bundled = ref.startswith("bundled:")
         relative = ref[len("bundled:"):] if bundled else ref
@@ -75,12 +150,23 @@ class Loader:
         name = relative if bundled else str(PurePosixPath(source).parent / relative)
         return self.load(name, source, line, bundled=bundled)
 
+    def read(self, root, relative):
+        remaining(self.deadline)
+        suffix = PurePosixPath(relative).suffix.lower()
+        limit = (MAX_FONT_BYTES if suffix in FONT else
+                 MAX_IMAGE_BYTES if suffix in IMAGE - {".svg"} else MAX_TEXT_BYTES)
+        data = read_regular(root, relative, min(limit, self.byte_limit - self.total))
+        self.total += len(data)
+        return data
+
     def load(self, name, source, line, bundled=False, optional=False):
         url = ("/bundled/" if bundled else "/user/") + quote(name)
         if url not in self.assets:
             try:
-                data = read_regular(KIT / "assets" if bundled else self.root,
-                                    name if bundled else FOLDER + "/" + name)
+                data = self.read(KIT / "assets" if bundled else self.root,
+                                 name if bundled else FOLDER + "/" + name)
+                if len(self.assets) >= MAX_ASSETS:
+                    raise ValueError("too many template assets")
                 key = "bundled:" + name if bundled else FOLDER + "/" + name
                 self.digests[key] = hashlib.sha256(data).hexdigest()
                 self.assets[url] = data
@@ -95,15 +181,25 @@ class Loader:
         return url
 
     def css(self, css, source, line, svg=False):
+        cursor = growth = 0
+
+        def line_at(pos):
+            nonlocal line, cursor
+            line += css.count("\n", cursor, pos)
+            cursor = pos
+            return line
+
         def fail(pos, reason):
-            self.error(source, line + css.count("\n", 0, pos), reason)
+            self.error(source, line_at(pos), reason)
         # No escaped identifiers or substitutions into CSS syntax. This keeps URL
         # discovery unambiguous even for conditional rules the browser never uses.
         bad = re.search(r"[\\\x00<]|\{\{", css)
         if bad:
-            fail(bad.start(), "CSS escapes, markup and placeholders are unsupported")
+            self.error(source, line + css.count("\n", 0, bad.start()), "CSS escapes, markup and placeholders are unsupported")
 
         def token(match):
+            nonlocal growth
+            remaining(self.deadline)
             value = match[0]
             if match["bad_quote"]:
                 fail(match.start(), "unterminated CSS string")
@@ -114,9 +210,15 @@ class Loader:
                     if not re.fullmatch(r"#[A-Za-z_][\w.:-]*", ref):
                         fail(match.start(), f"SVG resource must be an internal fragment: {ref!r}")
                     return value
-                url = self.asset(ref, source, line + css.count("\n", 0, match.start()), IMAGE | FONT)
-                return f'url("{url}")'
-            if match["function"] and match["function"].lower() not in FUNCTIONS:
+                url = self.asset(ref, source, line_at(match.start()), IMAGE | FONT)
+                replacement = f'url("{url}")'
+                extra = max(0, len(replacement) - len(value))
+                growth += extra
+                if growth > MAX_TEXT_BYTES or self.total + extra > self.byte_limit:
+                    raise ValueError(f"{source}: expanded CSS URLs exceed byte limit")
+                self.total += extra
+                return replacement
+            if match["call"] and match["function"].lower() not in FUNCTIONS:
                 fail(match.start(), f"unsupported CSS function {value}")
             if match["rule"] and value.lower() not in {"@media", "@supports", "@font-face", "@layer", "@container",
                                                         "@keyframes", "@property"}:
@@ -179,6 +281,10 @@ class Markup(HTMLParser):
         if tag not in TAGS:
             self.error(f"disallowed element <{tag}>")
             return
+        remaining(self.loader.deadline)
+        if len(attrs) > 64:
+            self.error("too many HTML attributes")
+            return
         fields = dict(attrs)
         if len(fields) != len(attrs):
             self.error("duplicate HTML attribute")
@@ -188,15 +294,14 @@ class Markup(HTMLParser):
             self.error("only UTF-8 charset metadata is supported")
         output = []
         cursor = len(tag) + 1
+        raw = self.get_starttag_text()
         for key, value in attrs:
-            # HTMLParser provides the opening tag's line. Locate each attribute
-            # within that token, including quoted values spanning several lines.
-            match = re.match(r"""\s*([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?""",
-                             self.get_starttag_text()[cursor:])
+            match = ATTRIBUTE.match(raw, cursor)
             attr_line = line
             if match:
-                attr_line += self.get_starttag_text().count("\n", 0, cursor + match.start(1))
-                cursor += match.end()
+                attr_line += raw.count("\n", cursor, match.start(1))
+                line = attr_line + raw.count("\n", match.start(1), match.end())
+                cursor = match.end()
             value = value or ""
             if "{{" in value and (key, value) not in {("lang", "{{lang}}"), ("dir", "{{dir}}"), ("data-fit", "{{fit}}")}:
                 self.error(f"unsupported substitution in {key}", attr_line)
@@ -206,10 +311,13 @@ class Markup(HTMLParser):
                 value = self.loader.css(value, self.source, attr_line)
             elif key not in ATTRS and (tag, key) not in {("link", "rel"), ("meta", "charset")}:
                 self.error(f"disallowed attribute {key}", attr_line)
-            output.append(f' {key}="{html.escape(value)}"')
-        self.output.append("<" + tag + "".join(output) + ">")
+            if value in ("{{lang}}", "{{dir}}", "{{fit}}"):
+                output.extend([f' {key}="', Placeholder(value[2:-2]), '"'])
+            else:
+                output.append(f' {key}="{html.escape(value)}"')
+        self.output.extend(["<" + tag, *output, ">"])
         if tag not in {"meta", "link", "img", "br"}:
-            self.stack.append((tag, fields.get("data-check")))
+            self.stack.append((tag, fields.get("data-check") == "text" or bool(self.stack and self.stack[-1][1])))
 
     def handle_endtag(self, tag):
         if tag in TAGS:
@@ -228,33 +336,58 @@ class Markup(HTMLParser):
         if self.stack and self.stack[-1][0] == "style":
             self.output.append(self.loader.css(data, self.source, line))
             return
+        cursor = 0
+        def literal(chunk):
+            if "{{" in chunk or "}}" in chunk:
+                self.error("incomplete placeholder in text", line)
+            self.output.append(html.escape(chunk, quote=False))
+
         for match in PLACEHOLDER.finditer(data):
+            chunk = data[cursor:match.start()]
+            literal(chunk)
+            line += chunk.count("\n")
             key = match[1]
-            where = line + data.count("\n", 0, match.start())
             if key not in VALUES:
-                self.error(f"unknown template value {key}", where)
-            if key in {"caption", "detail", "headline"} and not any(check == "text" for _, check in self.stack):
-                self.error(f'{key} requires data-check="text"', where)
-        self.output.append(html.escape(data, quote=False))
+                self.error(f"unknown template value {key}", line)
+            if key in {"caption", "detail", "headline"} and not (self.stack and self.stack[-1][1]):
+                self.error(f'{key} requires data-check="text"', line)
+            self.output.append(Placeholder(key))
+            cursor = match.end()
+        literal(data[cursor:])
 
 
-def resolve(root, selection):
-    """Return None for built-ins, or the checked bytes used for both hashing and rendering."""
+def resolve(root, selection, deadline=None, byte_limit=MAX_PLAN_TEMPLATE_BYTES):
+    """Return the checked template, or None for a bundled name."""
     if selection in template_values.TEMPLATES:
         return None
-    name = selection if isinstance(selection, str) else ""
-    if name.startswith("user:"):
-        name = name[5:]
+    if not isinstance(selection, str) or not selection.startswith("user:"):
+        message = f"unknown template {selection!r} (bundled templates: {', '.join(template_values.TEMPLATES)})"
+        if isinstance(selection, str) and NAME.fullmatch(selection):
+            try:
+                with directory(root, FOLDER) as fd:
+                    mode = os.stat(selection + ".html", dir_fd=fd, follow_symlinks=False).st_mode
+                    if stat.S_ISREG(mode):
+                        message += f"; select user:{selection} to use the app template"
+            except OSError:
+                pass
+        raise ValueError(message)
+    name = selection[5:]
+    deadline = new_deadline() if deadline is None else deadline
+    with loading(deadline):
+        return _load(root, name, selection, deadline, byte_limit)
+
+
+def _load(root, name, selection, deadline, byte_limit):
     if not NAME.fullmatch(name):
         raise ValueError(f"invalid template name {selection!r} (expected [a-z0-9-]+)")
     source = name + ".html"
+    loader = Loader(root, deadline, byte_limit)
     try:
-        data = read_regular(root, FOLDER + "/" + source)
+        data = loader.read(root, FOLDER + "/" + source)
     except FileNotFoundError as exc:
         raise ValueError(f"unknown template {selection!r}: missing {FOLDER}/{source}") from exc
     except (OSError, ValueError) as exc:
         raise ValueError(f"{FOLDER}/{source}:1: {exc}") from exc
-    loader = Loader(root)
     markup = Markup(loader, source)
     try:
         markup.feed(data.decode("utf-8"))
@@ -267,7 +400,14 @@ def resolve(root, selection):
         markup.output.append(f'<link rel="stylesheet" href="{url}">')
     if loader.errors:
         raise ValueError("\n".join(loader.errors))
-    return Template("".join(markup.output), loader.assets, loader.digests)
+    # Keep only substitutions and the literal HTML between them in the plan cache.
+    tokens = []
+    for kind, parts in groupby(markup.output, type):
+        if kind is str:
+            tokens.append("".join(parts))
+        else:
+            tokens.extend(parts)
+    return Template(tokens, loader.assets, loader.digests, loader.virtual, loader.total)
 
 
 def main():
@@ -282,7 +422,7 @@ def main():
             name = args.name + ".html"
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
             with os.fdopen(fd, "wb") as stream:
-                stream.write(starter)
+                stream.write(starter.replace(b"user:TEMPLATE_NAME", ("user:" + args.name).encode("ascii")))
         print(f"{FOLDER}/{name}")
     except (ValueError, OSError) as exc:
         sys.exit(str(exc))

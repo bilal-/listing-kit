@@ -221,7 +221,10 @@ class _Checker:
         self.locales = {}
         self.target_ids = set()
         self.screen_ids = set()
-        self.checked_templates = set()
+        self.checked_templates = {}
+        self.template_deadline = None
+        self.template_bytes = 0
+        self.input_roots = {}
         self.mode = "raw"
         tree = dict(metadata=self.tree_path, fastlaneDir=self.tree_path)
         self.trees = dict(apple=dict(tree, screenshots=self.tree_path), play=tree, storeAssets=self.tree_path)
@@ -245,15 +248,21 @@ class _Checker:
         try:
             if isinstance(value, str) and value in self.checked_templates:
                 return
-            template = user_templates.resolve(self.app_root, value)
+            if isinstance(value, str) and value.startswith("user:") and self.template_deadline is None:
+                self.template_deadline = user_templates.new_deadline()
+            available = user_templates.MAX_PLAN_TEMPLATE_BYTES - self.template_bytes
+            template = user_templates.resolve(self.app_root, value, self.template_deadline, available)
             if template:
+                self.template_bytes += template.size
                 for ref in template.digests:
                     if ref.startswith("bundled:"):
                         source = user_templates.KIT / "assets" / ref[len("bundled:"):]
                     else:
                         source = self.app_root / ref
                     self.files[ref] = source, source
-            self.checked_templates.add(value)
+            self.checked_templates[value] = template
+        except user_templates.TemplateTimeout:
+            raise
         except ValueError as exc:
             location = str(LISTING)
             try:
@@ -338,7 +347,8 @@ class _Checker:
                 if name not in BUNDLED_FONTS:
                     self.error(path, f"unknown bundled font {name!r}")
                     return
-                source = resolved = Path(__file__).resolve().parents[2] / "assets/fonts" / (name + ".ttf")
+                base = Path(__file__).resolve().parents[2] / "assets/fonts"
+                source = resolved = base / (name + ".ttf")
                 if self.purpose != "capture" and not resolved.is_file():
                     self.error(path, f"missing bundled font {name!r}")
                     return
@@ -354,6 +364,7 @@ class _Checker:
         except (ValueError, OSError, RuntimeError) as exc:
             self.error(path, "invalid file reference: %s" % exc)
             return
+        self.input_roots[resolved] = base
         self.files[value] = source, resolved
         if flow and self.app_root / ".listing-kit/flows" not in resolved.parents:
             self.warn(path, "flow is outside .listing-kit/flows")
@@ -618,7 +629,7 @@ class _Checker:
                 elif required == "upcoming" and slot["required"].get("condition") in facts:
                     self.warn("targets", f"{slot['id']}: {why}")
 
-    def render_fields(self, item, path, loc, style, rule):
+    def render_fields(self, item, path, loc, style, rule, has_capture=False):
         primary = next(iter(self.locales))
         missing = []
         def copy(obj, prefix):
@@ -641,6 +652,10 @@ class _Checker:
                 copy(row, f"{path}.panel.rows[{i}]") for i, row in enumerate(panel["rows"])])
         if style.get("template") is not None:
             self.template(style["template"], path + ".template")
+            template = self.checked_templates.get(style["template"])
+            if template and "/raw.png" in template.virtual and not has_capture:
+                if "panel" in item or (style["mode"] != "raw" and rule["id"] != "icon"):
+                    self.error(path + ".template", f'{style["template"]} uses /raw.png but this output has no capture')
         profiles = style.get("fonts", {})
         roles = {**profiles.get("default", {}), **profiles.get(loc, {})}
         style = dict(style, logo=self.resolved(style.get("logo")), fonts={
@@ -697,7 +712,7 @@ class _Checker:
             yield dict(kind="screenshot", targetId=tid, screenId=sid, store=store, slotId=slot["id"], index=index,
                        localeId=loc, storeCode=code, captureLocaleId=capture["id"] if flow else None, size=t["size"],
                        rawPath=raw, flowPath=flow, outputPath=output, upload=upload, draft=t.get("draft", False) or s.get("draft", False),
-                       **self.render_fields(s, paths[sid], loc, style, slot))
+                       **self.render_fields(s, paths[sid], loc, style, slot, has_capture=bool(raw) and "panel" not in s))
         global_style = data.get("style", {})
         graphic_base = _style(dict(base, mode="graphic"),
                               {k: global_style[k] for k in ("palette", "logo", "fonts") if k in global_style})
@@ -1021,6 +1036,12 @@ def listing_roots(root, trees=None):
     for directory in directories:
         _inside(base, base / directory)
     return directories
+
+
+def compose_inputs(app_root):
+    """Keep the validated templates and authorised file roots with their manifest."""
+    _, checker = _read(app_root)
+    return checker.result, checker.checked_templates, checker.input_roots
 
 
 def load_manifest(app_root, purpose=None, capture_filter=None):

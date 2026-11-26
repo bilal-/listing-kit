@@ -32,4 +32,4 @@ Identify the stack from the app manifest and work from the mobile app root. In a
 
 ## App-owned screenshot templates
 
-Run `listing-kit template new acorn` in the app root for a commented starter. Select it with `style.template` in a framed plan, or override `template` on a screen or target. A bundled name wins unless the plan explicitly selects `user:<name>`. Check the plan and inspect the rendered preview before approving a restyle. [Template interface and example](references/templates.md)
+Run `listing-kit template new acorn` in the app root for a commented starter. Set `style.template` to `user:acorn` in a framed plan, or override `template` on a screen or target. Bare names select bundled layouts. Every app layout requires `user:<name>`. Check the plan and inspect the rendered preview before approving a restyle. [Template interface and example](references/templates.md)

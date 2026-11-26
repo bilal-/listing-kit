@@ -107,11 +107,15 @@ def _variations(sub):
 
 def _coverage(path, *, include_format13=True):
     """The set of Unicode code points the font maps to a glyph."""
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError as e:
-        raise FontError("cannot read font %s: %s" % (path, e))
+    if isinstance(path, bytes):
+        data = path
+        path = "captured font"
+    else:
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            raise FontError("cannot read font %s: %s" % (path, e))
     try:
         tables = _tables(data)
         if b"cmap" not in tables:

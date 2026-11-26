@@ -220,7 +220,7 @@ class Layouts(unittest.TestCase):
             value = "كل يوم" if locale == "ar" else "Idea"
             rec["text"] = {"panel": {"headline": {"value": caption},
                                      "rows": [{"label": {"value": detail}, "text": {"value": value}}]}}
-        return compose.Job(self.root, rec)
+        return compose.Job(self.root, rec, input_roots={Path(font): Path(font).parent for font in fonts})
 
     def build_rows(self, job):
         self.browser.inspect_fonts = job.rec["storeCode"] == "ar"

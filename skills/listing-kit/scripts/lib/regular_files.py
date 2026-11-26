@@ -30,14 +30,24 @@ def directory(root, relative, create=False):
         yield fd
 
 
-def read_regular(root, relative):
+def read_regular(root, relative, limit):
+    if limit < 0:
+        raise ValueError(f"{relative}: byte limit exhausted")
     path = Path(relative)
     with directory(root, path.parent) as parent:
-        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        # Avoid opening devices at all. Recheck the descriptor after open in case
+        # the leaf was replaced since stat, and use NONBLOCK for a swapped FIFO.
+        if not stat.S_ISREG(os.stat(path.name, dir_fd=parent, follow_symlinks=False).st_mode):
+            raise ValueError(f"{relative}: expected regular file")
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY
+        fd = os.open(path.name, flags, dir_fd=parent)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise ValueError(f"{relative}: expected a regular file")
             with os.fdopen(fd, "rb", closefd=False) as stream:
-                return stream.read()
+                data = stream.read(limit + 1)
+                if len(data) > limit:
+                    raise ValueError(f"{relative}: exceeds {limit} byte limit")
+                return data
         finally:
             os.close(fd)
