@@ -76,6 +76,14 @@ class Browser:
         self._id = 0
         self.events = []
 
+    def version_major(self):
+        """The browser's major version, for the compose lock's renderer fingerprint."""
+        try:
+            product = self.call("Browser.getVersion").get("product", "")
+            return product.split("/", 1)[1].split(".", 1)[0]
+        except (BrowserError, IndexError):
+            return "unknown"
+
     def close(self):
         try:
             self.proc.terminate()
