@@ -135,4 +135,26 @@ assert_contains "$OUT" 'description.txt'
 assert_not_contains "$OUT" '0123456789abcdefghijklmnopqrstuvwxyz'
 assert_eq 'previous safe page' "$(cat "$APP/listing-review.html")"
 
+it "rejects credentials after NUL and in decoded plan strings before writing"
+printf 'prefix\0AKIAIOSFODNN7EXAMPLE' > "$APP/fastlane/metadata/en-US/description.txt"
+for kind in field plan; do
+  if [ "$kind" = plan ]; then
+    echo clean > "$APP/fastlane/metadata/en-US/description.txt"
+    mkdir -p "$APP/.listing-kit"
+    printf '%s\n' '{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"\u0041KIAIOSFODNN7EXAMPLE"}}}}' > "$APP/.listing-kit/asset-plan.json"
+  fi
+  echo 'previous page' > "$APP/listing-review.html"
+  OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
+  assert_eq 3 "$RC" "$kind blocks review generation"
+  assert_eq 'previous page' "$(cat "$APP/listing-review.html" | head -c 14)"
+  assert_not_contains "$OUT" 'AKIAIOSFODNN7EXAMPLE'
+done
+
+it "shows a validation error instead of copying a field containing NUL"
+rm "$APP/.listing-kit/asset-plan.json"
+printf 'malformed field prefix\0suffix' > "$APP/fastlane/metadata/en-US/description.txt"
+bash "$SUT" "$APP" >/dev/null || fail "ordinary malformed copy prevented review"
+if grep -aq 'malformed field prefix' "$APP/listing-review.html"; then fail "copied invalid field"; else pass; fi
+assert_contains "$(cat "$APP/listing-review.html")" 'contains NUL'
+
 summary

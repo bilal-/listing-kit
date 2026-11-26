@@ -29,7 +29,7 @@ case "$rc" in
 esac
 
 OUT="$ROOT/listing-review.html"
-python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
+python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -38,6 +38,7 @@ from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
 import apple_assets
+from secret_scan import secret_text
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -56,7 +57,11 @@ def devclass(wh):
     return apple_class(*wh) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
-    return html.escape(s if s is not None else "")
+    s = s or ""
+    if secret_text(s.encode("utf-8")):
+        print("POTENTIAL SECRET in review text", file=sys.stderr)
+        sys.exit(3)
+    return html.escape(s)
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:

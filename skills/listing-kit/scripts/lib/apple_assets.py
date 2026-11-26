@@ -11,6 +11,9 @@ import re
 import sys
 from collections import Counter
 
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from imginfo import APPLE_SIZES, apple_class, image_info
 from listing import apple_locales as listing_apple_locales, images
 

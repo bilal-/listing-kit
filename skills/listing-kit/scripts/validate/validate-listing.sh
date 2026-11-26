@@ -40,7 +40,7 @@ images_in(){
   for f in "$1"/*; do
     case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && files+=("$f");; esac
   done
-  [ "${#files[@]}" -gt 0 ] && python3 "$LIB/imginfo.py" "${files[@]}"
+  [ "${#files[@]}" -gt 0 ] && python3 -I -B "$LIB/imginfo.py" "${files[@]}"
 }
 
 # fastlane globs *.png / *.jpg / *.jpeg; on case-sensitive filesystems (Linux CI)
@@ -52,7 +52,7 @@ check_ext(){ # path
 # Check every copy field of one locale against the shared table in lib/fields.py.
 fields(){ # store locale-dir [fallback-dir]
   local level msg out rc=0
-  out="$(python3 "$LIB/fields.py" "$@")" || rc=$?
+  out="$(python3 -I -B "$LIB/fields.py" "$@")" || rc=$?
   while IFS=$'\t' read -r level msg; do
     [ -n "$level" ] || continue
     case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
@@ -70,7 +70,7 @@ fields(){ # store locale-dir [fallback-dir]
 # Prints "True"/"False". Prunes node_modules/Pods/build so it stays fast on real repos.
 supports_ipad(){
   case "${LK_SUPPORTS_IPAD:-}" in 1) echo True; return;; 0) echo False; return;; esac
-  python3 - "$1" <<'PY2'
+  python3 -I -B - "$1" <<'PY2'
 import sys,os,glob,json,re,plistlib
 root=sys.argv[1]
 def expo():
@@ -113,8 +113,8 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 # Apple locales include headers/plans via apple_assets.py; Play uses listing.py.
 # Both discovery paths are shared with build-review.sh.
 apple_locales=(); play_locales=()
-while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 "$LIB/apple_assets.py" --locales "$ROOT")
-while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")
+while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 -I -B "$LIB/apple_assets.py" --locales "$ROOT")
+while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 -I -B "$LIB/listing.py" play-locales "$ROOT/fastlane")
 apple_default="$ROOT/fastlane/metadata/default"
 apple_present=0; play_present=0
 required_classes=()
@@ -169,7 +169,7 @@ if [ "$apple_present" = 1 ]; then
 fi
 
 # Validate separate creative assets and the user's persisted Apple upload plan.
-asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})"; asset_rc=$?
+asset_result="$(python3 -I -B "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})"; asset_rc=$?
 [ "$asset_rc" = 0 ] || fail "could not validate Apple assets (exit $asset_rc)"
 while IFS=$'\t' read -r level msg; do
   [ -n "$level" ] || continue
@@ -234,7 +234,7 @@ if [ "$play_present" = 1 ]; then
     fg="$(play_graphic "$img" featureGraphic)"
     if [ -n "$fg" ]; then
       check_ext "$fg"
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$fg")
+      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 -I -B "$LIB/imginfo.py" "$fg")
       { [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; } \
         && pass "feature graphic 1024x500 24-bit no-alpha" \
         || fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
@@ -243,7 +243,7 @@ if [ "$play_present" = 1 ]; then
     # icon (32-bit PNG with alpha is allowed; max 1 MB)
     ic="$(play_graphic "$img" icon)"
     if [ -n "$ic" ]; then
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 "$LIB/imginfo.py" "$ic")
+      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 -I -B "$LIB/imginfo.py" "$ic")
       # By content, not just name: a JPEG saved as icon.png is still a JPEG.
       { case "$ic" in *.png) true;; *) false;; esac && [ "$(head -c 4 "$ic" | od -An -tx1 | tr -d ' \n')" = 89504e47 ]; } \
         || fail "icon must be a PNG (Play requires a 32-bit PNG)"

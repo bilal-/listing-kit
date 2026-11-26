@@ -41,10 +41,10 @@ assert_eq 1 "$RC"
 it "reports which file leaked"
 assert_contains "$OUT" "subtitle.txt"
 
-it "ignores non-listing file types (e.g. .png)"
+it "scans a text asset with a .png extension"
 mktree; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$TREE/en-US/01_home.png"
 OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "binary/screenshot files are not scanned for copy secrets"
+assert_eq 1 "$RC"
 
 it "a scan error exits 2 instead of reporting clean"
 new_tempdir D; echo "harmless copy" > "$D/description.txt"
@@ -87,6 +87,8 @@ done
 for c in \
   "The best task-management-for-every-busy-family app" \
   "Use our desk-organizer-and-planner-for-students-and-teachers" \
+  "clientSecret: process.env.CLIENT_SECRET" \
+  "https://example.test/search?monkeytoken=springlaunch2026" \
   "Track your password strength" \
   "Tokens of appreciation: share recipes" \
   "Password synchronization across devices" \
@@ -139,13 +141,39 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" 'upload.keystore'
 rm "$TREE/upload.keystore"
 
-it "skips binary content, fonts, empty demo passwords and nested raw captures"
+it "scans unknown bytes, font lookalikes and raw text captures"
 mkdir -p "$TREE/nested/.listing-kit/raw"
-printf 'AKIAIOSFODNN7EXAMPLE\0' > "$TREE/blob"
-printf 'AKIAIOSFODNN7EXAMPLE' > "$TREE/font.woff2"
-touch "$TREE/demo_password.txt" "$TREE/nested/.listing-kit/raw/device.key"
-echo 'AKIAIOSFODNN7EXAMPLE' > "$TREE/nested/.listing-kit/raw/log.txt"
+for file in blob font.woff2 notes.svg nested/.listing-kit/raw/log.txt; do
+  printf 'note\0AKIAIOSFODNN7EXAMPLE' > "$TREE/$file"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "$file is scanned"
+  rm "$TREE/$file"
+done
+
+it "redacts credentials in path components even for real images"
+secret=AKIAIOSFODNN7EXAMPLE
+fake_png "$TREE/$secret.png" 20 20
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_not_contains "$OUT" "$secret"
+rm "$TREE/$secret.png"
+
+it "uses content signatures for genuine media"
+fake_png "$TREE/image" 20 20
+printf '%s' "$secret" >> "$TREE/image"
 OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
+
+it "skips only untracked local settings in a worktree scan"
+new_tempdir app
+git -C "$app" init -q
+mkdir "$app/.listing-kit"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$app/.listing-kit/local.json"
+bash "$SUT" "$app/.listing-kit" >/dev/null || fail "read untracked private settings"
+echo '{}' > "$app/.listing-kit/local.json"
+git -C "$app" add -f .listing-kit/local.json
+OUT="$(bash "$SUT" "$app/.listing-kit" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" local.json
 
 summary

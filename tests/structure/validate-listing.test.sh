@@ -378,9 +378,9 @@ assert_not_contains "$OUT" "locale .backup"
 remove_fixture "$T"
 
 
-it "checks public .listing-kit files while excluding local settings and raw captures"
-mkdir -p "$APP/.listing-kit/raw" "$APP/.listing-kit/config"
-for file in local.json config/secrets.local raw/device.txt; do
+it "checks public .listing-kit files while excluding local settings"
+mkdir -p "$APP/.listing-kit/config"
+for file in local.json config/secrets.local; do
   echo 'AKIAIOSFODNN7EXAMPLE' > "$APP/.listing-kit/$file"
 done
 OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
