@@ -27,7 +27,7 @@ for name in demo_user demo_password; do
     OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 1 "$?"
     assert_contains "$OUT" "$name.txt"
     assert_contains "$OUT" "App Store Connect"
-    assert_contains "$OUT" "outside the repo"
+    assert_contains "$OUT" "delete it, even if empty"
     assert_not_contains "$OUT" "private-demo-value"
   done
   rm "$demo"

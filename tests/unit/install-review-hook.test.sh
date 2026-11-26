@@ -593,7 +593,7 @@ for name in demo_user demo_password; do
   ln -s demo-account "$d/$name.txt"
   git -C "$T" add fastlane
   OUT="$(git -C "$T" commit -qm link-demo 2>&1)"; assert_ne 0 "$?"
-  assert_contains "$OUT" "outside the repo"
+  assert_contains "$OUT" "delete it, even if empty"
   rm "$d/$name.txt"
 done
 

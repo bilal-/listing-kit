@@ -63,6 +63,7 @@ class Plan:
 
 def check_inputs(root, trees):
     """Follow internal links once, including links reached through a locale alias."""
+    listing.check_metadata_links(root, trees)
     seen = set()
 
     def check(path):

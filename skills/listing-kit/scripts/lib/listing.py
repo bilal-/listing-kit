@@ -15,6 +15,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import specs
+from secret_scan import demo_credential
 import plan
 from imginfo import is_image
 
@@ -34,6 +35,35 @@ def paths(root):
     """Return the same store directories as the plan, rooted at the supplied app."""
     return {store: {key: Path(root) / value for key, value in tree.items()}
             for store, tree in plan.listing_trees(root).items()}
+
+
+def check_metadata_links(root, trees):
+    """Check links before any consumer reads or copies metadata."""
+    roots = {(root / tree[key]).resolve() for tree in trees.values()
+             for key in ("metadata", "screenshots", "storeAssets")}
+    review = None
+    if "apple" in trees:
+        review = (root / trees["apple"]["metadata"] / "review_information").resolve()
+    visited = set()
+
+    def visit(path, in_review=False):
+        if path.is_symlink():
+            target = path.resolve()
+            inside = [base for base in roots if base == target or base in target.parents]
+            private = (target == review or review in target.parents or any(
+                part.lower() == "review_information" for base in inside
+                for part in target.relative_to(base).parts))
+            if not inside or demo_credential(target) or (private and not in_review):
+                raise ValueError(f"Unsafe listing link: {path}")
+        if path.is_dir():
+            directory = (path.resolve(), in_review)
+            if directory not in visited:
+                visited.add(directory)
+                for child in path.iterdir():
+                    visit(child, in_review or child.name.lower() == "review_information")
+
+    for tree in trees.values():
+        visit(root / tree["metadata"])
 
 
 def localized_files(rules):

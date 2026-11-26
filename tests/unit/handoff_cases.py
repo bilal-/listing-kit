@@ -54,7 +54,7 @@ class HandoffTests(unittest.TestCase):
         password = self.put("fastlane/metadata/review_information/demo_password.txt", b"private fixture value")
         self.name.unlink()
         self.name.symlink_to(password)
-        self.assertIn("outside the repo", self.run_build(success=False))
+        self.assertIn("fastlane/metadata/en-US/name.txt", self.run_build(success=False))
         self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
 
     def test_review_only_handoff(self):
@@ -201,7 +201,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_internal_links(self):
         self.name.unlink()
-        self.name.symlink_to(self.put("shared/name", b"Shared"))
+        self.name.symlink_to(self.put("fastlane/metadata/shared/name", b"Shared"))
         (self.name.parent.parent / "en-GB").symlink_to("en-US")
         self.run_build()
         self.assertEqual((self.out / "apple/en-GB/text/name.txt").read_bytes(), b"Shared")

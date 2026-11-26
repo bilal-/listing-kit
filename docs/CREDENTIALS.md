@@ -42,3 +42,9 @@ For a planned rotation, create a replacement key for the same scoped identity. R
 3. Remove the exposed message or contact the chat administrator for deletion. Restrict access to affected logs. Delete the affected job logs, artifacts and caches. Ask recipients to remove downloaded copies.
 4. For a commit, remove the file from tracking and ignore the private path. Coordinate a history cleanup with the repository owner. Include affected branches, tags, forks, pull requests and clones. Anyone with an old copy could still read it after a rewrite. [GitHub sensitive data removal](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) and [GitLab repository cleanup](https://docs.gitlab.com/user/project/repository/repository_size/).
 5. Create a fresh key with minimal access. Update each authorized consumer through its secret settings. Check read-only access before re-enabling the publish job.
+
+## App Review demo account
+
+Enter the demo username and password in App Store Connect. During an Apple pull, fastlane itself downloads both values into `review_information/demo_user.txt` and `review_information/demo_password.txt`. Setup and publish use the same download. The kit deletes both files as soon as the metadata download returns, before reading the listing or downloading screenshots.
+
+The download runs inside a private `listing-kit-fastlane-*` folder in the system temporary directory (normally `$TMPDIR` or `/tmp`, with `/tmp` used if the temp directory is inside the repository). The kit removes the folder on exit, including SIGINT and SIGTERM. A hard kill such as SIGKILL during the download can leave both files there. Delete the leftover `listing-kit-fastlane-*` folder.

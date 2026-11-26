@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 import sys
+import unicodedata
 from urllib.parse import urlparse
 
 if __name__ == "__main__":
@@ -38,16 +39,21 @@ def read(path, strip=True):
         return None
 
 
-def is_url(value):
-    if len(value.split()) != 1:
+def is_url(value, youtube=False):
+    if len(value.split()) != 1 or (youtube and "\\" in value):
         return False
     try:
         u = urlparse(value)
+        if youtube and (u.scheme != "https" or "@" in u.netloc):
+            return False
         # urllib validates malformed and out-of-range ports when accessed.
         u.port
     except ValueError:
         return False
-    return u.scheme in ("http", "https") and bool(u.hostname)
+    host = u.hostname or ""
+    if youtube:
+        return host in ("youtube.com", "youtu.be") or host.endswith(".youtube.com")
+    return u.scheme in ("http", "https") and bool(host)
 
 
 def measure(text, unit):
@@ -106,14 +112,13 @@ def check(r):
         if not re.fullmatch(r"[^@.\s]+(?:\.[^@.\s]+)*@[^@.\s]+(?:\.[^@.\s]+)+", value):
             return "FAIL", f"{stem}: invalid email address"
     if r["unit"] == "phone":
-        if not re.fullmatch(r"\+?(?:[0-9]|\([0-9]+\))(?:[ .-]?(?:[0-9]|\([0-9]+\)))*", value):
-            return "FAIL", f"{stem}: invalid phone number"
+        number = "".join(" " if c == "\t" or unicodedata.category(c) == "Zs" else c for c in value)
+        if not re.fullmatch(r"\+?(?:[0-9]|\([0-9]+\))(?:[ ./-]*(?:[0-9]|\([0-9]+\)))*"
+                            r"(?: *(?:x|ext\.?) *[0-9]+)?", number, re.I):
+            return "WARN", f"{stem}: unrecognised phone format, confirm it in App Store Connect"
     if r["unit"] == "YouTube URL":
-        if is_url(value):
-            url = urlparse(value.strip())
-            host = url.hostname
-            if url.scheme == "https" and (host in ("youtube.com", "youtu.be") or host.endswith(".youtube.com")):
-                return "PASS", f"{stem}: HTTPS YouTube URL"
+        if is_url(value.strip(), youtube=True):
+            return "PASS", f"{stem}: HTTPS YouTube URL"
         return "FAIL", f"{stem}: expected an HTTPS YouTube URL"
     if r["unit"] == "url":
         if is_url(value):

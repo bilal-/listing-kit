@@ -10,6 +10,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apple_assets
+import listing
 import plan
 import specs
 from plan import PlanError, listing_roots
@@ -87,6 +88,14 @@ def prepare_view(view, trees, source, coverage_path, repo_root=None):
     return ["--coverage-view", str(coverage_path)]
 
 
+def write_review_page(path, data):
+    if Path(path).is_symlink():
+        raise ValueError(f"Refusing to write through symlink: {path}")
+    # O_NOFOLLOW also refuses a dangling link or a link installed during rendering.
+    with open(path, "wb", opener=lambda name, flags: os.open(name, flags | os.O_NOFOLLOW, 0o666)) as page:
+        page.write(data)
+
+
 def run(script, root, args):
     config = Path(".listing-kit")
     plan._inside(root, root / config)
@@ -109,6 +118,7 @@ def run(script, root, args):
 
     # Only these trees and device declarations are consumed by listing tools.
     # Hard links preserve working-tree contents and avoid copying screenshots.
+    listing.check_metadata_links(root, resolved)
     with tempfile.TemporaryDirectory() as tmp:
         view = Path(tmp) / "app"
         view.mkdir()
@@ -131,11 +141,11 @@ def run(script, root, args):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():
                 env.pop(key, None)
         env["LK_REVIEW_NAME_FAILURES"] = str(len(unsafe))
-        names = sorted({p.name.lower() for p in demo_files})
-        env["LK_REVIEW_DEMO_MESSAGE"] = f"{', '.join(names)}: {DEMO_GUIDANCE}" if names else ""
+        env["LK_REVIEW_DEMO_MESSAGE"] = "\n".join(
+            f"{path}: {DEMO_GUIDANCE}" for path in sorted(demo_files))
         rc = subprocess.call(cmd, cwd=view, env=env)
         if rc == 0 and Path(script).name == "build-review.sh":
-            shutil.copyfile(view / "listing-review.html", root / "listing-review.html")
+            write_review_page(root / "listing-review.html", (view / "listing-review.html").read_bytes())
         return rc
 
 
