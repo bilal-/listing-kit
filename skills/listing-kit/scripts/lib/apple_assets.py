@@ -10,9 +10,10 @@ import os
 import re
 import sys
 from collections import Counter
+from pathlib import Path
 
 from imginfo import APPLE_SIZES, apple_class, image_info
-from listing import apple_locales as listing_apple_locales, images
+from listing import apple_locales as listing_apple_locales, apple_screenshot_dirs, images
 
 HEADER_SIZES = {(5244, 2950), (3840, 1646)}
 
@@ -63,17 +64,37 @@ def load_plan(root):
     return plan["apple"]
 
 
-def apple_locales(root):
+def is_deferred(path, deferred):
+    return bool(deferred) and apple_class(*image_info(path)[:2]) in deferred
+
+
+def active_screenshots(root, locale, deferred):
+    """Yield (deliver platform folder, path) after deliver's framing and plan filters."""
+    for platform, directory in apple_screenshot_dirs(os.path.join(root, "fastlane"), locale):
+        paths = images(directory)
+        framed = any(p.is_file() for p in Path(directory).glob("*_framed.*"))
+        for path in paths:
+            if framed and not any(word in path.lower() for word in ("framed", "watch")):
+                continue
+            if is_deferred(path, deferred):
+                continue
+            yield platform, path
+
+
+def apple_locales(root, data=None, plan=None):
     """Metadata paths for every locale visible in the Apple asset preview."""
-    try:
-        planned = set(load_plan(root))
-    except (OSError, ValueError):
-        planned = set()  # validate() reports malformed plans separately.
+    if plan is None:
+        try:
+            plan = load_plan(root)
+        except (OSError, ValueError):
+            plan = {}  # validate() reports malformed plans separately.
     fastlane = os.path.join(root, "fastlane")
-    return sorted(set(listing_apple_locales(fastlane)) | {
-        os.path.join(fastlane, "metadata", locale)
-        for locale in set(header_locales(root)) | planned
-    })
+    meta = os.path.join(fastlane, "metadata")
+    locales = set(listing_apple_locales(fastlane, data))
+    locales.update(os.path.join(meta, loc) for loc in set(header_locales(root)) | set(plan))
+    if not locales and os.path.isdir(os.path.join(meta, "default")):
+        locales.add(os.path.join(meta, "default"))
+    return sorted(locales)
 
 
 def validate(root, required_displays=()):

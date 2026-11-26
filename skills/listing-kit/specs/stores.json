@@ -341,6 +341,18 @@
       "note": "2048x2732 is shared with the 12.9\" class; new captures use 2064x2752."
      },
      {
+      "id": "ipad-12-9",
+      "label": "iPad 12.9\"",
+      "sizes": [[2048, 2732]],
+      "min": 1,
+      "max": 10,
+      "required": {"rule": "never"},
+      "framing": "allowed",
+      "lifecycle": "legacy",
+      "upload": "fastlane",
+      "suffix": "ipad-12.9"
+     },
+     {
       "id": "ipad-11",
       "label": "iPad 11\"",
       "sizes": [

@@ -9,10 +9,10 @@ of which may not exist yet when a locale only has screenshots).
 import os
 import sys
 
+import specs
 from imginfo import is_image
 
-# deliver folders under metadata/ that are not locales.
-NOT_LOCALES = {"android", "default", "review_information", "trade_representative_contact_information"}
+SPECIAL_SCREENSHOT_ROOTS = ("appleTV", "iMessage")
 
 
 def _subdirs(d):
@@ -23,13 +23,20 @@ def _subdirs(d):
         return []
 
 
-def apple_locales(fl):
-    """metadata/<locale> paths: every metadata dir except deliver's non-locale ones,
-    plus any locale that only has screenshots (so its missing copy is reported)."""
+def apple_screenshot_dirs(fl, locale):
+    base = os.path.join(fl, "screenshots")
+    return [(kind, os.path.join(base, kind, locale)) for kind in ("",) + SPECIAL_SCREENSHOT_ROOTS]
+
+
+def apple_locales(fl, data=None):
     meta = os.path.join(fl, "metadata")
-    names = {n for n in _subdirs(meta) if n not in NOT_LOCALES}
-    names |= set(_subdirs(os.path.join(fl, "screenshots")))
-    return [os.path.join(meta, n) for n in sorted(names)]
+    screens = os.path.join(fl, "screenshots")
+    excluded = (data or specs.load())["stores"]["apple"]["nonLocaleFolders"]
+    names = set(_subdirs(meta)).difference(excluded)
+    names.update(set(_subdirs(screens)).difference(SPECIAL_SCREENSHOT_ROOTS))
+    for kind in SPECIAL_SCREENSHOT_ROOTS:
+        names.update(_subdirs(os.path.join(screens, kind)))
+    return [os.path.join(meta, name) for name in sorted(names)]
 
 
 def apple_default(fl):
@@ -51,6 +58,13 @@ def images(d):
         return []
     return [os.path.join(d, n) for n in names
             if not n.startswith(".") and os.path.isfile(os.path.join(d, n)) and is_image(n)]
+
+
+def manual_screenshots(root, store, locale):
+    base = os.path.join(root, "store-assets", store, locale, "screenshots")
+    for slot in _subdirs(base):
+        for path in images(os.path.join(base, slot)):
+            yield slot, path
 
 
 if __name__ == "__main__":

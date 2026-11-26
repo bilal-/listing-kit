@@ -36,6 +36,7 @@ from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
 import apple_assets
+import specs
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -63,7 +64,11 @@ except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
-ios_locs = apple_assets.apple_locales(root)
+try:
+    rules = specs.load(root)
+except specs.SpecsError:
+    rules = specs.load()  # Keep the review available when local rules cannot be read.
+ios_locs = apple_assets.apple_locales(root, rules, apple_plan)
 apple_default = listing.apple_default(FL)
 if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
     locs = []
@@ -72,11 +77,15 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         fields = store_fields.rows("apple", ld, apple_default)
         shots = {}
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        for f in images(os.path.join(FL, "screenshots", loc)):
+        for platform, f in apple_assets.active_screenshots(root, loc, deferred):
             cls = devclass(dims(f))
-            if cls in deferred:
-                continue  # Preserve old files, but do not present them as active deliverables.
+            if platform == "iMessage":
+                cls = "iMessage " + cls
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
+        for slot_id, f in listing.manual_screenshots(root, "apple", loc):
+            slot = specs.slot(rules, "apple", slot_id)
+            if slot and not apple_assets.is_deferred(f, deferred):
+                shots.setdefault(slot["label"], []).append(os.path.relpath(f, root))
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
