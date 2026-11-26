@@ -79,5 +79,13 @@ OUT="$(python3 "$SUT" $'A\xEF\xB8\x8FB' "$T/many.ttf" 2>&1)"; assert_eq 0 "$?" "
 OUT="$(python3 "$SUT" $'B\xEF\xB8\x8FCD' "$T/many.ttf" 2>&1)"; assert_eq 1 "$?" "unsupported sequence and zero glyph range"
 assert_contains "$OUT" "U+FE0F"
 assert_contains "$OUT" "U+0044"
+it "a non-default variant can supply a glyph without a standalone base glyph"
+python3 - "$T" <<'PYFONT'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]) / "many.ttf"
+p.write_bytes(p.read_bytes().replace(bytes.fromhex("0000410001"), bytes.fromhex("0000430001")))
+PYFONT
+OUT="$(python3 "$SUT" $'C\xEF\xB8\x8F' "$T/many.ttf" 2>&1)"; assert_eq 0 "$?" "explicit variant supplies glyph"
 remove_fixture "$T"
 summary

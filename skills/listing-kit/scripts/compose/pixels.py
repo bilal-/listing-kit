@@ -57,7 +57,7 @@ def _ratio(pixel, foreground):
     return (hi + .05) / (lo + .05)
 
 
-def contrast_boxes(png, size, boxes):
+def contrast_boxes(png, size, boxes, check_time=None):
     """Return each box's lowest actual contrast, including intermediate luminances."""
     w, h, depth, ct, comp, filt, interlace = struct.unpack_from(">IIBBBBB", png, 16)
     if (png[:16] != b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR" or (w, h) != tuple(size) or
@@ -87,6 +87,8 @@ def contrast_boxes(png, size, boxes):
         raise ValueError("truncated background screenshot PNG")
     prev = bytes(stride)
     for y in range(last):
+        if check_time and y % 16 == 0:
+            check_time()
         pos = y * (stride + 1)
         prev = _row(data[pos], data[pos+1:pos+1+stride], prev, channels)
         for i, l, t, r, b, rgba in regions:

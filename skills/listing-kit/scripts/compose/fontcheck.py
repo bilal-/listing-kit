@@ -149,25 +149,37 @@ def _needs_glyph(ch):
     return not (ch.isspace() or unicodedata.category(ch) in ("Cf", "Cc"))
 
 
+def _selector(cp):
+    return 0xfe00 <= cp <= 0xfe0f or 0xe0100 <= cp <= 0xe01ef or cp in (0x180b, 0x180c, 0x180d, 0x180f)
+
+
+def _variant(base, selector, points, variants):
+    if not variants:
+        return base in points and selector in points
+    defaults, specific = variants.get(selector, ((), ()))
+    return base in specific or (base in defaults and base in points)
+
+
 def missing(text, font_paths):
-    """Characters in text that none of the fonts can draw, in first-seen order."""
+    """Characters (or selectors of unsupported sequences) in first-seen order."""
     fonts = [_coverage(p) for p in font_paths]
     out = []
-    for index, ch in enumerate(text):
+    i = 0
+    while i < len(text):
+        ch = text[i]
         cp = ord(ch)
-        if not _needs_glyph(ch) or ch in out:
-            continue
-        if 0xfe00 <= cp <= 0xfe0f or 0xe0100 <= cp <= 0xe01ef:
-            base = ord(text[index - 1]) if index else -1
-            supported = False
-            for points, variants in fonts:
-                defaults, specific = variants.get(cp, ((), ()))
-                if base in specific or (base in points and base in defaults):
-                    supported = True
-                    break
-        else:
-            supported = any(cp in points for points, _ in fonts)
-        if not supported:
+        i += 1
+        supported = any(cp in points for points, _ in fonts)
+        if i < len(text) and _selector(ord(text[i])):
+            selector = ord(text[i])
+            if any(_variant(cp, selector, points, variants) for points, variants in fonts):
+                i += 1
+                continue
+            if not supported and _needs_glyph(ch) and ch not in out:
+                out.append(ch)
+            ch, supported = text[i], False
+            i += 1
+        if not supported and _needs_glyph(ch) and ch not in out:
             out.append(ch)
     return out
 

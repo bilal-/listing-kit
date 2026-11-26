@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.join(HERE, "..", "lib"))
 import template_values
 
 RTL = {"ar", "he", "fa", "ur", "ps", "sd", "yi", "dv"}
-HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Text is "large" (3:1 is enough) from this many px on a 390-px-wide phone.
 LARGE_PX, LARGE_BOLD_PX, REF_WIDTH = 24.0, 19.0, 390.0
 # A caption or detail line that wraps further than this is too long for the canvas.
@@ -97,7 +96,7 @@ PROBE = r"""(() => {
     let opacity = rgba.length === 4 ? rgba.pop() : 1;
     for (let node=el; node; node=node.parentElement) opacity *= Number(getComputedStyle(node).opacity);
     rgba.push(opacity);
-    out.text.push({rect:[r.left,r.top,r.right,r.bottom], rgba, px: parseFloat(cs.fontSize), bold: parseInt(cs.fontWeight) >= 600, colour: cs.color,
+    out.text.push({family:cs.fontFamily, value:el.innerText, rect:[r.left,r.top,r.right,r.bottom], rgba, px: parseFloat(cs.fontSize), bold: parseInt(cs.fontWeight) >= 600, colour: cs.color,
                    lines: Math.round(r.height / lh), sample: el.textContent.slice(0, 60),
                    top: r.top / H, bottom: r.bottom / H, area: (r.width * r.height) / (W * H), empty: !el.textContent.trim()});
   }
@@ -172,23 +171,24 @@ def page_assets(template, locale, style, fonts, text, raw=None, shot_size=None,
 
 
 def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_size=None,
-           logo=None, icon=None, app_name=None, fit="contain"):
+           logo=None, icon=None, app_name=None, fit="contain", deadline=None):
+    if deadline is None:
+        deadline = cdp.new_deadline()
     width, height = size
     assets = page_assets(template, locale, style, fonts, text, raw, shot_size, logo, icon, app_name, fit)
     problems = []
-    headline = [text.get("caption") or text.get("headline") or ""]
-    detail = [text.get("detail") or ""]
-    if template == "panel":
-        for label, value in text.get("rows", []):
-            headline.append(label.upper())
-            detail.append(value)
-    if template in ("panel", "feature", "header") and not logo:
-        headline.append(app_name or "")
-    for role, strings in (("headline", headline), ("detail", detail)):
-        gone = fontcheck.missing(" ".join(strings), fonts[role])
+    png, info = renderer.render(assets, width, height, probe=PROBE, background=True, deadline=deadline)
+    strings = {"headline": [], "detail": []}
+    for box in info["text"]:
+        family = box["family"].split(",")[0].strip(' "')
+        role = {"LK Headline 0": "headline", "LK Detail 0": "detail"}.get(family)
+        if not role:
+            raise RenderError("undeclared font family %s for %s" % (family, box["sample"]))
+        strings[role].append(box["value"])
+    for role, values in strings.items():
+        gone = fontcheck.missing("\n".join(values), fonts[role])
         if gone:
             problems.append("no %s font has: %s" % (role, ", ".join(fontcheck.describe(c) for c in gone)))
-    png, info = renderer.render(assets, width, height, probe=PROBE, background=True)
     refused = [u for u in renderer.refused if not u.endswith("/favicon.ico")]
     if refused:
         problems.append("template asked for something outside its allow-list: %s" % ", ".join(refused[:3]))
@@ -198,7 +198,7 @@ def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_
         if not t["empty"] and t["lines"] > MAX_LINES:
             problems.append("text takes %d lines (at most %d): %s" % (t["lines"], MAX_LINES, t["sample"]))
     worst = None
-    ratios = pixels.contrast_boxes(info.pop("background"), size, info["text"])
+    ratios = pixels.contrast_boxes(info.pop("background"), size, info["text"], check_time=lambda: cdp.time_left(deadline))
     for t, have in zip(info["text"], ratios):
         if t["empty"]:
             continue

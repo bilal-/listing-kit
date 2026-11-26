@@ -593,6 +593,8 @@ class _Checker:
             panel = item["panel"]
             strings["panel"] = dict(copy(panel, path + ".panel"), rows=[
                 copy(row, f"{path}.panel.rows[{i}]") for i, row in enumerate(panel["rows"])])
+        if style.get("template") is not None and style["template"] not in template_values.TEMPLATES:
+            self.error(path + ".template", "unknown bundled template: %r" % style["template"])
         profiles = style.get("fonts", {})
         roles = {**profiles.get("default", {}), **profiles.get(loc, {})}
         style = dict(style, logo=self.resolved(style.get("logo")), fonts={

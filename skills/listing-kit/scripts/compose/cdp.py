@@ -58,6 +58,17 @@ def timeout_seconds():
     raise BrowserError("LK_BROWSER_TIMEOUT must be a positive number of seconds (up to 86400)")
 
 
+def new_deadline():
+    return time.monotonic() + timeout_seconds()
+
+
+def time_left(deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise BrowserError("browser render timed out")
+    return remaining
+
+
 class Browser:
     def __init__(self, path=None, extra_args=None):
         self.path = path or find_browser()
@@ -185,12 +196,15 @@ class Renderer:
         self.b = browser
         self.refused = []
 
-    def render(self, assets, width, height, page="/index.html", probe=None, csp=True, background=False):
+    def render(self, assets, width, height, page="/index.html", probe=None, csp=True, background=False, deadline=None):
         """csp=False drops the Content-Security-Policy header so tests can prove the request
         interception refuses everything off the allow-list by itself."""
         b = self.b
         self.refused = []
-        b.start_deadline()
+        if deadline is None:
+            b.start_deadline()
+        else:
+            b.deadline = deadline
         target = b.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         try:
             return self._page(target, assets, width, height, page, probe, csp, background)
@@ -269,18 +283,28 @@ class Renderer:
                 raise BrowserError("template asset or probe failed: %s" % reason)
             return response["result"].get("value")
 
-        ready = """(async()=>{
+        names = {url: src for url, src in assets.items() if isinstance(src, str)}
+        ready = r"""(async()=>{
+            const names = %s;
+            const asset = url => names[new URL(url, location.href).pathname] || url;
             await Promise.all(Array.from(document.images, async img => {
                 try { await img.decode(); if (img.naturalWidth && img.naturalHeight) return; } catch {}
-                throw Error('image failed to decode: ' + img.getAttribute('src'));
+                throw Error('image failed to decode: ' + asset(img.getAttribute('src')));
             }));
             await Promise.all(Array.from(document.fonts, async face => {
-                try { await face.load(); } catch { throw Error('font failed to decode: ' + face.family); }
+                try { await face.load(); } catch {
+                    for (const sheet of document.styleSheets) for (const rule of sheet.cssRules) {
+                        if (!(rule instanceof CSSFontFaceRule) || rule.style.fontFamily !== face.family) continue;
+                        const match = rule.style.getPropertyValue('src').match(/url\(["']?([^)"']+)/);
+                        if (match) throw Error('font failed to decode: ' + asset(match[1]));
+                    }
+                    throw Error('font failed to decode: ' + face.family);
+                }
             }));
             await document.fonts.ready;
             return (%s);
         })()"""
-        info = evaluate(ready % (probe or "null"))
+        info = evaluate(ready % (json.dumps(names), probe or "null"))
 
         def capture():
             shot = b.call("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": False,
@@ -289,11 +313,9 @@ class Renderer:
 
         png = capture()
         if background:
-            evaluate("""document.querySelectorAll('[data-check=text]').forEach(
-                        el => el.style.setProperty('visibility','hidden','important'))""")
-            info["background"] = capture()
-        if background:
-            evaluate("""document.querySelectorAll('[data-check="text"]').forEach(el =>
-                el.style.setProperty('visibility', 'hidden', 'important'))""")
+            evaluate("""document.querySelectorAll('[data-check=text]').forEach(el => {
+                el.style.setProperty('-webkit-text-fill-color','transparent','important');
+                el.style.setProperty('text-shadow','none','important');
+            })""")
             info["background"] = capture()
         return png, info
