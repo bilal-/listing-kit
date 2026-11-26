@@ -183,6 +183,7 @@ def apple(root, data, plan, coverage):
     targets = coverage["apple"]
     planned = "play" in coverage
     if planned:
+        capture_locales = apple_assets.planned_screenshot_locales(targets)
         requirements = detect.Requirements(root, data)
         requirements.apply_inferred(coverage["inferred"])
     locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets, tree)}
@@ -198,7 +199,7 @@ def apple(root, data, plan, coverage):
             plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
         deferred_ids = apple_assets.deferred_slots(data, entry.get("deferredScreenshots", {}), planned)
         groups = screenshot_groups(plan, data, "apple", locale, deferred_ids, entry.get("suffixes"))
-        if planned:
+        if planned and (not capture_locales or locale in capture_locales):
             screenshot_shortfalls(plan, data, "apple", locale, entry, groups)
             counts = {key: len(files) for (platform, key), files in groups.items() if not platform}
             for key in sorted(deferred_ids):

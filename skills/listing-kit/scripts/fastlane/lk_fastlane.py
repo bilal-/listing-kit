@@ -22,10 +22,10 @@ import uuid
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS / "lib"))
 import apple_assets
+import detect
 import imginfo
 import listing
 import plan
-from project_files import project_files
 from review_inputs import write_view_plan
 import secret_scan
 import specs
@@ -457,22 +457,31 @@ def working_inventory(store, require_outputs=False):
     coverage = {}
     if store.data:
         active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
-        locales = {loc for target in active for loc in target_locales(store, target)}
-        if require_outputs and not locales:
+        coverage = apple_assets.planned_coverage(
+            store.root, store.data, store.rules, store.manifest["outputs"], publish_store=store.name,
+            text_locales={path.parent.name for path in source.text.values()} if store.name == "apple" else ())
+        locales = coverage[store.name].keys()
+        if require_outputs and not any(entry.get("screenshots") for entry in coverage[store.name].values()):
             raise ValueError("No active %s target locales to publish" % store.name)
         active_ids = {t["id"] for t in active}
-        approved = {store.root / row["outputPath"] for row in store.manifest["outputs"]
+        approved = {store.root / row["outputPath"]: row for row in store.manifest["outputs"]
                     if row["targetId"] in active_ids and row["upload"] == "fastlane" and row["kind"] == "screenshot"}
         if require_outputs:
-            missing = approved.difference(source.shots.values())
+            missing = approved.keys() - source.shots.values()
             if missing:
                 raise ValueError("Missing planned screenshot: %s" % min(missing))
-        source.shots = {k: p for k, p in source.shots.items() if p in approved}
-        source.text = {k: p for k, p in source.text.items() if len(k.split("/")) == 2
-                       or k.split("/")[1] in locales | {"default"}}
+        shots = {}
+        for key, path in source.shots.items():
+            if path not in approved:
+                continue
+            # Deliver needs its display hint for 12.9" and 13" images of the same size.
+            if approved[path]["slotId"] == "ipad-12-9" and store.name == "apple":
+                key = Path(key).with_name("APP_IPAD_PRO_129-" + path.name).as_posix()
+            shots[key] = path
+        source.shots = shots
+        source.text = {k: p for k, p in source.text.items()
+                       if len(k.split("/")) == 2 or k.split("/")[1] in locales | {"default"}}
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
-        coverage = apple_assets.planned_coverage(store.root, store.data, store.rules, store.manifest["outputs"],
-                                                publish_store=store.name)
     elif store.name == "apple":
         coverage = {"apple": apple_assets.load_legacy(store.root, store.rules)}
         for key, path in list(source.shots.items()):
@@ -494,16 +503,13 @@ def checked_copy(path, dest):
     dest.write_bytes(data)
 
 
-def prepared(store, view):
+def prepared(store, view, platforms):
     source, coverage = working_inventory(store, require_outputs=True)
-    options = []
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
     screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
-    if store.data:
-        snapshot = view.parent / (view.name + "-coverage.json")
-        write_json(snapshot, coverage)
-        options = ["--coverage-view", str(snapshot)]
-    elif coverage.get("apple"):
+    snapshot = view.parent / (view.name + "-coverage.json")
+    write_json(snapshot, coverage or {"apple": {}})
+    if not store.data and coverage.get("apple"):
         if secret_scan.file_secret(store.state("asset-plan.json")):
             raise ValueError("Credential-like content in asset plan; upload view rejected")
         write_json(view / apple_assets.LEGACY, coverage)
@@ -537,12 +543,9 @@ def prepared(store, view):
         dest = view / specs.OVERRIDE
         checked_copy(safe(store.root, override), dest)
     env = dict(os.environ, LK_REVIEW_DISPLAY_ROOT=str(store.root))
-    for path in project_files(store.root):
-        checked_copy(safe(store.root, path), view / path.relative_to(store.root))
-    if store.data:
-        # Required deferrals depend on the listing's platform overrides in the isolated view too.
-        write_view_plan(view, plan.listing_trees(view), store.data)
-    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view), *options], env=env, check=True)
+    write_view_plan(view, plan.listing_trees(view), {"platforms": platforms})
+    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view),
+               "--coverage-view", str(snapshot)], env=env, check=True)
     return inventory(store, metadata, screenshots)
 
 
@@ -1131,8 +1134,10 @@ def main(argv):
                         raise ValueError("Plan inputs failed the secret scan")
                     run_child([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
                                     "--for", "publish"], check=True)
+                platforms = {name: value for name, (value, _) in detect.resolve(root, rules).items()
+                             if value is not None}
                 for store in stores:
-                    views[store.name] = prepared(store, scratch / (store.name + "-view"))
+                    views[store.name] = prepared(store, scratch / (store.name + "-view"), platforms)
                 transfers = []
                 for store in stores:
                     dest = scratch / store.name

@@ -57,14 +57,14 @@ def load_coverage(root, rules=None, view=None):
     return {"apple": load_legacy(root, rules)}
 
 
-def planned_coverage(root, data, rules, outputs, publish_store=None):
+def planned_coverage(root, data, rules, outputs, publish_store=None, text_locales=()):
     disk = set()
     if listing_plan.targets(data, "apple", "deferred"):
         tree = paths(root)["apple"]
         disk.update(Path(loc).name for loc in listing_apple_locales(tree, rules, files_only=True))
         disk.update(loc for loc in header_locales(tree) if header_files(tree, loc)
                     or any(images(folder) for folder in (header_dir(tree, loc) / "screenshots").glob("*")))
-    return listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk)
+    return listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk, text_locales=text_locales)
 
 
 def load_plan(root, rules=None):
@@ -144,6 +144,10 @@ def reported_deferrals(entry, rules, planned):
     for key, reason in entry.get("deferredScreenshots", {}).items():
         yield display_name(rules, key, planned), reason
     yield from entry.get("deferredTargets", {}).items()
+
+
+def planned_screenshot_locales(targets):
+    return {code for code, entry in targets.items() if entry.get("screenshots")}
 
 
 def deferred_slots(rules, displays, planned=False):
@@ -234,13 +238,14 @@ def validate(root, required_displays=(), rules=None, requirements=None, tree=Non
             coverage = snapshot["apple"]
             if planned:
                 required_displays = deferred_slots(rules, required_displays)
+        capture_locales = planned_screenshot_locales(coverage) if planned else set()
         for locale, target in coverage.items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
             for key, reason in target.get("deferredScreenshots", {}).items():
                 display = display_name(rules, key, planned)
                 required = (key in required_displays if planned else any(
                     s["label"] in required_displays for s in specs.slot_by_label(rules, "apple", key)))
-                if required:
+                if required and (not capture_locales or locale in capture_locales):
                     results.append(("FAIL", f"cannot defer required screenshot class: {display} ({locale})"))
                 else:
                     results.append(("WARN", f"deferred {locale}/{display}: {reason}"))

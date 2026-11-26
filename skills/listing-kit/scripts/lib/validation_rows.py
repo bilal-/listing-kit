@@ -66,14 +66,16 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
         if not locales:
             yield "FAIL", f"no {apple_tree['metadata']}/<locale>/ directory"
         # Deliver can reuse the primary screenshots for a metadata-only localization.
-        capture_locales = {loc.name for loc in locales
-                           if any(Path(d).is_dir() for _, d in listing.apple_screenshot_dirs(apple_tree["screenshots"], loc.name, rules))
-                           or (apple_tree["storeAssets"] / loc.name / "screenshots").is_dir()}
+        capture_locales = apple_assets.planned_screenshot_locales(targets) if modern else set()
+        if not capture_locales:
+            capture_locales = {loc.name for loc in locales if any(Path(d).is_dir() for _, d in
+                               listing.apple_screenshot_dirs(apple_tree["screenshots"], loc.name, rules))
+                               or (apple_tree["storeAssets"] / loc.name / "screenshots").is_dir()}
         for locale in locales:
             yield "NOTE", "  locale " + locale.name + ":"
             yield from copy("apple", locale, fallback)
             entry = targets.get(locale.name, {})
-            if capture_locales and locale.name not in capture_locales and not (modern and entry):
+            if capture_locales and locale.name not in capture_locales:
                 continue
             yield "NOTE", "  screenshots " + locale.name + ":"
             deferred = apple_assets.deferred_slots(rules, entry.get("deferredScreenshots", {}), modern)
@@ -94,7 +96,10 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
         if not verbose:
             yield "NOTE", "  NOTE: Use --verbose for optional fields and platform evidence."
         if not play_locales:
-            yield "FAIL", f"{play_tree['metadata']} has no locale folders"
+            if play_tree["metadata"].is_dir():
+                yield "FAIL", f"{play_tree['metadata']} has no locale folders"
+            else:
+                yield "WARN", f"planned Play metadata directory is missing: {play_tree['metadata']}"
         for locale in play_locales:
             yield "NOTE", "  locale " + locale.name + ":"
             yield from copy("play", locale)

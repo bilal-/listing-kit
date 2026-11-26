@@ -841,19 +841,17 @@ def manifest(data, rules, app_root, repo_root=None):
     return _inspect(data, rules, app_root, repo_root=repo_root).result
 
 
-def coverage(data, rules, outputs, publish_store=None, *, disk_apple=()):
+def coverage(data, rules, outputs, publish_store=None, *, disk_apple=(), text_locales=()):
     """Expected screenshots, headers and deferrals per store locale for a validated plan."""
     result = {"apple": {}, "play": {}, "inferred": specs.conditions_from_plan(data, rules=rules)}
     suffixes = apple_suffixes(data, rules)
     locales = [_locale(item) for item in data["locales"]]
-    selected = set()
     for target in targets(data, publish_store):
         if publish_store and target.get("status") == "held":
             continue
         store = target["store"]
         slot = specs.slot(rules, store, target["slot"])
         codes = [loc[store] for loc in _target_locales(locales, target)]
-        selected.update(codes)
         key = slot["id"]
         count = len(screens_for(data, target["id"]))
         for code in codes:
@@ -862,11 +860,18 @@ def coverage(data, rules, outputs, publish_store=None, *, disk_apple=()):
                 entry["suffixes"] = suffixes[code]
             counts = entry.setdefault("screenshots", {})
             counts[key] = counts.get(key, 0) + count
+    if publish_store == "apple":
+        mapped = {loc.get("apple") for loc in locales}
+        held = {loc["apple"] for target in targets(data, "apple", state=None)
+                if target.get("status") == "held" for loc in _target_locales(locales, target)}
+        # Localized text can reuse another locale's screenshots.
+        for code in set(text_locales) & (mapped - held):
+            result["apple"].setdefault(code, {})
     for row in outputs:
         if row["kind"] == "graphic":
             store = row["store"]
             code = row["storeCode"]
-            if publish_store and (publish_store != store or code not in selected):
+            if publish_store and (publish_store != store or code not in result[store]):
                 continue
             entry = result[store].setdefault(code, {})
             field = "headers" if store == "apple" else "graphics"
@@ -877,7 +882,7 @@ def coverage(data, rules, outputs, publish_store=None, *, disk_apple=()):
         key = target["slot"]
         for loc in _target_locales(locales, target):
             code = loc["apple"]
-            if publish_store and code not in selected:
+            if publish_store and code not in result["apple"]:
                 continue
             if code not in result["apple"] and code not in disk_apple:
                 continue

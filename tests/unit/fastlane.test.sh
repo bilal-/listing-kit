@@ -634,13 +634,13 @@ run_lk publish --store apple --screenshots apple:en-US --yes
 assert_eq "$rc" 1
 assert_contains "$out" "hand-upload folder"
 assert_eq "$(cat "$fixture/sent")" ""
-it "custom plan paths publish only active targets and locales"
+it "custom plan paths publish active screenshots and exclude explicitly held locales"
 python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
 d["targets"].pop()
-d["targets"].append(dict(d["targets"][0], id="later", locales=["fr-FR"], state="deferred", reason="later"))
+d["targets"].append(dict(d["targets"][0], id="later", locales=["fr-FR"], state="deferred", status="held", reason="later"))
 d["targets"][0]["locales"] = ["en-US"]
 d["targets"].append(dict(d["targets"][0], id="held", status="held", suffix="held"))
 d["locales"].append("fr-FR")
