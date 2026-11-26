@@ -2,7 +2,9 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/build-review.sh"
-# Keep historical example captures unchanged; add a synthetic medium-size test fixture.
+# FIXTURE, not the example as shipped: a copy plus a synthetic medium-size iPhone
+# screenshot, so these tests have a valid tree to mutate. The example as committed is
+# checked without any addition in tests/structure/examples.test.sh.
 new_tempdir APP
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
 fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
@@ -13,7 +15,7 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 remove_fixture "$T"
 
-# Build the review page against the committed example (both stores present).
+# Build the review page against the fixture copy (both stores present).
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
 it "exits 0 and writes listing-review.html at the app root"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?

@@ -118,7 +118,9 @@ fastlane/
   metadata/                 # iOS copy (name, subtitle, description, keywords, URLs…)
     android/                # Android copy + images/ (screenshots, featureGraphic, icon)
   screenshots/<locale>/     # iOS screenshots, ordered 01_, 02_, …
+store-assets/apple/<locale>/  # App Store header assets (uploaded by hand in App Store Connect)
 listing-review.html         # open in a browser: copy buttons, screenshots, validation
+.listing-kit/asset-plan.json  # the Apple screenshot sets and headers you approved
 .listing-kit/flows/         # Maestro flows: committed, so reruns and CI can replay them
 .listing-kit/secrets.local  # git-ignored: credentials for demo/mock logins (NEVER committed)
 ```
