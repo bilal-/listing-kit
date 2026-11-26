@@ -86,7 +86,9 @@ dqt = seg(0xDB, b"\x00" + b"\x10" * 64)
 sof = seg(0xC0, struct.pack(">BHHB", 8, h, w, 3) + b"\x01\x22\x00\x02\x11\x00\x03\x11\x00")
 dht = seg(0xC4, b"\x00\x01" + b"\x00" * 15 + b"\x00") + seg(0xC4, b"\x10\x01" + b"\x00" * 15 + b"\x00")
 sos = seg(0xDA, b"\x03\x01\x00\x02\x00\x03\x00\x00\x3f\x00")
-scan = b"\x00" * max(1, (((w + 15) // 16) * ((h + 15) // 16) * 12 + 7) // 8)
+bits = max(1, ((w + 15) // 16) * ((h + 15) // 16)) * 12
+rem = bits % 8
+scan = b"\x00" * (bits // 8) + (bytes([(1 << (8 - rem)) - 1]) if rem else b"")
 open(p, "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + scan + b"\xff\xd9")
 PY
 }
