@@ -1,0 +1,405 @@
+{
+  "format": 2,
+  "app": {
+    "ios": "sh.bilal.shellbell",
+    "android": "sh.bilal.shellbell",
+    "demoEntry": ".listing-kit/entry.ts"
+  },
+  "locales": [
+    "en-US"
+  ],
+  "style": {
+    "mode": "framed",
+    "template": "caption-top",
+    "palette": {
+      "background": [
+        "#F6BC4A",
+        "#E79B19"
+      ],
+      "ink": "#17191D",
+      "detail": "#493416"
+    },
+    "bezel": {
+      "color": "#17191D",
+      "bleed": false
+    },
+    "fonts": {
+      "default": {
+        "headline": [
+          "assets/fonts/JetBrainsMonoNerdFont-Bold.ttf",
+          "bundled:Inter"
+        ],
+        "detail": [
+          "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+          "bundled:Inter"
+        ]
+      }
+    },
+    "logo": "repo:brand/png/horizontal-black@2x.png"
+  },
+  "targets": [
+    {
+      "id": "iphone",
+      "store": "apple",
+      "slot": "iphone-di-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPhone 17 Pro Max"
+      },
+      "suffix": "iphone"
+    },
+    {
+      "id": "iphone-medium",
+      "store": "apple",
+      "slot": "iphone-di-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPhone 17 Pro"
+      },
+      "suffix": "iphone-medium",
+      "status": "prepared"
+    },
+    {
+      "id": "iphone-duo",
+      "store": "apple",
+      "slot": "iphone-duo-outer",
+      "size": [
+        1398,
+        2034
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPhone Duo",
+        "display": "external"
+      },
+      "suffix": "iphone-duo",
+      "status": "prepared"
+    },
+    {
+      "id": "ipad",
+      "store": "apple",
+      "slot": "ipad-13",
+      "size": [
+        2064,
+        2752
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPad Pro 13-inch (M5)"
+      }
+    },
+    {
+      "id": "android-phone",
+      "store": "play",
+      "slot": "phone",
+      "size": [
+        1080,
+        1920
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "pixel_9"
+      }
+    },
+    {
+      "id": "android-tablet",
+      "store": "play",
+      "slot": "ten-inch",
+      "size": [
+        1920,
+        1080
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "pixel_tablet",
+        "orientation": "landscape"
+      },
+      "style": {
+        "template": "band",
+        "fit": "contain"
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "agents",
+      "flow": ".listing-kit/flows/01_agents.yaml",
+      "route": "/c/[fp]",
+      "state": "Agents view on Studio Mac: Antigravity waiting for you, Claude Code and Gemini working, Codex idle, each with how long it has been in that state.",
+      "caption": {
+        "en-US": "Every agent, one list"
+      },
+      "detail": {
+        "en-US": "Claude Code · Codex · Antigravity · Gemini"
+      },
+      "altText": {
+        "en-US": "The Agents view listing coding agents by state: waiting for you, working and idle."
+      }
+    },
+    {
+      "id": "conversation",
+      "flow": ".listing-kit/flows/02_conversation.yaml",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Claude Code session in Conversation view: the request, the plan, one-line tool steps and the reply.",
+      "caption": {
+        "en-US": "Read agents like a chat"
+      },
+      "detail": {
+        "en-US": "Messages and tool steps, not raw output"
+      },
+      "altText": {
+        "en-US": "A Claude Code session shown as a conversation with tool steps."
+      }
+    },
+    {
+      "id": "terminal",
+      "flow": ".listing-kit/flows/03_terminal.yaml",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Gemini working in its terminal, with the key bar.",
+      "caption": {
+        "en-US": "The real terminal, live"
+      },
+      "detail": {
+        "en-US": "Full color, with the keys a terminal needs"
+      },
+      "altText": {
+        "en-US": "A coding agent's terminal output with terminal keys below."
+      }
+    },
+    {
+      "id": "terminals",
+      "flow": ".listing-kit/flows/04_terminals.yaml",
+      "route": "/c/[fp]",
+      "state": "Terminals view grouped by Herdr and tmux workspaces shown in Ghostty, and an iTerm2 window.",
+      "caption": {
+        "en-US": "Herdr, tmux and iTerm2"
+      },
+      "detail": {
+        "en-US": "Including sessions running in Ghostty"
+      },
+      "altText": {
+        "en-US": "Terminal sessions grouped by Herdr, tmux and iTerm2, some shown in Ghostty."
+      }
+    },
+    {
+      "id": "answer",
+      "flow": ".listing-kit/flows/05_answer.yaml",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Antigravity asking to write a migration, with its numbered choices as reply buttons.",
+      "caption": {
+        "en-US": "Answer from anywhere"
+      },
+      "detail": {
+        "en-US": "Approve, refuse or steer with one tap"
+      },
+      "altText": {
+        "en-US": "An agent asking for permission, with its choices as reply buttons."
+      }
+    },
+    {
+      "id": "direct",
+      "flow": ".listing-kit/flows/06_direct.yaml",
+      "route": "/c/[fp]",
+      "state": "Direct row expanded: peer to peer on your network, round trip and setup time.",
+      "caption": {
+        "en-US": "Private, peer to peer"
+      },
+      "detail": {
+        "en-US": "End-to-end encrypted, direct to your computer"
+      },
+      "altText": {
+        "en-US": "Connection details showing a direct peer-to-peer connection with its round trip time."
+      }
+    },
+    {
+      "id": "reading",
+      "flow": ".listing-kit/flows/07_reading.yaml",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Reading mode over a build and test run.",
+      "caption": {
+        "en-US": "Read output comfortably"
+      },
+      "detail": {
+        "en-US": "Scroll back, select and copy"
+      },
+      "altText": {
+        "en-US": "Build output shown as selectable text in Reading mode."
+      }
+    },
+    {
+      "id": "shellbell",
+      "panel": {
+        "headline": {
+          "en-US": "Your terminal, from anywhere."
+        },
+        "rows": [
+          {
+            "label": {
+              "en-US": "Agents"
+            },
+            "text": {
+              "en-US": "Claude Code, Codex, Antigravity, Gemini and 20 more"
+            }
+          },
+          {
+            "label": {
+              "en-US": "Terminals"
+            },
+            "text": {
+              "en-US": "Herdr, tmux and iTerm2, in Ghostty or any terminal app"
+            }
+          },
+          {
+            "label": {
+              "en-US": "Private"
+            },
+            "text": {
+              "en-US": "End-to-end encrypted and peer to peer"
+            }
+          },
+          {
+            "label": {
+              "en-US": "Open"
+            },
+            "text": {
+              "en-US": "MIT licensed, with a relay you can host yourself"
+            }
+          },
+          {
+            "label": {
+              "en-US": "Computers"
+            },
+            "text": {
+              "en-US": "macOS and Linux"
+            }
+          }
+        ]
+      },
+      "caption": {
+        "en-US": "Your terminal, from anywhere"
+      },
+      "altText": {
+        "en-US": "Shellbell: your terminal from anywhere. Works with coding agents and terminals, end-to-end encrypted, open source, for macOS and Linux."
+      },
+      "route": "",
+      "state": "",
+      "detail": {
+        "en-US": ""
+      }
+    }
+  ],
+  "graphics": {
+    "apple": {
+      "header-16x9": {
+        "headline": {
+          "en-US": "Your terminal,\nfrom anywhere."
+        },
+        "detail": {
+          "en-US": "Agents / Terminals / End-to-end encrypted / Open source"
+        },
+        "altText": {
+          "en-US": "Shellbell on an amber background. Your terminal, from anywhere. Agents, terminals, end-to-end encrypted, open source."
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "template": "shellbell-header-16x9",
+        "status": "prepared"
+      },
+      "header-21x9": {
+        "headline": {
+          "en-US": "Your terminal,\nfrom anywhere."
+        },
+        "detail": {
+          "en-US": "Agents / Terminals / End-to-end encrypted / Open source"
+        },
+        "altText": {
+          "en-US": "Shellbell on an amber background. Your terminal, from anywhere. Agents, terminals, end-to-end encrypted, open source."
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "template": "shellbell-header-21x9",
+        "status": "prepared"
+      }
+    },
+    "play": {
+      "featureGraphic": {
+        "template": "feature",
+        "headline": {
+          "en-US": "Your terminal,\nfrom anywhere."
+        },
+        "detail": {
+          "en-US": "Claude Code · Codex · Herdr · tmux · iTerm2"
+        },
+        "altText": {
+          "en-US": "Shellbell on an amber background: Your terminal, from anywhere. Claude Code, Codex, Herdr, tmux and iTerm2."
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "status": "prepared"
+      },
+      "icon": {
+        "from": "repo:brand/android/play-store-512.png"
+      }
+    }
+  },
+  "console": {
+    "playCategory": "Tools",
+    "contactEmail": null,
+    "playPrivacyUrl": "https://github.com/bilal-/shellbell/blob/main/PRIVACY.md"
+  },
+  "notes": {
+    "capture": {
+      "content": "Disposable example projects only; no personal terminal sessions, host names, paths, pairing codes or credentials.",
+      "method": "Capture the running native app using simctl or adb, then frame each capture with .listing-kit/frame.py (brand background, caption and bezel). Never substitute mockups for the app screens; only the closing brand panel has no capture.",
+      "playFraming": "Use a device viewport with the intended aspect ratio; do not crop away the keyboard or app controls."
+    },
+    "manualConsoleFields": [
+      "Google Play category and developer contact email",
+      "Google Play privacy policy URL",
+      "Apple App Privacy and Google Play Data safety declarations",
+      "Content ratings and app review access instructions"
+    ],
+    "releaseNotes": "Write against the exact selected store candidate; no release notes or version-code changelog have been invented.",
+    "sources": [
+      "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information",
+      "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications",
+      "https://support.google.com/googleplay/android-developer/answer/9859152",
+      "https://support.google.com/googleplay/android-developer/answer/9866151",
+      "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
+      "https://developer.apple.com/app-store/asset-best-practices/"
+    ]
+  },
+  "approved": {
+    "metadata": true,
+    "screens": true
+  }
+}
