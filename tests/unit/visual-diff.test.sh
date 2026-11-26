@@ -65,8 +65,11 @@ remove_fixture "$P" "$C"
 it "an ImageMagick 6 install without identify falls back to byte-compare"
 new_tempdir P; new_tempdir C; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
 new_stubdir; stub compare
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
+# Expose only the tools the byte-compare branch uses, even on a host with IM6.
+for tool in mktemp find sort cmp rm; do ln -s "$(command -v "$tool")" "$STUB_BIN/$tool"; done
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"
+assert_contains "$OUT" "1 unchanged"
 remove_fixture "$P" "$C"
 
 it "reports an ImageMagick identify decode error as a comparison failure, not px differ or resized"
@@ -189,7 +192,8 @@ assert_not_contains "$OUT" "- removed" "does not fabricate removals from failed 
 assert_contains "$OUT" "0 removed"
 rm -rf "$P" "$C"
 
-if command -v magick >/dev/null 2>&1; then
+. "$SCRIPTS/lib/imagemagick.sh"
+if im_resolve compare; then
   it "real ImageMagick: corrupt PNG reports comparison failed instead of px differ"
   new_tempdir P; new_tempdir C
   fake_png "$P/01.png" 10 10
@@ -199,6 +203,9 @@ if command -v magick >/dev/null 2>&1; then
   assert_contains "$OUT" "comparison failed"
   assert_not_contains "$OUT" "px differ"
   rm -rf "$P" "$C"
+else
+  it "real comparison of corrupt pixels"
+  skip "no ImageMagick"
 fi
 
 it "pairs filenames containing newlines and counts a failed final merge"

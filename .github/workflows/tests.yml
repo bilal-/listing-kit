@@ -7,12 +7,18 @@ on:
 
 jobs:
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}, ${{ matrix.mode }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            mode: render
+          - os: macos-latest
+            mode: render
+          - os: ubuntu-latest
+            mode: browserless
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Show bash version
@@ -24,5 +30,20 @@ jobs:
             sudo apt-get update && sudo apt-get install -y imagemagick-6.q16
           fi
           echo 'LK_TEST_IM6=1' >> "$GITHUB_ENV"
-      - name: Run test suite
+      - name: Install ImageMagick
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+      - name: Run suite with the installed browser
+        if: matrix.mode == 'render'
+        env:
+          LK_REQUIRE_RENDER: '1'
+          LK_BROWSER_ARGS: ${{ runner.os == 'Linux' && '--no-sandbox' || '' }}
         run: bash tests/run.sh
+      - name: Run suite without a browser
+        if: matrix.mode == 'browserless'
+        env:
+          LK_BROWSER: /missing/listing-kit-browser
+        shell: bash
+        run: |
+          bash tests/run.sh | tee "$RUNNER_TEMP/suite.log"
+          grep -q '^  skipped: no browser' "$RUNNER_TEMP/suite.log"

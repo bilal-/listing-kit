@@ -195,6 +195,9 @@ PY
   assert_eq 1 "$RC" "real ImageMagick rejects corrupt scan in 3840x1646 JPEG header"
   assert_not_contains "$OUT" "Apple header en-US/alternate.jpg: 3840x1646 RGB/no-alpha"
   rm -f "$HEADERS/alternate.jpg"
+else
+  it "real decoder rejects invalid Apple header pixels"
+  skip "no ImageMagick"
 fi
 
 it "checks Apple header dimensions before invoking ImageMagick, rejects acTL headers, and warns on policy limits"

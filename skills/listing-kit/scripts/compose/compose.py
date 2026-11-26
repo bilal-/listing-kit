@@ -14,7 +14,7 @@ owns. A change that would restyle images whose own content did not change needs
 
 Usage: compose.py <app-root> [--target ID]... [--screen ID]... [--restyle] [--adopt] [--dry-run | --preview]
 Exit:  0 done; 1 a problem with an input or an image (details printed);
-       2 usage or an invalid plan; 3 no browser or ImageMagick for what is needed;
+       2 usage or an invalid plan; 3 all outputs are blocked by a missing browser, or ImageMagick is required;
        4 would restyle existing images (rerun with --restyle).
 """
 import argparse
@@ -85,11 +85,20 @@ def sha_obj(obj):
     return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+# Bump only when renderer code changes the pixels. Version 1 uses the original
+# four source digests so existing format-1 locks compare equal without migration.
+RENDERER_VERSION = (
+    "278fee109b8287b5868a099686db95009737e4cbdfe8d4260df4316896548e90",
+    "f02108aac92f30d3b10ed91914e9c983d84fdce2e043f97e6fd646714c4e2eb3",
+    "20ef3aeb7102e87cfec469987fa268ce6c5e558f2f0070b40ea630f576b368d4",
+    "e288399c3e6b29b16cc612d5222fe8b22a642a908fddc209d0233a3d6df4b5ee",
+)
+
+
 def template_hash(name):
     template_values.template_name(name)
     files = [Path(render.TEMPLATES) / fn for fn in ("base.css", name + ".html")]
-    files.extend(Path(HERE) / fn for fn in ("render.py", "pixels.py", "cdp.py", "fontcheck.py"))
-    return sha_obj([sha_file(path) for path in files])
+    return sha_obj([sha_file(path) for path in files] + list(RENDERER_VERSION))
 
 
 def text_of(rec):
@@ -296,6 +305,12 @@ def preview_page(jobs):
             + "".join(frames)).encode()
 
 
+def report_failures(failed):
+    for job in failed:
+        for problem in job.problems:
+            print("compose: %s: %s" % (job.rec["outputPath"], problem), file=sys.stderr)
+
+
 def compose_outputs(args, man, state):
     root = state.root
     jobs = [Job(root, rec) for rec in man["outputs"] if args.preview or
@@ -307,14 +322,15 @@ def compose_outputs(args, man, state):
     if args.preview:
         rel = ".listing-kit/preview.html"
         current = state.digest(rel)
-        if current and current != state.outputs.get(rel, {}).get("sha256"):
-            if not args.adopt:
-                raise ValueError("%s: %s" % (rel, ownership.CONFLICT))
-            print("adopting " + rel, flush=True)
+        conflict = current and current != state.outputs.get(rel, {}).get("sha256")
+        if conflict and not args.adopt:
+            raise ValueError("%s: %s" % (rel, ownership.CONFLICT))
         page = preview_page(jobs)
         sha = hashlib.sha256(page).hexdigest()
         if current != sha or rel not in state.outputs or state.outputs[rel]["sha256"] != sha:
             state.publish(rel, page, dict(sha256=sha, content=sha, style=sha), current if args.adopt else None)
+            if conflict:
+                print("adopting " + rel)
         print(os.path.join(root, rel))
         return 0
 
@@ -337,7 +353,6 @@ def compose_outputs(args, man, state):
                 job.problems.append(ownership.CONFLICT)
             else:
                 job.adopted = current
-                print(("would adopt " if args.dry_run else "adopting ") + rel, flush=True)
         job.problems.extend(job.missing_inputs())
         if job.problems:
             failed.append(job)
@@ -359,27 +374,48 @@ def compose_outputs(args, man, state):
         for job in restyled:
             print("  " + job.rec["outputPath"])
         return 4
-    needs_browser = bool(cached) or any(job.template for job in todo)
-    if not args.dry_run:
-        if needs_browser and not render.cdp.find_browser():
-            print("compose: framed screenshots need Chrome, Chromium, Edge or Brave.", file=sys.stderr)
-            return 3
-        if todo and not magick():
-            print("compose: ImageMagick is needed.", file=sys.stderr)
-            return 3
+    failure_code = 1
     written = held = 0
     browser = renderer = fingerprint = None
     try:
-        if needs_browser and not args.dry_run:
-            browser, renderer = render.open_browser()
-            fingerprint = {"os": sys.platform, "browser": browser.version_major()}
-            for job in cached:
-                if state.outputs[job.rec["outputPath"]]["renderer"] != fingerprint:
-                    todo.append(job)
-                    unchanged -= 1
+        if not args.dry_run and (cached or any(job.template for job in todo)):
+            try:
+                path = render.cdp.find_browser()
+                if not path:
+                    raise render.cdp.BrowserError("no executable found")
+                browser, renderer = render.open_browser(path)
+                fingerprint = {"os": sys.platform, "browser": browser.version_major()}
+            except (OSError, render.cdp.BrowserError, subprocess.TimeoutExpired) as exc:
+                if browser:
+                    browser.close()
+                    browser = None
+                reason = "framed screenshots need Chrome, Chromium, Edge or Brave."
+                override = os.environ.get("LK_BROWSER")
+                if override:
+                    reason += " LK_BROWSER=%s:" % override
+                reason += " " + str(exc)
+                blocked = cached + [job for job in todo if job.template]
+                todo = [job for job in todo if not job.template]
+                unchanged -= len(cached)
+                if not todo and not unchanged and not failed:
+                    failure_code = 3
+                for job in blocked:
+                    job.problems.append(reason)
+                failed.extend(blocked)
+            else:
+                for job in cached:
+                    if state.outputs[job.rec["outputPath"]]["renderer"] != fingerprint:
+                        todo.append(job)
+                        unchanged -= 1
+        if todo and not args.dry_run and not magick():
+            report_failures(failed)
+            print("compose: ImageMagick is needed.", file=sys.stderr)
+            return 3
         for job in todo:
             rel = job.rec["outputPath"]
             if args.dry_run:
+                if job.adopted:
+                    print("would adopt " + rel)
                 print("would write " + rel)
                 continue
             try:
@@ -403,13 +439,15 @@ def compose_outputs(args, man, state):
                 continue
             except (OSError, ValueError) as exc:
                 raise ValueError("%s: %s" % (rel, exc)) from exc
+            if job.adopted:
+                print("adopting " + rel)
             written += 1
             print("wrote " + rel)
     finally:
         if browser:
             browser.close()
 
-    if not args.dry_run:
+    if not args.dry_run and failure_code != 3:
         for rel in man.get("stale", []):
             if rel in planned:
                 continue
@@ -422,10 +460,8 @@ def compose_outputs(args, man, state):
         if len(versions()) > 1:
             print("note: this set contains images drawn by different browser versions.")
     print("compose: %d written, %d unchanged, %d held, %d failed" % (written, unchanged, held, len(failed)))
-    for job in failed:
-        for problem in job.problems:
-            print("compose: %s: %s" % (job.rec["outputPath"], problem), file=sys.stderr)
-    return 1 if failed else 0
+    report_failures(failed)
+    return failure_code if failed else 0
 
 
 def main(argv):

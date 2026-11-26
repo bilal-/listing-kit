@@ -545,6 +545,9 @@ PY
   assert_eq 1 "$RC" "real IM rejects corrupt scan in 1024x500 featureGraphic.jpg"
   assert_not_contains "$OUT" "✓ Feature graphic 1024x500"
   rm -rf "$T"
+else
+  it "real decoder rejects invalid feature graphic pixels"
+  skip "no ImageMagick"
 fi
 
 it "rejects oversized PNG/JPEG and malformed assets before starting ImageMagick"
@@ -576,11 +579,16 @@ assert_contains "$OUT" "TV banner must be 1280x720"
 rm -f "$T/$IMG/tvBanner.png"; fake_png "$T/$IMG/tvBanner.png" 1280 720 8 0
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "a grayscale PNG banner is not a 24-bit PNG"
-if command -v magick >/dev/null 2>&1; then
-  rm -f "$T/$IMG/tvBanner.png"; magick -size 1280x720 gradient: -colorspace Gray "$T/$IMG/tvBanner.jpg"
+. "$SCRIPTS/lib/imagemagick.sh"
+if im_resolve convert; then
+  rm -f "$T/$IMG/tvBanner.png"
+  "${IM[@]}" -size 1280x720 gradient: -colorspace Gray "$T/$IMG/tvBanner.jpg"
   OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
   assert_eq 0 "$RC" "a grayscale JPEG banner is a valid JPEG and passes"
   rm -f "$T/$IMG/tvBanner.jpg"
+else
+  it "TV banner JPEG validation"
+  skip "no ImageMagick"
 fi
 rm -f "$T/$IMG/tvBanner.png"
 fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500

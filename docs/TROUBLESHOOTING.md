@@ -13,7 +13,7 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 | `listing-kit capture`: `A raw upload requires the exact target size` | Select a device profile with the planned dimensions and set the planned orientation in the flow. |
 | `listing-kit compose`: `no raw capture at` | Run capture for the named target and screen. Check the output mapping with `listing-kit plan outputs`. |
 | `listing-kit compose`: `no font given for headline` | Add headline and detail font lists in `style.fonts.default`. Use `bundled:Inter` or readable local font files. |
-| `listing-kit compose`: `framed screenshots need Chrome, Chromium, Edge or Brave` | Install a supported browser or set `LK_BROWSER` to its executable. |
+| `listing-kit compose`: `framed screenshots need Chrome, Chromium, Edge or Brave` | Install a supported browser or set `LK_BROWSER` to its executable. When set, only that executable is used. |
 | `listing-kit compose`: `was not written by listing-kit` | Inspect the destination. Move it aside to preserve it. Use `listing-kit compose --adopt` only after approving its replacement. |
 | `listing-kit compose`: `existing file(s) would be restyled` | Review the affected paths and design. Use `listing-kit compose --restyle` to accept the redraw. |
 | `listing-kit validate`: `ImageMagick not available: images were checked structurally only` | Install ImageMagick and rerun validation for full image checks. |
@@ -24,3 +24,7 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 | `listing-kit publish`: `until it has passed a live test` | Use `listing-kit handoff --open` for delivery. The default publish run writes no upload receipt. Read the preview in the job log. |
 
 If the review hook flags a public key in a device declaration, follow the [staged blob review procedure](../skills/listing-kit/references/metadata/fastlane-layout.md#what-to-commit).
+
+## Browser launch flags
+
+Set `LK_BROWSER_ARGS` to pass additional space-separated arguments to the browser. For example, an isolated Linux CI runner that cannot start Chrome with its sandbox can use `LK_BROWSER_ARGS=--no-sandbox`.
