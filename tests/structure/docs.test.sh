@@ -8,6 +8,7 @@ from functools import lru_cache
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from urllib.parse import unquote, urlsplit
@@ -110,6 +111,25 @@ listing.write_text(example)
 result = run("plan", "check")
 if result.returncode:
     errors.append(result.stdout)
+# Exercise the first-run recipe too. Reuse an existing frame for the HTML
+# preview so missing fonts or colors fail here without a simulator or browser.
+guide = (root / "docs/GUIDE.md").read_text()
+recipe, = re.findall(r"^```json\n(.*?)^```$", guide, re.M | re.S)
+listing.write_text(recipe)
+source = root / "examples/expo-recipe-box"
+shutil.copytree(source / ".listing-kit/flows", listing.parent / "flows")
+plan_check = run("plan", "check", "--for", "capture")
+if plan_check.returncode:
+    errors.append(plan_check.stdout)
+else:
+    manifest = json.loads(run("plan", "manifest").stdout)
+    for job in manifest["captures"]:
+        path = app / job["rawPath"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / "fastlane/screenshots/en-US/01_recipes.png", path)
+    preview = run("compose", "--preview")
+    if preview.returncode or not (listing.parent / "preview.html").is_file():
+        errors.append("guide preview failed: " + preview.stdout)
 if errors:
     sys.exit("\n".join(errors))
 PY

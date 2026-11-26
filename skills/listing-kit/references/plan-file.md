@@ -225,7 +225,7 @@ This is the [test fixture](../../../tests/fixtures/plan-example.json). The annot
 | `mode`, `template` | Choose raw or framed screenshots with `mode`. The example selects the caption-top template and overrides it with band for the tablet. An omitted mode is raw. |
 | `palette` | `background` lists gradient colors, `ink` sets headline ink and `detail` sets secondary ink. |
 | `bezel`, `fit` | The bezel accepts `color`, `shadow`, `width`, `radius` and `bleed`. An explicit `fit` selects contain, cover or bleed for the capture. |
-| `fonts` | The `default` profile and optional locale profiles give ordered font paths for the `headline` and `detail` roles. The kit includes `bundled:Inter`. |
+| `fonts` | The `default` profile and optional locale profiles give ordered font paths for the `headline` and `detail` roles. Template rendering needs both font roles, a nonempty background color list and an ink color. The kit includes `bundled:Inter`. |
 | `logo` | Supply a local logo for templates that use one. Input paths are app-relative unless prefixed with `repo:` for a path under the repository root. |
 | `targets` | Each target has a unique `id`, a `store` (apple or play), a rules-file `slot`, an accepted pixel `size` in width-height order and a `state`. |
 | `state`, `reason` | Only active targets produce jobs. A deferred target needs a single-line reason. Use retired for a target no longer in the listing. |

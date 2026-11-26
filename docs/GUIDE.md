@@ -26,7 +26,13 @@ Save the following as `.listing-kit/listing.json` in your copy. It adds one targ
   "format": 2,
   "app": {"ios": "sh.bilal.recipebox"},
   "locales": ["en-US"],
-  "style": {"mode": "framed"},
+  "style": {
+    "mode": "framed",
+    "palette": {"background": ["#FFF7EA"], "ink": "#25180D"},
+    "fonts": {
+      "default": {"headline": ["bundled:Inter"], "detail": ["bundled:Inter"]}
+    }
+  },
   "targets": [
     {"id": "iphone", "store": "apple", "slot": "iphone-di-medium",
      "size": [1206, 2622], "state": "active"}

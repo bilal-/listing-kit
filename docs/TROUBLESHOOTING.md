@@ -12,6 +12,7 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 | `listing-kit capture`: `Please build and install it first` | Install the app with the planned bundle ID or package name on the selected device, then rerun capture. |
 | `listing-kit capture`: `A raw upload requires the exact target size` | Select a device profile with the planned dimensions and set the planned orientation in the flow. |
 | `listing-kit compose`: `no raw capture at` | Run capture for the named target and screen. Check the output mapping with `listing-kit plan outputs`. |
+| `listing-kit compose`: `no font given for headline` | Add headline and detail font lists in `style.fonts.default`. Use `bundled:Inter` or readable local font files. |
 | `listing-kit compose`: `framed screenshots need Chrome, Chromium, Edge or Brave` | Install a supported browser or set `LK_BROWSER` to its executable. |
 | `listing-kit compose`: `was not written by listing-kit` | Inspect the destination. Move it aside to preserve it. Use `listing-kit compose --adopt` only after approving its replacement. |
 | `listing-kit compose`: `existing file(s) would be restyled` | Review the affected paths and design. Use `listing-kit compose --restyle` to accept the redraw. |
