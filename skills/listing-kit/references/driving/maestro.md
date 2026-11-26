@@ -78,14 +78,14 @@ Use `maestro studio` to inspect the live hierarchy and discover labels/ids while
 
 ## Flow recipe for the capture command
 
-The command supplies three Maestro environment variables with `-e`. `LK_LOCALE`
+The command passes the job's app ID to Maestro in `LK_APP_ID`. `LK_LOCALE`
 is the device locale for this capture (for example, `zh-CN`). `LK_TARGET` and
 `LK_SCREEN` are the IDs from the listing plan. This example passes them to an
 app whose demo entry point accepts those launch arguments. The app or flow
 must apply the locale. Passing a variable alone leaves the device language as it was.
 
 ```yaml
-appId: com.example.app
+appId: ${LK_APP_ID}
 ---
 - launchApp:
     clearState: true
@@ -103,7 +103,14 @@ item in the requested locale before the flow ends. The capture command then
 sanitizes the status bar and takes the screenshot. The launch, permission,
 orientation and variable syntax follow Maestro's documentation. **UNVERIFIED
 on device** until spike S5 confirms the grants after state clearing, launch
-arguments and orientation on both platforms.
+arguments and orientation on both platforms. Maestro's expansion of
+`${LK_APP_ID}` in the `appId` header is also **UNVERIFIED** on device.
+A literal `appId` must match the selected job's app ID.
+
+Each Maestro flow has a 600-second timeout. Other capture tools have a
+120-second timeout. Set `LK_CAPTURE_TIMEOUT` or `LK_TOOL_TIMEOUT` in seconds
+to override the corresponding limit. A timeout fails the current job.
+
 [Maestro launchApp](https://docs.maestro.dev/api-reference/commands/launchapp) ·
 [Maestro setOrientation](https://docs.maestro.dev/api-reference/commands/setorientation)
 

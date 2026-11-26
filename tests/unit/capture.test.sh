@@ -8,10 +8,13 @@ KIT="$APP/.listing-kit"
 SUT="$SCRIPTS/capture/capture.py"
 mkdir -p "$KIT/flows"
 export CALLS="$STUB_LOG" IOS_DEVICES="$T/ios.json" ANDROID_DEVICES="$T/android"
+export AVD_DIR="$T/custom phone.avd"
+mkdir -p "$AVD_DIR"
+echo "hw.device.name = pixel_9" > "$AVD_DIR/config.ini"
 export IOS_IMAGE="$T/ios.png" ANDROID_IMAGE="$T/android.png"
 fake_png "$IOS_IMAGE" 1206 2622
 fake_png "$ANDROID_IMAGE" 1080 2400
-for tool in bash python3 cat cp dirname mktemp mkdir mv rm tr; do
+for tool in bash python3 cat cp dirname mktemp mkdir mv rm sleep tr; do
   ln -s "$(command -v "$tool")" "$STUB_BIN/$tool"
 done
 cat > "$STUB_BIN/xcrun" <<'SH'
@@ -29,6 +32,7 @@ SH
 cat > "$STUB_BIN/adb" <<'SH'
 #!/usr/bin/env bash
 echo "adb $*" >> "$CALLS"
+if [ "${PROBE_STDIN:-}" ] && read -r line; then echo "adb read: $line" >> "$CALLS"; fi
 if [ "$1" = devices ]; then
   echo 'List of devices attached'
   while read -r serial; do echo "$serial device"; done < "$ANDROID_DEVICES"
@@ -37,8 +41,10 @@ fi
 serial="$2"
 shift 2
 case "$*" in
-  'emu avd name') case "$serial" in emulator-5554) echo pixel_9;; *) echo pixel_tablet;; esac; echo OK;;
-  'shell pm path '*) [ -n "${NOT_INSTALLED:-}" ] || echo package:/installed/base.apk;;
+  'emu avd path') [ "$serial" = emulator-5554 ] || exit 1; echo "$AVD_DIR"; echo OK;;
+  'shell wm size') echo "Physical size: 1080x2400"; [ -z "${WM_OVERRIDE:-}" ] || echo "Override size: $WM_OVERRIDE";;
+  'emu avd name') case "$serial" in emulator-5554) echo "${AVD_PHONE_NAME:-Custom_Phone}";; *) echo PIXEL_TABLET;; esac; echo OK;;
+  'shell pm path '*) [ -z "${SLOW_PM:-}" ] || sleep 1; [ -n "${NOT_INSTALLED:-}" ] || echo package:/installed/base.apk;;
   'exec-out screencap -p') cat "$ANDROID_IMAGE";;
   'shell settings '*|'shell am broadcast '*|'shell getprop '*) exit 0;;
   *) exit 99;;
@@ -47,6 +53,8 @@ SH
 cat > "$STUB_BIN/maestro" <<'SH'
 #!/usr/bin/env bash
 echo "maestro $*" >> "$CALLS"
+if [ "${PROBE_STDIN:-}" ] && read -r line; then echo "maestro read: $line" >> "$CALLS"; fi
+[ -z "${SLOW_FLOW:-}" ] || sleep 1
 echo 'flow output'
 if [ -n "${FAIL_SCREEN:-}" ] && [[ "$*" = *"LK_SCREEN=$FAIL_SCREEN" ]]; then
   for i in {1..18}; do echo "diagnostic_$i." >&2; done
@@ -77,13 +85,11 @@ import json, sys
 from pathlib import Path
 p = json.loads(Path(sys.argv[1]).read_text())
 kit = Path(sys.argv[2])
-del p["app"]["demoEntry"], p["graphics"]
-p["style"] = {"mode": "framed"}
 p["targets"][2]["capture"]["nativeSize"] = [1080, 2400]
 for s in p["screens"]:
     for f in [s.get("flow"), *s.get("flows", {}).values()]:
         if f:
-            (kit.parent / f).touch()
+            (kit.parent / f).write_text('appId: ${LK_APP_ID}\n---\n- launchApp\n')
 (kit / "listing.json").write_text(json.dumps(p))
 PY
 cp "$KIT/listing.json" "$T/original.json"
@@ -107,7 +113,7 @@ assert_contains "$OUT" agents
 assert_not_contains "$OUT" terminal
 assert_not_contains "$OUT" play-tablet
 assert_not_contains "$OUT" closing
-assert_eq "" "$(grep -Ev '^(xcrun simctl list|adb devices|adb -s [^ ]+ emu avd name)' "$CALLS")"
+assert_eq "" "$(grep -Ev '^(xcrun simctl list|adb devices|adb -s [^ ]+ emu avd (name|path)|adb -s [^ ]+ shell wm size)' "$CALLS")"
 [ ! -e "$KIT/raw" ] && [ ! -e "$KIT/logs" ] && pass 'dry run left no files' || fail 'dry run wrote files'
 run --dry-run --target iphone-medium --screen terminal --screen agents
 assert_contains "$OUT" terminal
@@ -165,7 +171,29 @@ printf '%s\n' emulator-5556 emulator-5558 > "$ANDROID_DEVICES"
 android
 assert_eq 1 "$RC"
 assert_contains "$OUT" emulator-5558
+assert_contains "$OUT" PIXEL_TABLET
+
+it 'rejects a lone emulator when its profile differs even if its AVD name matches'
+echo emulator-5556 > "$ANDROID_DEVICES"
+android
+assert_eq 1 "$RC"
+for hint in emulator-5556 PIXEL_TABLET pixel_9 start --device .listing-kit/local.json; do
+  assert_contains "$OUT" "$hint"
+done
+assert_not_contains "$(cat "$CALLS")" maestro
+echo emulator-5554 > "$ANDROID_DEVICES"
+echo 'hw.device.name=pixel_tablet' > "$AVD_DIR/config.ini"
+AVD_PHONE_NAME=pixel_9 android
+assert_eq 1 "$RC"
 assert_contains "$OUT" pixel_tablet
+echo 'hw.device.name=pixel_9' > "$AVD_DIR/config.ini"
+
+it 'checks the effective Android display size before driving even a pinned device'
+WM_OVERRIDE=720x1600 android --device emulator-5554
+assert_eq 1 "$RC"
+assert_contains "$OUT" '720x1600'
+assert_contains "$OUT" '1080x2400'
+assert_not_contains "$(cat "$CALLS")" maestro
 
 it 'refuses a physical device, including when pinned, until explicitly allowed'
 echo usb-serial > "$ANDROID_DEVICES"
@@ -173,7 +201,14 @@ android --device usb-serial
 assert_eq 1 "$RC"
 assert_contains "$OUT" '--allow-device'
 assert_eq 'adb devices' "$(cat "$CALLS")"
+echo '{"devices":{"play-phone":"usb-serial"}}' > "$KIT/local.json"
+android
+assert_eq 1 "$RC"
+assert_contains "$OUT" '--allow-device'
+printf '%s\n' usb-serial emulator-5554 > "$ANDROID_DEVICES"
 android --allow-device
+rm "$KIT/local.json"
+assert_contains "$OUT" 'to restore'
 assert_eq 0 "$RC"
 assert_contains "$(cat "$CALLS")" 'adb -s usb-serial exec-out screencap -p'
 echo emulator-5554 > "$ANDROID_DEVICES"
@@ -228,6 +263,7 @@ assert_eq 1 "$RC"
 assert_eq old "$(cat "$raw")"
 
 it 'checks landscape orientation even when the plan omits a native size'
+echo emulator-5556 > "$ANDROID_DEVICES"
 run --target play-tablet --screen agents
 assert_eq 1 "$RC"
 assert_contains "$OUT" 'wrong orientation'
@@ -235,6 +271,7 @@ export ANDROID_IMAGE="$T/android-swapped.png"
 run --target play-tablet --screen agents
 assert_eq 0 "$RC"
 assert_contains "$(cat "$CALLS")" '01_agents_tablet.yaml'
+echo emulator-5554 > "$ANDROID_DEVICES"
 export ANDROID_IMAGE="$T/android.png"
 
 it 'raw mode requires the target dimensions and never crops'
@@ -294,11 +331,61 @@ assert_eq 0 "$RC"
 assert_not_contains "$(cat "$CALLS")" maestro
 assert_contains "$(cat "$CALLS")" 'exec-out screencap'
 
-it 'rejects an invalid capture plan before discovery, even when filtering'
-rm "$KIT/flows/terminal.yaml"
+it 'passes the selected app ID to a shared flow and rejects conflicting literal headers'
+sed 's/"deviceType": "pixel_9"/"deviceType": "pixel_9", "appId": "example.beta"/' "$T/original.json" > "$KIT/listing.json"
+android
+assert_eq 0 "$RC"
+assert_contains "$(cat "$CALLS")" '-e LK_APP_ID=example.beta'
+echo "appId: 'sh.bilal.shellbell' # release" > "$KIT/flows/01_agents.yaml"
+android
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'example.beta'
+assert_contains "$OUT" 'sh.bilal.shellbell'
+assert_not_contains "$(cat "$CALLS")" maestro
+ios
+assert_eq 0 "$RC"
+assert_contains "$(cat "$CALLS")" '-e LK_APP_ID=sh.bilal.shellbell'
+cp "$T/original.json" "$KIT/listing.json"
+
+it 'isolates automated tools from stdin and reports flow and tool timeouts as failed jobs'
+PROBE_STDIN=1 android <<< 'user input'
+assert_eq 0 "$RC"
+assert_not_contains "$(cat "$CALLS")" 'read: user input'
+SLOW_FLOW=1 LK_CAPTURE_TIMEOUT=0.2 android
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'timed out'
+assert_contains "$OUT" 'maestro'
+assert_contains "$OUT" '1 failed'
+assert_not_contains "$(cat "$CALLS")" screencap
+SLOW_PM=1 LK_TOOL_TIMEOUT=0.2 android
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'timed out'
+assert_contains "$OUT" 'adb'
+assert_not_contains "$(cat "$CALLS")" maestro
+
+it 'requires only selected flows on the unmodified example plan'
+cp "$ROOT/tests/fixtures/plan-example.json" "$KIT/listing.json"
+rm "$KIT/flows/terminal.yaml" "$KIT/flows/01_agents_tablet.yaml" "$KIT/flows/duo-layout.yaml"
 android --dry-run
+assert_eq 0 "$RC"
+run --target play-phone --screen terminal --dry-run
 assert_eq 2 "$RC"
 assert_contains "$OUT" 'terminal.yaml'
 assert_eq '' "$(cat "$CALLS")"
+
+it 'reports an empty target and screen intersection before discovery'
+run --dry-run --target play-tablet --screen closing
+assert_eq 2 "$RC"
+assert_contains "$OUT" 'No capture jobs'
+assert_eq '' "$(cat "$CALLS")"
+
+it 'dry-run fails framed iOS jobs that lack a native size'
+cat > "$KIT/specs.override.json" <<'JSON'
+{"stores":{"apple":{"screenshots":{"slots":[{"id":"iphone-di-medium","capture":{"nativeSize":null}}]}}}}
+JSON
+ios --dry-run
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'capture.nativeSize'
+assert_contains "$OUT" '1 failed'
 
 summary
