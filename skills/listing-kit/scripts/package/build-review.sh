@@ -58,6 +58,7 @@ from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
 import apple_assets
+import specs
 from secret_scan import secret_text
 
 FL = os.path.join(root, "fastlane")
@@ -90,20 +91,28 @@ except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
-ios_locs = apple_assets.apple_locales(root)
-apple_default = listing.apple_default(FL)
-if apple_assets.has_apple_listing(root):
+try:
+    rules = specs.load(root)
+except specs.SpecsError:
+    rules = specs.load()  # Keep the review available when local rules cannot be read.
+ios_locs = apple_assets.apple_locales(root, rules, apple_plan)
+apple_default = listing.apple_default(FL, rules)
+if apple_assets.has_apple_listing(root, ios_locs, rules):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
         fields = store_fields.rows("apple", ld, apple_default)
         shots = {}
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        for f in images(os.path.join(FL, "screenshots", loc)):
+        for platform, f in apple_assets.active_screenshots(root, loc, deferred):
             cls = devclass(dims(f))
-            if cls in deferred:
-                continue  # Preserve old files, but do not present them as active deliverables.
+            if platform == "iMessage":
+                cls = "iMessage " + cls
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
+        for slot_id, f in listing.manual_screenshots(root, "apple", loc):
+            slot = specs.slot(rules, "apple", slot_id)
+            if slot and not apple_assets.is_deferred(f, deferred):
+                shots.setdefault(slot["label"], []).append(os.path.relpath(f, root))
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))

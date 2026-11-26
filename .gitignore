@@ -23,3 +23,5 @@ __pycache__/
 
 # brand kit: downloaded font cache
 brand/tools/.cache/
+
+__pycache__/

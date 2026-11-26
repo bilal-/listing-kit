@@ -213,10 +213,15 @@ def scan(path, base, ignored, roots):
             if secret_text(os.fsencode(target)):
                 report(relative)
                 yield 1
-            elif target.is_absolute() or not any(root == path.resolve() or root in path.resolve().parents
-                                                  for root in roots):
+                return
+            try:
+                resolved = path.resolve(strict=True)
+            except FileNotFoundError:
+                # A missing target has no contents, but must still be inside a scan root.
+                resolved = path.resolve()
+            if target.is_absolute() or not any(root == resolved or root in resolved.parents for root in roots):
                 raise OSError("symbolic link leaves scan root")
-            elif path.is_file() and file_secret(path):
+            if path.is_file() and file_secret(path):
                 report(relative)
                 yield 1
         elif path.is_dir():
