@@ -155,6 +155,16 @@ for name in python3 ImageMagick Chromium maestro adb fastlane .listing-kit/listi
   assert_contains "$out" "OK $name"
 done
 if [ "$(uname -s)" = Darwin ]; then assert_contains "$out" 'OK xcrun simctl'; fi
+it "relative dispatcher and doctor invocations ignore exported CDPATH"
+ln -s "$area/retired" tools
+out="$(CDPATH=. PATH="$STUB_BIN" tools/bin/listing-kit version 2>&1)"
+assert_eq 0 "$?"
+assert_eq "$("$cli" version)" "$out"
+out="$(CDPATH=. PATH="$STUB_BIN" tools/scripts/doctor/doctor.sh 2>&1)"
+assert_eq 0 "$?"
+assert_contains "$out" "OK ImageMagick"
+assert_contains "$out" "OK .listing-kit/listing.json"
+
 rm "$STUB_BIN/python3" "$STUB_BIN/adb" .listing-kit/listing.json
 out="$(PATH="$STUB_BIN" "$cli" doctor 2>&1)"; assert_eq 3 "$?"
 for name in python3 adb .listing-kit/listing.json; do assert_contains "$out" "MISSING $name"; done

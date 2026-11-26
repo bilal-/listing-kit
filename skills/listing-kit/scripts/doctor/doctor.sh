@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+unset CDPATH
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$scripts/lib/imagemagick.sh"
 root=${1:-.}

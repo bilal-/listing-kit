@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+unset CDPATH
 set -e
 source_path=${BASH_SOURCE[0]}
 while [ -L "$source_path" ]; do
@@ -26,7 +27,7 @@ Usage: listing-kit <command> [arguments]
   publish [args]                          Publish approved listing changes
   doctor [app-root]                       Check tools, listing plan and hook
   version                                 Print kit version and store rules date
-  ci init --provider github|gitlab [args] Generate listing CI jobs
+  ci init --provider github|gitlab --kit-ref REF [args] Generate listing CI jobs
   link [--dir DIR] [--force|--remove]     Install or remove the launcher
   help                                    Show this usage
 HELP

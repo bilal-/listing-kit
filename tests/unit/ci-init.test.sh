@@ -6,36 +6,45 @@ mkdir -p "$HOME" "$area/repo/apps/my app"
 cd "$area/repo" || exit 1
 git init -q
 cli="$SKILL_DIR/bin/listing-kit"
-version="$(cat "$SKILL_DIR/VERSION")"
-
-it "GitHub workflow goes in repo root with the app's path filters and kit version"
-out="$("$cli" ci init --provider github --app-root 'apps/my app' 2>&1)"
-assert_eq 0 "$?"
+kit_ref=v1.2.3
 github=.github/workflows/listing.yml
+it "ci init requires an explicit kit ref before generating a workflow"
+new_tempdir no_ref
+out="$(cd "$no_ref" && "$cli" ci init --provider github 2>&1)"
+assert_eq 2 "$?"
+assert_contains "$out" '--kit-ref'
+[ ! -e "$no_ref/$github" ] && pass || fail "workflow created without a kit ref"
+out="$("$cli" ci init --help)"
+assert_contains "$out" 'released tag'
+assert_contains "$out" 'commit SHA'
+
+it "GitHub workflow goes in repo root with the app's path filters and chosen kit ref"
+out="$("$cli" ci init --kit-ref "$kit_ref" --provider github --app-root 'apps/my app' 2>&1)"
+assert_eq 0 "$?"
 assert_file "$github"
-assert_contains "$(cat "$github")" "v$version"
+assert_contains "$(cat "$github")" "$kit_ref"
 assert_contains "$(cat "$github")" 'apps/my app/.listing-kit/**'
 it "ci init refuses an existing workflow until forced"
 echo sentinel > "$github"
-"$cli" ci init --provider github >/dev/null 2>&1; assert_ne 0 "$?"
+"$cli" ci init --kit-ref "$kit_ref" --provider github >/dev/null 2>&1; assert_ne 0 "$?"
 assert_eq sentinel "$(cat "$github")"
-"$cli" ci init --provider github --force --kit-ref v1.2.3 --app-root 'apps/my app' >/dev/null
+"$cli" ci init --kit-ref "$kit_ref" --provider github --force --app-root 'apps/my app' >/dev/null
 assert_eq 0 "$?"
 assert_contains "$(cat "$github")" 'v1.2.3'
 
 it "GitLab writes a standalone pipeline then an include beside existing CI"
 gitlab=.gitlab-ci.yml
-"$cli" ci init --provider gitlab >/dev/null; assert_eq 0 "$?"; assert_file "$gitlab"
+"$cli" ci init --kit-ref "$kit_ref" --provider gitlab >/dev/null; assert_eq 0 "$?"; assert_file "$gitlab"
 assert_contains "$(cat "$gitlab")" 'fastlane/**'
 echo 'user pipeline' > "$gitlab"
 include=listing-kit.gitlab-ci.yml
-out="$("$cli" ci init --provider gitlab --app-root 'apps/my app' 2>&1)"
+out="$("$cli" ci init --kit-ref "$kit_ref" --provider gitlab --app-root 'apps/my app' 2>&1)"
 assert_eq 0 "$?"; assert_eq 'user pipeline' "$(cat "$gitlab")"
 assert_contains "$out" 'include:'; assert_contains "$out" "$include"; assert_file "$include"
 echo existing > "$include"
-"$cli" ci init --provider gitlab >/dev/null 2>&1; assert_ne 0 "$?"
+"$cli" ci init --kit-ref "$kit_ref" --provider gitlab >/dev/null 2>&1; assert_ne 0 "$?"
 assert_eq existing "$(cat "$include")"
-"$cli" ci init --provider gitlab --force --app-root 'apps/my app' >/dev/null
+"$cli" ci init --kit-ref "$kit_ref" --provider gitlab --force --app-root 'apps/my app' >/dev/null
 assert_eq 0 "$?"; assert_eq 'user pipeline' "$(cat "$gitlab")"
 
 it "YAML shape, job gates, secrets and artifacts match both providers"
@@ -68,13 +77,13 @@ for line in gh.splitlines():
     if "secrets." in line:
         assert re.fullmatch(r" +(?:APP_STORE_CONNECT_API_KEY_JSON|PLAY_SERVICE_ACCOUNT_JSON): \$\{\{ [^{}]+ \}\}", line), line
 assert "workflow_dispatch:" in gh and "pull_request:" in gh and "type: choice" in gh
-assert "environment: store-listing" in gh
+assert "environment: store-listing-${{ inputs.store }}" in gh
+for store in ("apple", "play"):
+    job = gl.split("listing-publish-" + store + ":\n", 1)[1].split("\n\n", 1)[0]
+    assert "  environment: store-listing-" + store + "\n" in job
 assert "github.event_name == 'workflow_dispatch'" in gh
 assert "github.event_name == 'pull_request'" in gh
 assert "include-hidden-files: true" in gh
-for action in ("checkout", "upload-artifact"):
-    ref = re.search(r"uses: actions/" + action + r"@(\S+)", gh)[1]
-    assert re.fullmatch(r"[a-f0-9]{40}", ref) or ("# TODO: Pin actions/" in gh and re.fullmatch(r"v\d+", ref))
 assert "allow_failure: true" in gl  # each store is an independent manual job
 assert gl.count("when: always") == 2  # include receipts even after a partial publish
 assert re.search(r"Upload publish receipt\n +if: .*always\(\)", gh)
@@ -85,8 +94,54 @@ for doc in (gh, gl):
 PY
 assert_eq 0 "$?"
 
-it "publish scripts give the adapter only the selected external file, then clean up on failure"
+it "every GitHub action uses a full SHA with a version comment"
+python3 - "$github" "$ROOT/.github/workflows/tests.yml" <<'PYPINS'
+from pathlib import Path
+import re, sys
+for path in sys.argv[1:]:
+    actions = re.findall(r"uses: (actions/[^\n]+)", Path(path).read_text())
+    assert actions and all(re.fullmatch(r"actions/[\w-]+@[0-9a-f]{40} +# v\d+\.\d+\.\d+", action)
+                           for action in actions), actions
+PYPINS
+assert_eq 0 "$?"
+
+it "both providers check the command after checkout and before using the kit"
+export kit="$area/checkout" KIT_REF="$kit_ref" GITHUB_PATH="$area/github-path"
+mkdir -p "$kit/skills/listing-kit/bin"
+for file in "$github" "$include"; do
+  python3 - "$file" "$area/preflight" <<'PYPREFLIGHT'
+from pathlib import Path
+import sys, textwrap
+lines = Path(sys.argv[1]).read_text().splitlines()
+start = next(i for i, line in enumerate(lines) if "checkout --quiet --detach FETCH_HEAD" in line) + 1
+end = next(i for i in range(start, len(lines)) if "$kit/skills/listing-kit/bin" in lines[i]
+           and ("$GITHUB_PATH" in lines[i] or "export PATH=" in lines[i]))
+Path(sys.argv[2]).write_text(textwrap.dedent("\n".join(lines[start:end+1])))
+PYPREFLIGHT
+  assert_eq 0 "$?"
+  touch "$kit/skills/listing-kit/bin/listing-kit"
+  chmod 644 "$kit/skills/listing-kit/bin/listing-kit"
+  out="$(bash -e "$area/preflight" 2>&1)"
+  assert_ne 0 "$?" "$file refuses a non-executable command"
+  assert_eq "kit ref $KIT_REF has no listing-kit command; use a newer --kit-ref" "$out"
+  chmod 755 "$kit/skills/listing-kit/bin/listing-kit"
+  bash -e "$area/preflight"; assert_eq 0 "$?" "$file accepts the executable command"
+done
+
 new_stubdir
+stub gem
+INSTALL_BIN="$(command -v install)"
+export INSTALL_BIN INSTALL_RECORD="$area/install-called"
+cat > "$STUB_BIN/install" <<'SH'
+#!/bin/bash
+: > "$INSTALL_RECORD"
+if [ "${FAIL_INSTALL:-0}" = 1 ]; then
+  echo 'fixture install error' >&2
+  exit 1
+fi
+exec "$INSTALL_BIN" "$@"
+SH
+chmod +x "$STUB_BIN/install"
 cat > "$STUB_BIN/listing-kit" <<'SH'
 #!/bin/bash
 set -eu
@@ -121,6 +176,13 @@ SH
 chmod +x "$STUB_BIN/mktemp"
 export APP_ROOT='apps/my app' RUNNER_TEMP="$area/runner" KEY_RECORD="$area/key-path"
 mkdir "$RUNNER_TEMP"
+# Each job receives only the selected store's environment secret.
+run_publish() (
+  unset APP_STORE_CONNECT_API_KEY_JSON PLAY_SERVICE_ACCOUNT_JSON
+  unset APP_STORE_CONNECT_API_KEY_PATH SUPPLY_JSON_KEY
+  export STORE="$store" "$credential_var=$1"
+  PATH="$STUB_BIN:$PATH" bash -e "$area/publish"
+)
 for provider in github gitlab; do
   file="$github"; [ "$provider" = github ] || file="$include"
   # Run the credential and publish commands from the generated YAML.
@@ -134,37 +196,50 @@ script = textwrap.dedent("\n".join(lines[start:end+1]))
 Path(sys.argv[2]).write_text(script + "\n")
 PYSCRIPT
   for store in apple play; do
+    it "$provider $store passes only its credential file and cleans up on failure"
     rm -f "$KEY_RECORD"
-    out="$(
-      export STORE="$store"
-      unset APP_STORE_CONNECT_API_KEY_PATH SUPPLY_JSON_KEY
-      value='{"dummy":"offline fixture"}'
-      if [ "$provider" = gitlab ]; then
-        printf '%s' "$value" > "$area/file variable"
-        value="$area/file variable"
-      fi
-      export APP_STORE_CONNECT_API_KEY_JSON="$value" PLAY_SERVICE_ACCOUNT_JSON="$value"
-      PATH="$STUB_BIN:$PATH" bash -e "$area/publish" 2>&1
-    )"; rc=$?
+    credential_var=APP_STORE_CONNECT_API_KEY_JSON
+    [ "$store" = apple ] || credential_var=PLAY_SERVICE_ACCOUNT_JSON
+    value='{"dummy":"offline fixture"}'
+    if [ "$provider" = gitlab ]; then
+      printf '%s' "$value" > "$area/file variable"
+      value="$area/file variable"
+    fi
+    out="$(run_publish "$value" 2>&1)"; rc=$?
     assert_eq 23 "$rc" "$provider $store propagates publish failure"
     assert_not_contains "$out" 'offline fixture'
     if [ -f "$KEY_RECORD" ] && [ ! -e "$(cat "$KEY_RECORD")" ]; then pass; else fail "credential handling"; fi
+    if [ "$provider" = gitlab ]; then
+      it "$store rejects inline GitLab JSON without passing it to install or logging it"
+      rm -f "$INSTALL_RECORD"
+      out="$(run_publish '{"dummy":"inline credential fixture"}' 2>&1)"
+      assert_eq 2 "$?"
+      assert_not_contains "$out" 'inline credential fixture'
+      assert_eq 'store credential must be a GitLab File variable' "$out"
+      [ ! -e "$INSTALL_RECORD" ] && pass || fail "inline value reached install"
+
+      it "$store suppresses install diagnostics on copy failure"
+      out="$(FAIL_INSTALL=1 run_publish "$area/file variable" 2>&1)"
+      assert_eq 2 "$?"
+      assert_file "$INSTALL_RECORD"
+      assert_eq 'could not copy store credential' "$out"
+    fi
   done
 done
 
 it "literal app paths containing template markers survive rendering"
 mkdir -p apps/__KIT_REF__
-"$cli" ci init --provider github --app-root apps/__KIT_REF__ --force >/dev/null
+"$cli" ci init --kit-ref "$kit_ref" --provider github --app-root apps/__KIT_REF__ --force >/dev/null
 assert_contains "$(cat "$github")" "apps/__KIT_REF__/store-assets/**"
 it "ordinary apostrophes and at signs in app names are YAML literals"
 mkdir -p "apps/Kate's app @ work"
-"$cli" ci init --provider github --app-root "apps/Kate's app @ work" --force >/dev/null
+"$cli" ci init --kit-ref "$kit_ref" --provider github --app-root "apps/Kate's app @ work" --force >/dev/null
 assert_eq 0 "$?"
 assert_contains "$(cat "$github")" "'apps/Kate''s app @ work/fastlane/**'"
 it "invalid provider, unsafe ref or missing app root creates no workflow"
 new_tempdir clean
 cd "$clean" || exit 1
-for args in '--provider other' '--provider github --app-root missing' '--provider github --kit-ref ${{injection}}'; do
+for args in '--provider other --kit-ref v1.2.3' '--provider github --kit-ref v1.2.3 --app-root missing' '--provider github --kit-ref ${{injection}}'; do
   "$cli" ci init $args >/dev/null 2>&1; assert_ne 0 "$?"
 done
 [ ! -e .github ] && pass || fail "unexpected workflow"

@@ -23,7 +23,7 @@ The fields belong inside a JSON object named `fastlane`. Store only paths there.
 
 ## CI use
 
-Enter credentials yourself using the provider's secure settings. In GitHub, store each complete JSON file as a secret of the `store-listing` environment. In GitLab, use protected **File** variables scoped to that environment. Use `APP_STORE_CONNECT_API_KEY_JSON` for Apple and `PLAY_SERVICE_ACCOUNT_JSON` for Play. The job prepares a private file for the selected store and gives fastlane its path. [CI setup and approvals](CI.md).
+Enter credentials yourself using the provider’s secure settings. Scope `APP_STORE_CONNECT_API_KEY_JSON` to `store-listing-apple` and `PLAY_SERVICE_ACCOUNT_JSON` to `store-listing-play`. On GitHub, store the complete JSON as an environment secret. On GitLab, use protected **File** variables with variable expansion disabled. The job prepares a private file for the selected store and gives fastlane its path. [CI setup and approvals](CI.md).
 
 ## Rotate or revoke
 

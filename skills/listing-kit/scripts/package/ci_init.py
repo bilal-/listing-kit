@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=("github", "gitlab"), required=True)
     parser.add_argument("--app-root", type=Path, default=Path("."))
-    parser.add_argument("--kit-ref", default="v" + (KIT / "VERSION").read_text().strip())
+    parser.add_argument("--kit-ref", required=True, help="pass a released tag or a commit SHA containing the listing-kit command")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     app = args.app_root.resolve()
