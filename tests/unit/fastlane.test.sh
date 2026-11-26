@@ -11,7 +11,7 @@ remote="$fixture/remote"
 lk="$SCRIPTS/listing-kit"
 mkdir -p "$app" "$remote/apple/screenshots" "$remote/apple/metadata/en-US"
 git init -q "$fixture/repo"
-printf '%s\n' '{"key":"SECRET-stub-apple-material","issuer_id":"issuer"}' > "$fixture/apple.json"
+printf '%s\n' '{"key":"SECRET-stub-apple-material","issuer_id":"12345678-1234-1234-1234-123456789012"}' > "$fixture/apple.json"
 printf '%s\n' '{"type":"service_account","private_key":"SECRET-stub-play-material","client_email":"test@example.org"}' > "$fixture/play.json"
 cat > "$STUB_BIN/fastlane" <<'PY'
 #!/usr/bin/env python3
@@ -90,10 +90,14 @@ echo 'gem "fastlane"' > "$app/Gemfile"
 run_lk fastlane setup "${a[@]}" "$setup_key" "$fixture/apple.json"
 assert_eq "$rc" 0
 assert_contains "$out" "2.242.0"
+assert_contains "$out" "12345678-1234-1234-1234-123456789012"
 assert_contains "$(cat "$STUB_LOG")" "bundle exec fastlane"
 assert_contains "$(cat "$STUB_LOG")" "example.apple"
 assert_eq "$(python3 -c 'import os,sys;print(oct(os.stat(sys.argv[1]).st_mode & 511))' "$app/.listing-kit/local.json" 2>/dev/null)" 0o600
 assert_eq "$(cat "$app/.gitignore" 2>/dev/null)" ".listing-kit/local.json"
+it "relative credential paths may resolve outside the repository"
+run_lk fastlane setup "${a[@]}" "$setup_key" ../../apple.json
+assert_eq "$rc" 0
 it "pull bootstraps text and keeps downloaded images separate"
 run_lk pull "${a[@]}"
 assert_eq "$rc" 0
@@ -137,6 +141,7 @@ run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 0
 assert_contains "$out" "publishing to apple is not enabled"
 assert_contains "$out" "--skip_screenshots"
+assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 export LK_PUBLISH_UNVERIFIED=1
 it "noninteractive live publish needs approval"
@@ -161,6 +166,14 @@ assert_file "$app/.listing-kit/publish.approved.json"
 assert_file "$app/.listing-kit/publish.receipt.json"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_screenshots"'
 assert_not_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
+it "all selected store summaries precede the first upload"
+python3 - "$STUB_LOG" <<'PYORDER'
+import json, sys
+calls = [json.loads(s) for s in open(sys.argv[1]) if s.startswith("[")]
+first_write = next(i for i, a in enumerate(calls) if a[:2] == ["deliver", "--app_identifier"])
+assert any(a[:2] == ["supply", "init"] for a in calls[:first_write])
+PYORDER
+[ "$?" = 0 ] && pass || fail "Apple uploaded before Play had been compared"
 rm "$fixture/fail-play"
 run_lk publish "${both[@]}"
 assert_eq "$rc" 0
@@ -188,6 +201,20 @@ assert_contains "$(cat "$fixture/sent")" "changelogs/44.txt"
 assert_not_contains "$(cat "$fixture/sent")" "45.txt"
 assert_not_contains "$(cat "$fixture/sent")" "featureGraphic"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_upload_metadata"'
+it "an unmapped downloaded Apple gallery blocks destructive replacement"
+mkdir -p "$rs/unexpected/gallery"
+cp "$rs/en-US/01_recipes.png" "$rs/unexpected/gallery/unknown.png"
+cp "$shots/en-US/03_shopping.png" "$shots/en-US/01_recipes.png"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "hand-upload folder"
+rm -r "$rs/unexpected"
+it "validate checks the selected asset plan before comparing"
+echo '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":6}}}}' > "$app/.listing-kit/asset-plan.json"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "LISTING HAS FAILURES"
+rm "$app/.listing-kit/asset-plan.json"
 it "active console target protects every Apple set in its locale"
 cp "$fixture/saved" "$app/.listing-kit/listing.json"
 python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
@@ -213,6 +240,7 @@ d = json.load(open(p))
 d["targets"].pop()
 d["targets"].append(dict(d["targets"][0], id="later", locales=["fr-FR"], state="deferred", reason="later"))
 d["targets"][0]["locales"] = ["en-US"]
+d["targets"].append(dict(d["targets"][0], id="held", status="held", suffix="held"))
 d["locales"].append("fr-FR")
 d["trees"] = {"apple":{"fastlaneDir":"ios/store","metadata":"ios/copy","screenshots":"ios/images"}}
 json.dump(d, open(p, "w"))
@@ -230,6 +258,13 @@ run_lk publish --yes
 [ "$rc" = 0 ] || echo "$out"
 assert_eq "$rc" 0
 assert_eq "$(cat "$fixture/sent")" "apple $name"
+it "publish validates referenced flows before contacting the store"
+echo '-----BEGIN PRIVATE KEY-----' > "$app/.listing-kit/flows/open.yaml"
+n_before="$(wc -l < "$STUB_LOG")"
+run_lk publish --yes
+assert_eq "$rc" 1
+assert_not_contains "$(tail -n +$((n_before + 1)) "$STUB_LOG")" "download_metadata"
+echo flow > "$app/.listing-kit/flows/open.yaml"
 it "setup verifies actual access and keeps diagnostics free of credential bytes"
 touch "$fixture/deny"
 run_lk fastlane setup --store apple
@@ -243,6 +278,10 @@ touch "$fixture/repo/elsewhere.p8"
 run_lk pull "${p[@]}"
 assert_eq "$rc" 1
 rm "$fixture/repo/elsewhere.p8"
+cp "$fixture/play.json" "$fixture/repo/extensionless"
+run_lk pull "${a[@]}"
+assert_eq "$rc" 1
+rm "$fixture/repo/extensionless"
 cp "$fixture/play.json" "$fixture/repo/renamed.json"
 run_lk pull "${a[@]}"
 assert_eq "$rc" 1
@@ -260,4 +299,9 @@ assert_contains "$contract" "overwrite_screenshots"
 assert_contains "$contract" "skip_upload_changelogs"
 assert_file "$ROOT/tests/contract/fastlane.rb"
 assert_file "$ROOT/.github/workflows/fastlane.yml"
+it "secret scan standalone mode catches extensionless repository keys"
+cp "$fixture/play.json" "$fixture/repo/extensionless"
+rc=0
+bash "$SCRIPTS/lib/secret-scan.sh" --store-credentials "$fixture/repo" >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" 1
 summary

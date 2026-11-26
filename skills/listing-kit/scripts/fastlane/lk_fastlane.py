@@ -25,6 +25,8 @@ import plan
 import secret_scan
 import specs
 
+# UNVERIFIED: real account access and store-side effects on versions, gallery
+# order, builds, review state and Play tracks require the disposable-app tests.
 PUBLISH_ENABLED = {"apple": False, "play": False}
 CREDENTIAL = {
     "apple": ("appleApiKeyPath", "APP_STORE_CONNECT_API_KEY_PATH", "App Store Connect API key JSON"),
@@ -110,41 +112,35 @@ def fingerprint(files):
     return sha(json.dumps(files, sort_keys=True, separators=(",", ":")).encode())
 
 
-def fail_walk(error):
-    raise error
-
-
-def scan_credentials(repo):
-    """Check even ignored files in sibling apps. Git internals are outside the worktree."""
-    for parent, dirs, files in os.walk(repo, onerror=fail_walk):
-        dirs[:] = [d for d in dirs if d != ".git"]
-        for name in files:
-            path = Path(parent, name)
-            if path.suffix.lower() == ".p8":
-                raise ValueError("Found a .p8 credential; move it outside the repository")
-            if path.suffix.lower() != ".json" or not path.is_file():
-                continue
-            try:
-                obj = json.loads(path.read_bytes())
-            except (ValueError, UnicodeError):
-                continue
-            if isinstance(obj, dict) and (obj.get("type") == "service_account"
-                                          or {"key_id", "key"} <= obj.keys()):
-                raise ValueError("Found a store credential; move it outside the repository")
-
-
 def read_key(root, repo, store, args, config):
     field, env, description = CREDENTIAL[store]
     given = getattr(args, "apple_api_key_path" if store == "apple" else "play_json_key_path", None)
     value = given or os.environ.get(env) or config.get("fastlane", {}).get(field)
     if not value:
         raise ValueError("Set %s to the external %s path, or use fastlane setup" % (env, description))
+    if not isinstance(value, str) or not value.isprintable() or value.lstrip().startswith("{"):
+        raise ValueError("Expected a credential file path for %s" % store)
     path = root / Path(value).expanduser()
-    if repo in path.absolute().parents or repo in path.resolve().parents:
+    if repo in Path(os.path.abspath(path)).parents or repo in path.resolve().parents:
         raise ValueError("Credential is inside the repository; move it outside the repository")
     if not path.is_file():
         raise ValueError("Credential file does not exist for %s" % store)
     return path.resolve()
+
+
+def account_name(store):
+    # UNVERIFIED in S3: optional public issuer_id / client_email identity fields.
+    # Use the external path when the key supplies no recognized public identifier.
+    try:
+        data = read_json(store.key, {})
+    except (ValueError, UnicodeError):
+        return str(store.key)
+    if store.name == "apple":
+        field, pattern = "issuer_id", r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}"
+    else:
+        field, pattern = "client_email", r"[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+"
+    name = data.get(field)
+    return name if isinstance(name, str) and re.fullmatch(pattern, name) else str(store.key)
 
 
 @dataclass
@@ -189,8 +185,10 @@ class Store:
         # Remove inherited tool overrides, including JSON objects and submission settings.
         env = {k: v for k, v in os.environ.items() if not k.startswith(
             ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE"))}
+        # UNVERIFIED in S3: fastlane update-check and telemetry environment switches.
         env.update(FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
         if gemfile:
+            # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
         try:
             result = subprocess.run(prefix + args, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
@@ -255,7 +253,7 @@ def download(store, scratch):
         store.run(["supply", "init", *args, "--metadata_path", str(metadata)], scratch)
     if not metadata.is_dir():
         raise ValueError("fastlane returned without downloading metadata for %s" % store.app)
-    return inventory(store, metadata, scratch / "screenshots" if store.name == "apple" else metadata)
+    return inventory(store, metadata, scratch / "screenshots" if store.name == "apple" else metadata, downloaded=True)
 
 
 def is_locale(name):
@@ -275,24 +273,27 @@ class Inventory:
         return {k: file_hash(v) for k, v in self.files().items()}
 
 
-def inventory(store, meta, shots):
+def inventory(store, meta, shots, downloaded=False):
     """Whitelist store listing fields. Never traverse console, review credentials or other stores."""
     result = Inventory({}, {}, {})
     fields = specs.fields(store.rules, store.name)
-    for row in fields:
-        if row["scope"] == "app":
-            path = meta / (row["stem"] + ".txt")
-            if path.is_file():
-                result.text["metadata/" + path.name] = safe(meta, path)
+    app_files = {r["stem"] + ".txt" for r in fields if r["scope"] == "app"}
+    localized_files = {r["stem"] + ".txt" for r in fields if r["scope"] == "locale"}
+    if store.name == "apple":
+        app_files.update(name for name in listing.DELIVER_APP_FILES if name.endswith(".txt"))
+        localized_files.update(listing.LOCALIZED_FILES)
+    for name in sorted(app_files):
+        path = meta / name
+        if path.is_file():
+            result.text["metadata/" + name] = safe(meta, path)
     for loc in sorted(meta.iterdir()) if meta.is_dir() else []:
         if not loc.is_dir() or not (is_locale(loc.name) or (store.name == "apple" and loc.name == "default")):
             continue
         safe(meta, loc)
-        for row in fields:
-            if row["scope"] == "locale":
-                path = loc / (row["stem"] + ".txt")
-                if path.is_file():
-                    result.text["metadata/" + path.relative_to(meta).as_posix()] = safe(meta, path)
+        for name in sorted(localized_files):
+            path = loc / name
+            if path.is_file():
+                result.text["metadata/" + path.relative_to(meta).as_posix()] = safe(meta, path)
         if store.name == "play":
             for path in sorted((loc / "changelogs").glob("*.txt")):
                 if re.fullmatch(r"(?:[0-9]+|default)\.txt", path.name) and path.is_file():
@@ -304,7 +305,7 @@ def inventory(store, meta, shots):
         rel = path.relative_to(shots)
         parts = rel.parts
         if store.name == "apple":
-            if ((len(parts) == 2 and (is_locale(parts[0]) or parts[0] == "default"))
+            if downloaded or ((len(parts) == 2 and (is_locale(parts[0]) or parts[0] == "default"))
                 or (len(parts) == 3 and parts[0] in ("appleTV", "iMessage") and is_locale(parts[1]))):
                 result.shots["screenshots/" + rel.as_posix()] = safe(shots, path)
         elif len(parts) >= 3 and is_locale(parts[0]) and parts[1] == "images":
@@ -334,6 +335,9 @@ def pull(store, remote):
         raw = subprocess.check_output(["git", "diff", "--cached", "--name-only", "--relative", "-z"],
                                       cwd=store.root)
         staged = {store.root / os.fsdecode(p) for p in raw.split(b"\0") if p}
+    for source in remote.text.values():
+        if secret_scan.file_secret(source):
+            raise ValueError("Credential-like content in downloaded listing; keeping it outside the repository")
     for key, source in remote.text.items():
         dest = workspace_file(store, key)
         raw = source.read_bytes()
@@ -341,7 +345,13 @@ def pull(store, remote):
         current = sha(comparable(store.name, dest.read_bytes())) if dest.is_file() else None
         base = ancestors.get(key)
         if current != fresh and fresh != base:
-            if current != base or dest in staged:
+            staged_change = False
+            if dest in staged:
+                index = subprocess.run(["git", "show", ":./" + dest.relative_to(store.root).as_posix()],
+                                       cwd=store.root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                indexed = None if index.returncode else sha(comparable(store.name, index.stdout))
+                staged_change = indexed not in (base, fresh)
+            if current != base or staged_change:
                 print("conflict", key, "— local file retained")
                 atomic(store.state("remote/" + store.name + "/" + key), raw)
                 conflicts = True
@@ -367,12 +377,13 @@ def prepared(store, view):
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
     screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
     if store.data:
-        active = plan.targets(store.data, store.name)
+        active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
         locales = {loc for target in active for loc in target_locales(store, target)}
         if not locales:
             raise ValueError("No active %s target locales to publish" % store.name)
+        active_ids = {t["id"] for t in active}
         approved = {store.root / row["outputPath"] for row in store.manifest["outputs"]
-                    if row["store"] == store.name and row["upload"] == "fastlane" and row["kind"] == "screenshot"}
+                    if row["targetId"] in active_ids and row["upload"] == "fastlane" and row["kind"] == "screenshot"}
         for path in approved:
             if path not in source.shots.values():
                 raise ValueError("Missing planned screenshot: %s" % path)
@@ -382,6 +393,17 @@ def prepared(store, view):
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
     if store.name == "apple":
         legacy = apple_assets.load_plan(store.root)
+        if store.data:
+            legacy = {loc: entry for loc, entry in legacy.items() if loc in locales}
+        if legacy:
+            write_json(view / ".listing-kit/asset-plan.json", {"apple": legacy})
+        for loc in legacy:
+            base = store.trees["storeAssets"] / loc
+            for header in base.glob("*"):
+                if header.is_file() and header.suffix.lower() in IMAGE:
+                    dest = view / "store-assets/apple" / loc / header.name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(safe(store.root, header), dest)
         source.shots = {k: p for k, p in source.shots.items() if not apple_assets.is_deferred(
             p, legacy.get(p.parent.name, {}).get("deferredScreenshots", {}))}
     for key, path in source.files().items():
@@ -416,16 +438,60 @@ def prepared(store, view):
     return inventory(store, metadata, screenshots)
 
 
+# S3, fastlane 2.242.0, Deliver::AppScreenshot. Some legacy sizes are directional.
+DELIVER_SIZES = {
+    "APP_IPHONE_67": {(1260, 2736), (2736, 1260), (1290, 2796), (2796, 1290), (1320, 2868), (2868, 1320)},
+    "APP_IPHONE_65": {(1242, 2688), (2688, 1242), (1284, 2778), (2778, 1284)},
+    "APP_IPHONE_61": {(1179, 2556), (2556, 1179), (1206, 2622), (2622, 1206)},
+    "APP_IPHONE_58": {(1170, 2532), (2532, 1170), (1125, 2436), (2436, 1125), (1080, 2340), (2340, 1080)},
+    "APP_IPHONE_55": {(1242, 2208), (2208, 1242)},
+    "APP_IPHONE_47": {(750, 1334), (1334, 750)},
+    "APP_IPHONE_40": {(640, 1096), (640, 1136), (1136, 600), (1136, 640)},
+    "APP_IPHONE_35": {(640, 920), (640, 960), (960, 600), (960, 640)},
+    "APP_IPHONE_DUO": {(1398, 2034), (2034, 1398), (2007, 2853), (2853, 2007)},
+    "APP_IPAD_97": {(1024, 748), (1024, 768), (2048, 1496), (2048, 1536), (768, 1004), (768, 1024), (1536, 2008), (1536, 2048)},
+    "APP_IPAD_105": {(1668, 2224), (2224, 1668)},
+    "APP_IPAD_PRO_3GEN_11": {(1488, 2266), (2266, 1488), (1668, 2420), (2420, 1668), (1668, 2388), (2388, 1668), (1640, 2360), (2360, 1640)},
+    "APP_IPAD_PRO_129": {(2048, 2732), (2732, 2048)},
+    "APP_IPAD_PRO_3GEN_129": {(2048, 2732), (2732, 2048), (2064, 2752), (2752, 2064)},
+    "APP_DESKTOP": {(1280, 800), (1440, 900), (2560, 1600), (2880, 1800)},
+    "APP_WATCH_SERIES_3": {(312, 390)},
+    "APP_WATCH_SERIES_4": {(368, 448)},
+    "APP_WATCH_SERIES_7": {(396, 484)},
+    "APP_WATCH_SERIES_10": {(416, 496)},
+    "APP_WATCH_ULTRA": {(410, 502), (422, 514)},
+    "APP_APPLE_TV": {(1920, 1080), (3840, 2160)},
+    "APP_APPLE_VISION_PRO": {(3840, 2160)},
+}
+
+
+def deliver_display(path, key):
+    size = imginfo.image_info(path)[:2]
+    display = next((name for name, sizes in DELIVER_SIZES.items() if size in sizes), "unknown")
+    hints = key.lower()
+    if display == "APP_IPAD_PRO_129" and not (
+        "app_ipad_pro_129" in hints or ("12.9" in hints and "2nd generation" in hints)
+    ):
+        display = "APP_IPAD_PRO_3GEN_129"
+    if display == "APP_APPLE_TV" and size == (3840, 2160) and "vision" in hints:
+        display = "APP_APPLE_VISION_PRO"
+    if key.startswith("screenshots/iMessage/"):
+        supported = display.startswith(("APP_IPHONE_", "APP_IPAD_")) and display not in (
+            "APP_IPHONE_DUO", "APP_IPHONE_35")
+        display = "IMESSAGE_" + display if supported else "unknown"
+    return display
+
+
 def photo_groups(store, images, downloaded=False):
     groups = defaultdict(list)
     for key, path in images.items():
         parts = key.split("/")
         if store.name == "apple":
             loc = parts[-2]
-            slot = specs.apple_slot_for_file(store.rules, *imginfo.image_info(path)[:2], key)
-            display = slot["id"] if slot else "unknown"
-            if parts[1] == "iMessage":
-                display = "iMessage/" + display
+            display = deliver_display(path, key)
+            if not (len(parts) == 3 and (is_locale(loc) or loc == "default") or
+                    len(parts) == 4 and parts[1] in ("appleTV", "iMessage") and is_locale(loc)):
+                loc, display = "*", "unknown"
         else:
             loc, display = parts[1], parts[-2]
         groups[loc, display].append(key)
@@ -446,7 +512,8 @@ def summary(store, local, remote):
         # Materialize default fields for actual locales. Never upload a broad default folder.
         locales = {k.split("/")[1] for k in text if len(k.split("/")) == 3} - {"default"}
         if store.data:
-            locales.update(loc for t in plan.targets(store.data, store.name) for loc in target_locales(store, t))
+            locales.update(loc for t in plan.targets(store.data, store.name) if t.get("status") != "held"
+                           for loc in target_locales(store, t))
         else:
             locales.update(k.split("/")[-2] for k in local.shots)
         for key in list(text):
@@ -477,14 +544,19 @@ def summary(store, local, remote):
     if any(k not in remote.text or p.read_bytes() != remote.text[k].read_bytes() for k, p in notes.items()):
         # Supply replaces release_notes. Include every observed translation for this version.
         # Missing notes in a supplied locale become empty strings in fastlane.
-        for key, path in remote.text.items():
+        for key in remote.text:
             if key.endswith("/changelogs/%s.txt" % store.code):
-                notes.setdefault(key, path)
+                if key not in notes:
+                    raise ValueError("Replacing release notes would clear another translation (%s); "
+                                     "supply its local notes or use the hand-upload folder" % key)
         for key, path in notes.items():
             status = "added" if key not in remote.text else (
                 "changed" if path.read_bytes() != remote.text[key].read_bytes() else "retained")
             print(store.name, key, status)
         send.update(notes)
+
+    for key in sorted(remote.text.keys() - text.keys() - notes.keys()):
+        print(store.name, key, "remote only (no local field to upload)")
 
     ours = photo_groups(store, local.shots)
     theirs = photo_groups(store, remote.shots, downloaded=True)
@@ -513,16 +585,29 @@ def summary(store, local, remote):
                      if t.get("upload", specs.slot(store.rules, "apple", t["slot"])["upload"]) == "console"
                      } if store.data else set()
         missing = {loc for loc, slot in theirs if (loc, slot) not in ours}
-        if (locales & (protected | missing | {"default"})
+        if ("*" in missing or locales & (protected | missing | {"default"})
                 or any(slot.endswith("unknown") for loc, slot in ours if loc in locales)):
             raise ValueError("Apple replacement could erase an unrestorable slot; use the hand-upload folder")
         for group, members in ours.items():
             if group[0] in locales:
-                print("restore", *group, "%d local images replace %d downloaded" %
-                      (len(members), len(theirs.get(group, []))))
+                for key in members:
+                    directory = Path(key).parent
+                    if any(Path(k).parent == directory and Path(k).stem.lower().endswith("_framed")
+                           for k in local.shots) and not any(h in key.lower() for h in ("watch", "framed")):
+                        raise ValueError("Deliver would skip a screenshot in the _framed folder; "
+                                         "use the hand-upload folder")
+                count = str(len(theirs[group])) if group in theirs else "an unknown number of"
+                print("restore", *group, "%d local images replace %s remote images" % (len(members), count))
                 send.update((key, local.shots[key]) for key in members)
                 blocked.discard(group)
     else:
+        if store.data and store.name == "play":
+            for target in plan.targets(store.data, "play"):
+                slot = specs.slot(store.rules, "play", target["slot"])
+                if target.get("upload", slot["upload"]) == "console" and any(
+                    (loc, slot.get("folder")) in changed for loc in target_locales(store, target)
+                ):
+                    raise ValueError("Play replacement overlaps a console slot; use the hand-upload folder")
         for group in sorted(changed):
             send.update((key, local.shots[key]) for key in ours[group])
     if blocked:
@@ -561,16 +646,59 @@ def upload_args(store, send, folder):
     return args
 
 
-def publish(store, local, scratch, yes):
+@dataclass
+class Transfer:
+    store: Store
+    local: Inventory
+    folder: Path
+    args: list
+    approval: dict
+    enabled: bool
+
+    def confirm(self, yes):
+        if not self.enabled:
+            print("publishing to %s is not enabled in this version of listing-kit until it has passed "
+                  "a live test; use the hand-upload folder" % self.store.name)
+            if not yes:
+                return
+        elif not yes and (not sys.stdin.isatty() or input("Type yes to approve %s: " % self.store.name) != "yes"):
+            raise ValueError("No confirmation; non-interactive publish requires --yes")
+        record(self.store.state("publish.approved.json"), self.store.name, self.approval)
+
+    def execute(self):
+        if not self.enabled:
+            return
+        store = self.store
+        latest = download(store, self.folder.parent / "recheck")
+        if fingerprint(latest.hashes()) != self.approval["baseline"]:
+            print("Remote baseline changed. Review the new summary and confirm again.")
+            summary(store, self.local, latest)
+            raise ValueError("Rerun publish for a new confirmation")
+        if store.data and plan.load(store.root) != store.data:
+            raise ValueError("Listing plan changed. Rerun publish for a new confirmation")
+        store.run(self.args, self.folder)
+        receipt = store.state("publish.receipt.json")
+        previous = read_json(receipt, {}).get("stores", {}).get(store.name, {})
+        history = previous.get("operations", [])
+        history.append(dict(self.approval, completedAt=now()))
+        record(receipt, store.name, dict(identity=store.identity, operations=history))
+        print("Completed", store.name)
+
+
+def preview(store, local, scratch):
     remote = download(store, scratch / "before")
     send = summary(store, local, remote)
-    receipt = store.state("publish.receipt.json")
-    previous = read_json(receipt, {}).get("stores", {}).get(store.name, {})
+    receipt = read_json(store.state("publish.receipt.json"), {}).get("stores", {}).get(store.name, {})
     if not send:
         print(store.name, "no comparable changes to publish")
-        if previous.get("identity") == store.identity:
-            print("Checked previous receipt against fresh store download.")
-        return
+        files = local.files()
+        for operation in reversed(receipt.get("operations", [])):
+            if operation["identity"] == store.identity and all(
+                k in files and file_hash(files[k]) == h for k, h in operation["files"].items()
+            ):
+                print("Previously completed operation skipped after read-back.")
+                break
+        return None
     folder = scratch / "upload"
     (folder / "metadata").mkdir(parents=True)
     for key, path in send.items():
@@ -580,28 +708,9 @@ def publish(store, local, scratch, yes):
     args = upload_args(store, send, folder)
     print("Would run", shlex.join(store.tool()[0] + args), flush=True)
     enabled = PUBLISH_ENABLED[store.name] or os.environ.get("LK_PUBLISH_UNVERIFIED") == "1"
-    if not enabled:
-        print("publishing to %s is not enabled in this version of listing-kit until it has passed a live test;"
-              " use the hand-upload folder" % store.name)
-        if not yes:
-            return
-    elif not yes and (not sys.stdin.isatty() or input("Type yes to approve this transfer: ") != "yes"):
-        raise ValueError("No confirmation; non-interactive publish requires --yes")
     approval = dict(identity=store.identity, files={k: file_hash(folder / k) for k in send},
                     baseline=fingerprint(remote.hashes()), versionCode=store.code, approvedAt=now())
-    record(store.state("publish.approved.json"), store.name, approval)
-    if not enabled:
-        return
-    latest = download(store, scratch / "recheck")
-    if fingerprint(latest.hashes()) != approval["baseline"]:
-        print("Remote baseline changed. Review the new summary and confirm again.")
-        summary(store, local, latest)
-        raise ValueError("Rerun publish for a new confirmation")
-    store.run(args, folder)
-    history = previous.get("operations", [])
-    history.append(dict(approval, completedAt=now()))
-    record(receipt, store.name, dict(identity=store.identity, operations=history))
-    print("Completed", store.name)
+    return Transfer(store, local, folder, args, approval, enabled)
 
 
 def configure(store, args, config):
@@ -609,8 +718,6 @@ def configure(store, args, config):
     flag = args.apple_api_key_path if store.name == "apple" else args.play_json_key_path
     if flag:
         local = store.state("local.json")
-        if secret_scan.tracked(local):
-            raise ValueError(".listing-kit/local.json is tracked; remove it from the git index first")
         ignore = safe(store.root, store.root / ".gitignore")
         raw = ignore.read_bytes() if ignore.exists() else b""
         line = b".listing-kit/local.json"
@@ -642,13 +749,9 @@ def main(argv):
     repo = plan._repo_root(root) or root
     rules = specs.load(root)
     stores = selected(args, root, rules)
-    config = read_json(stores[0].state("local.json"), {})
     for store in stores:
-        field, env, description = CREDENTIAL[store.name]
-        given = getattr(args, "apple_api_key_path" if store.name == "apple" else "play_json_key_path", None)
-        account = given or os.environ.get(env) or config.get("fastlane", {}).get(field, "(unconfigured)")
-        print("%s app %s | %s %s | account credential %s" % (
-            store.name, store.app, "version" if store.name == "apple" else "track", store.selector, account))
+        print("%s app %s | %s %s" % (
+            store.name, store.app, "version" if store.name == "apple" else "track", store.selector))
         print("fastlaneDir={fastlaneDir} metadata={metadata} screenshots={screenshots}".format(**store.trees))
         print("Requires an editable version in App Store Connect." if store.name == "apple" else
               "Requires a first build already uploaded in Play Console.", flush=True)
@@ -658,7 +761,10 @@ def main(argv):
     fd = os.open(str(state), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        config = read_json(stores[0].state("local.json"), {})
+        local_config = stores[0].state("local.json")
+        if local_config.exists() and secret_scan.tracked(local_config):
+            raise ValueError(".listing-kit/local.json is tracked; remove it from the git index first")
+        config = read_json(local_config, {})
         with tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-") as tmp:
             scratch = Path(tmp)
             views = {}
@@ -669,20 +775,33 @@ def main(argv):
                     print("Keep the %s outside the repository; set %s or .listing-kit/local.json fastlane.%s."
                           % (description, env, field))
                 store.key = read_key(root, repo, store.name, args, config)
-            scan_credentials(repo)
+                print(store.name, "account", account_name(store), flush=True)
+            secret_scan.check_store_credentials(repo)
             if args.command == "publish":
                 if stores[0].data:
+                    inputs = plan.input_files(stores[0].data, rules, root)
+                    if secret_scan.main([str(p) for p in inputs if p.is_file()]):
+                        raise ValueError("Plan inputs failed the secret scan")
                     subprocess.run([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
                                     "--for", "publish"], check=True)
                 for store in stores:
                     views[store.name] = prepared(store, scratch / (store.name + "-view"))
+                transfers = []
+                for store in stores:
+                    dest = scratch / store.name
+                    dest.mkdir()
+                    transfer = preview(store, views[store.name], dest)
+                    if transfer:
+                        transfers.append(transfer)
+                for transfer in transfers:
+                    transfer.confirm(args.yes)
+                for transfer in transfers:
+                    transfer.execute()
+                return 0
             conflicts = False
             for store in stores:
                 dest = scratch / store.name
-                if args.command == "publish":
-                    dest.mkdir()
-                    publish(store, views[store.name], dest, args.yes)
-                elif args.command == "setup":
+                if args.command == "setup":
                     configure(store, args, config)
                     download(store, dest)
                     print("Read-only access confirmed for", store.name, store.app)
