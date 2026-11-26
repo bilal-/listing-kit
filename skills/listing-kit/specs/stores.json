@@ -1,0 +1,1175 @@
+{
+ "schema": 1,
+ "verified": "2026-11-26",
+ "sources": {
+  "appleScreenshots": "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/",
+  "appleVersionInfo": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/",
+  "appleAppInfo": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/",
+  "appleCreativeAssets": "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
+  "playPreviewAssets": "https://support.google.com/googleplay/android-developer/answer/9866151"
+ },
+ "conditions": {
+  "supportsIphone": "The app runs on iPhone (not iPad-only).",
+  "supportsIpad": "The app runs on iPad.",
+  "hasWatchApp": "The app has a watchOS app.",
+  "hasTvApp": "The app has a tvOS app.",
+  "hasVisionApp": "The app has a visionOS app.",
+  "hasMacApp": "The app has a macOS app.",
+  "supportsAndroidPhone": "The app runs on Android phones.",
+  "hasAndroidTv": "The app is distributed to Android TV.",
+  "hasWearOs": "The app is distributed to Wear OS.",
+  "hasAndroidXr": "The app is distributed to Android XR.",
+  "isUpdate": "This listing is for an update, not the first version."
+ },
+ "stores": {
+  "apple": {
+   "label": "Apple App Store",
+   "screenshots": {
+    "formats": [
+     "png",
+     "jpeg"
+    ],
+    "alpha": false,
+    "note": "Landscape is the same size with width and height swapped.",
+    "slots": [
+     {
+      "id": "iphone-di-medium",
+      "label": "iPhone Dynamic Island (medium display)",
+      "sizes": [
+       [
+        1206,
+        2622
+       ],
+       [
+        1179,
+        2556
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "supportsIphone"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-medium",
+      "capture": {
+       "deviceType": "iPhone 17 Pro",
+       "nativeSize": [
+        1206,
+        2622
+       ]
+      }
+     },
+     {
+      "id": "iphone-di-large",
+      "label": "iPhone Dynamic Island (large display)",
+      "sizes": [
+       [
+        1320,
+        2868
+       ],
+       [
+        1290,
+        2796
+       ],
+       [
+        1260,
+        2736
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-large",
+      "capture": {
+       "deviceType": "iPhone 17 Pro Max",
+       "nativeSize": [
+        1320,
+        2868
+       ]
+      }
+     },
+     {
+      "id": "iphone-faceid-large",
+      "label": "iPhone Face ID (large display)",
+      "sizes": [
+       [
+        1284,
+        2778
+       ],
+       [
+        1242,
+        2688
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-faceid-large"
+     },
+     {
+      "id": "iphone-faceid-medium",
+      "label": "iPhone Face ID (medium display)",
+      "sizes": [
+       [
+        1170,
+        2532
+       ],
+       [
+        1125,
+        2436
+       ],
+       [
+        1080,
+        2340
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-faceid-medium"
+     },
+     {
+      "id": "iphone-home-large",
+      "label": "iPhone Home Button (large display)",
+      "sizes": [
+       [
+        1242,
+        2208
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-home-large"
+     },
+     {
+      "id": "iphone-home-medium",
+      "label": "iPhone Home Button (medium display)",
+      "sizes": [
+       [
+        750,
+        1334
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "iphone-home-medium"
+     },
+     {
+      "id": "iphone-home-4",
+      "label": "iPhone Home Button (4\" display)",
+      "sizes": [
+       [
+        640,
+        1136
+       ],
+       [
+        640,
+        1096
+       ],
+       [
+        600,
+        1136
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "legacy",
+      "upload": "fastlane",
+      "suffix": "iphone-4in",
+      "note": "Landscape without status bar is 1136x600."
+     },
+     {
+      "id": "iphone-home-3-5",
+      "label": "iPhone Home Button (3.5\" display)",
+      "sizes": [
+       [
+        640,
+        960
+       ],
+       [
+        640,
+        920
+       ],
+       [
+        600,
+        960
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "legacy",
+      "upload": "fastlane",
+      "suffix": "iphone-3-5in"
+     },
+     {
+      "id": "iphone-duo-outer",
+      "label": "iPhone Duo (outer display)",
+      "sizes": [
+       [
+        1398,
+        2034
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "supportsIphone",
+       "from": "2027-04-01",
+       "unless": "iosSdkBelow:27.1",
+       "note": "Apple: starting in April 2027, required for any app using the iOS 27.1 SDK or later."
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "duo-outer",
+      "capture": {
+       "deviceType": "iPhone Duo",
+       "display": "external",
+       "nativeSize": [
+        1398,
+        2034
+       ]
+      },
+      "legacyLabels": [
+       "iPhone Duo"
+      ]
+     },
+     {
+      "id": "iphone-duo-inner",
+      "label": "iPhone Duo (inner display)",
+      "sizes": [
+       [
+        2007,
+        2853
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "supportsIphone",
+       "from": "2027-04-01",
+       "unless": "iosSdkBelow:27.1",
+       "note": "Apple: starting in April 2027, required for any app using the iOS 27.1 SDK or later."
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "duo-inner",
+      "capture": {
+       "deviceType": "iPhone Duo",
+       "display": "internal",
+       "nativeSize": [
+        2007,
+        2853
+       ]
+      },
+      "legacyLabels": [
+       "iPhone Duo"
+      ]
+     },
+     {
+      "id": "ipad-13",
+      "label": "iPad 13\"",
+      "sizes": [
+       [
+        2064,
+        2752
+       ],
+       [
+        2048,
+        2732
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "supportsIpad"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "ipad13",
+      "capture": {
+       "deviceType": "iPad Pro 13-inch (M5)",
+       "nativeSize": [
+        2064,
+        2752
+       ]
+      },
+      "note": "2048x2732 is shared with the 12.9\" class; new captures use 2064x2752."
+     },
+     {
+      "id": "ipad-11",
+      "label": "iPad 11\"",
+      "sizes": [
+       [
+        1668,
+        2420
+       ],
+       [
+        1668,
+        2388
+       ],
+       [
+        1640,
+        2360
+       ],
+       [
+        1512,
+        2316
+       ],
+       [
+        1488,
+        2266
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "ipad11"
+     },
+     {
+      "id": "ipad-10-5",
+      "label": "iPad 10.5\"",
+      "sizes": [
+       [
+        1668,
+        2224
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "ipad105"
+     },
+     {
+      "id": "ipad-9-7",
+      "label": "iPad 9.7\"",
+      "sizes": [
+       [
+        1536,
+        2048
+       ],
+       [
+        1536,
+        2008
+       ],
+       [
+        1496,
+        2048
+       ],
+       [
+        768,
+        1024
+       ],
+       [
+        768,
+        1004
+       ],
+       [
+        748,
+        1024
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "legacy",
+      "upload": "fastlane",
+      "suffix": "ipad97"
+     },
+     {
+      "id": "watch",
+      "label": "Apple Watch",
+      "sizes": [
+       [
+        422,
+        514
+       ],
+       [
+        410,
+        502
+       ],
+       [
+        416,
+        496
+       ],
+       [
+        396,
+        484
+       ],
+       [
+        368,
+        448
+       ],
+       [
+        312,
+        390
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "hasWatchApp"
+      },
+      "framing": "forbidden",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "suffix": "watch",
+      "orientation": "fixed",
+      "note": "Use the same Watch size across all localizations. Raw only: the kit does not frame watch screenshots."
+     },
+     {
+      "id": "apple-tv",
+      "label": "Apple TV",
+      "sizes": [
+       [
+        1920,
+        1080
+       ],
+       [
+        3840,
+        2160
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "hasTvApp"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "orientation": "fixed",
+      "suffix": "tv",
+      "folder": "appleTV",
+      "note": "deliver reads these from an appleTV/ subfolder."
+     },
+     {
+      "id": "vision-pro",
+      "label": "Apple Vision Pro",
+      "sizes": [
+       [
+        3840,
+        2160
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "hasVisionApp"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "console",
+      "orientation": "fixed",
+      "suffix": "vision"
+     },
+     {
+      "id": "mac",
+      "label": "Mac",
+      "sizes": [
+       [
+        1280,
+        800
+       ],
+       [
+        1440,
+        900
+       ],
+       [
+        2560,
+        1600
+       ],
+       [
+        2880,
+        1800
+       ]
+      ],
+      "min": 1,
+      "max": 10,
+      "required": {
+       "rule": "if",
+       "condition": "hasMacApp"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "orientation": "fixed",
+      "suffix": "mac"
+     }
+    ]
+   },
+   "fields": [
+    {
+     "stem": "name",
+     "label": "Name",
+     "scope": "locale",
+     "unit": "chars",
+     "min": 2,
+     "limit": 30,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "subtitle",
+     "label": "Subtitle",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 30,
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "promotional_text",
+     "label": "Promotional text",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 170,
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "description",
+     "label": "Description",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 4000,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "keywords",
+     "label": "Keywords",
+     "scope": "locale",
+     "unit": "bytes",
+     "limit": 100,
+     "required": {
+      "rule": "always"
+     },
+     "note": "Comma-separated; each keyword longer than two characters."
+    },
+    {
+     "stem": "support_url",
+     "label": "Support URL",
+     "scope": "locale",
+     "unit": "url",
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "marketing_url",
+     "label": "Marketing URL",
+     "scope": "locale",
+     "unit": "url",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "privacy_url",
+     "label": "Privacy policy URL",
+     "scope": "locale",
+     "unit": "url",
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "release_notes",
+     "label": "What's new",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 4000,
+     "required": {
+      "rule": "if",
+      "condition": "isUpdate"
+     }
+    },
+    {
+     "stem": "copyright",
+     "label": "Copyright",
+     "scope": "app",
+     "unit": "chars",
+     "required": {
+      "rule": "always"
+     },
+     "note": "Year and owner, without the symbol, for example: 2026 Example, Inc."
+    },
+    {
+     "stem": "primary_category",
+     "label": "Primary category",
+     "scope": "app",
+     "unit": "enum",
+     "values": "appleCategories",
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "secondary_category",
+     "label": "Secondary category",
+     "scope": "app",
+     "unit": "enum",
+     "values": "appleCategories",
+     "required": {
+      "rule": "never"
+     }
+    }
+   ],
+   "graphics": [
+    {
+     "id": "header-16x9",
+     "label": "Header Asset 16:9",
+     "size": [
+      5244,
+      2950
+     ],
+     "formats": [
+      "png"
+     ],
+     "alpha": false,
+     "upload": "console"
+    },
+    {
+     "id": "header-21x9",
+     "label": "Header Asset 21:9",
+     "size": [
+      3840,
+      1646
+     ],
+     "formats": [
+      "png",
+      "jpeg"
+     ],
+     "alpha": false,
+     "upload": "console"
+    }
+   ],
+   "nonLocaleFolders": [
+    "review_information",
+    "trade_representative_contact_information",
+    "app_clip_review_information",
+    "fonts",
+    "default",
+    "android"
+   ],
+   "locales": [
+    "ar-SA",
+    "ca",
+    "cs",
+    "da",
+    "de-DE",
+    "el",
+    "en-AU",
+    "en-CA",
+    "en-GB",
+    "en-US",
+    "es-ES",
+    "es-MX",
+    "fi",
+    "fr-CA",
+    "fr-FR",
+    "he",
+    "hi",
+    "hr",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "ms",
+    "nl-NL",
+    "no",
+    "pl",
+    "pt-BR",
+    "pt-PT",
+    "ro",
+    "ru",
+    "sk",
+    "sv",
+    "th",
+    "tr",
+    "uk",
+    "vi",
+    "zh-Hans",
+    "zh-Hant",
+    "bn",
+    "gu",
+    "kn",
+    "ml",
+    "mr",
+    "or",
+    "pa",
+    "sl",
+    "ta",
+    "te",
+    "ur"
+   ]
+  },
+  "play": {
+   "label": "Google Play",
+   "screenshots": {
+    "minTotal": 2,
+    "note": "At least two screenshots across device types to publish.",
+    "slots": [
+     {
+      "id": "phone",
+      "label": "Phone",
+      "folder": "phoneScreenshots",
+      "min": 2,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "if",
+       "condition": "supportsAndroidPhone"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "side": {
+       "min": 320,
+       "max": 3840
+      },
+      "maxRatio": 2.3,
+      "maxBytes": 8388608,
+      "promotion": {
+       "count": 4,
+       "shortSideMin": 1080,
+       "ratios": [
+        "9:16",
+        "16:9"
+       ],
+       "note": "Eligibility for recommendations; a warning, not a failure."
+      },
+      "taglineMaxShare": 0.2,
+      "capture": {
+       "deviceType": "pixel_9"
+      },
+      "defaultSize": [
+       1080,
+       1920
+      ]
+     },
+     {
+      "id": "seven-inch",
+      "label": "7-inch tablet",
+      "folder": "sevenInchScreenshots",
+      "min": 0,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "side": {
+       "min": 1080,
+       "max": 7680
+      },
+      "recommendedMin": 4,
+      "ratios": [
+       "16:9",
+       "9:16"
+      ],
+      "defaultTemplate": "band",
+      "capture": {
+       "deviceType": "Nexus 7"
+      },
+      "defaultSize": [
+       1920,
+       1080
+      ],
+      "note": "Google asks for at least 4 for large screens and for no extra text that could be cut off."
+     },
+     {
+      "id": "ten-inch",
+      "label": "10-inch tablet",
+      "folder": "tenInchScreenshots",
+      "min": 0,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "side": {
+       "min": 1080,
+       "max": 7680
+      },
+      "recommendedMin": 4,
+      "ratios": [
+       "16:9",
+       "9:16"
+      ],
+      "defaultTemplate": "band",
+      "capture": {
+       "deviceType": "pixel_tablet"
+      },
+      "defaultSize": [
+       1920,
+       1080
+      ]
+     },
+     {
+      "id": "chromebook",
+      "label": "Chromebook",
+      "folder": null,
+      "min": 0,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "console-only",
+      "upload": "console",
+      "side": {
+       "min": 1080,
+       "max": 7680
+      },
+      "recommendedMin": 4,
+      "ratios": [
+       "16:9",
+       "9:16"
+      ],
+      "defaultTemplate": "band"
+     },
+     {
+      "id": "tv",
+      "label": "Android TV",
+      "folder": "tvScreenshots",
+      "min": 1,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "if",
+       "condition": "hasAndroidTv"
+      },
+      "framing": "allowed",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "note": "A 1280x720 TV banner is also required."
+     },
+     {
+      "id": "wear",
+      "label": "Wear OS",
+      "folder": "wearScreenshots",
+      "min": 1,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "if",
+       "condition": "hasWearOs"
+      },
+      "framing": "forbidden",
+      "lifecycle": "active",
+      "upload": "fastlane",
+      "side": {
+       "min": 384
+      },
+      "ratio": "1:1",
+      "note": "Google: no device frames, added text, graphics or backgrounds; no transparency or masking."
+     },
+     {
+      "id": "xr",
+      "label": "Android XR",
+      "folder": null,
+      "min": 4,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "if",
+       "condition": "hasAndroidXr"
+      },
+      "framing": "allowed",
+      "lifecycle": "console-only",
+      "upload": "console",
+      "side": {
+       "min": 1200
+      },
+      "minSize": [
+       1920,
+       1200
+      ],
+      "ratio": "8:5",
+      "maxBytes": 8388608
+     },
+     {
+      "id": "automotive",
+      "label": "Android Automotive OS",
+      "folder": null,
+      "min": 0,
+      "max": 8,
+      "formats": [
+       "png",
+       "jpeg"
+      ],
+      "alpha": false,
+      "bitDepth": 8,
+      "required": {
+       "rule": "never"
+      },
+      "framing": "allowed",
+      "lifecycle": "console-only",
+      "upload": "console",
+      "note": "At least 2 portrait (800x1280) and 2 landscape (1024x768) unless the app is in a parked category."
+     }
+    ]
+   },
+   "fields": [
+    {
+     "stem": "title",
+     "label": "Title",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 30,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "short_description",
+     "label": "Short description",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 80,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "full_description",
+     "label": "Full description",
+     "scope": "locale",
+     "unit": "chars",
+     "limit": 4000,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "stem": "video",
+     "label": "Promo video URL",
+     "scope": "locale",
+     "unit": "url",
+     "required": {
+      "rule": "never"
+     }
+    }
+   ],
+   "changelogs": {
+    "limit": 500,
+    "unit": "chars",
+    "names": "^(default|[0-9]+)$"
+   },
+   "graphics": [
+    {
+     "id": "icon",
+     "label": "App icon",
+     "file": "icon",
+     "size": [
+      512,
+      512
+     ],
+     "formats": [
+      "png"
+     ],
+     "alpha": "required",
+     "bitDepth": 8,
+     "maxBytes": 1048576,
+     "required": {
+      "rule": "always"
+     },
+     "note": "Google asks for a 32-bit PNG with alpha."
+    },
+    {
+     "id": "featureGraphic",
+     "label": "Feature graphic",
+     "file": "featureGraphic",
+     "size": [
+      1024,
+      500
+     ],
+     "formats": [
+      "png",
+      "jpeg"
+     ],
+     "alpha": false,
+     "bitDepth": 8,
+     "required": {
+      "rule": "always"
+     }
+    },
+    {
+     "id": "tvBanner",
+     "label": "TV banner",
+     "file": "tvBanner",
+     "size": [
+      1280,
+      720
+     ],
+     "formats": [
+      "png",
+      "jpeg"
+     ],
+     "alpha": false,
+     "bitDepth": 8,
+     "required": {
+      "rule": "if",
+      "condition": "hasAndroidTv"
+     }
+    }
+   ],
+   "taglineDiscouraged": [
+    "best",
+    "#1",
+    "top",
+    "new",
+    "discount",
+    "sale",
+    "million downloads",
+    "download now",
+    "install now",
+    "play now",
+    "try now"
+   ]
+  }
+ },
+ "appleCategories": [
+  "BOOKS",
+  "BUSINESS",
+  "DEVELOPER_TOOLS",
+  "EDUCATION",
+  "ENTERTAINMENT",
+  "FINANCE",
+  "FOOD_AND_DRINK",
+  "GAMES",
+  "GRAPHICS_AND_DESIGN",
+  "HEALTH_AND_FITNESS",
+  "LIFESTYLE",
+  "MAGAZINES_AND_NEWSPAPERS",
+  "MEDICAL",
+  "MUSIC",
+  "NAVIGATION",
+  "NEWS",
+  "PHOTO_AND_VIDEO",
+  "PRODUCTIVITY",
+  "REFERENCE",
+  "SHOPPING",
+  "SOCIAL_NETWORKING",
+  "SPORTS",
+  "STICKERS",
+  "TRAVEL",
+  "UTILITIES",
+  "WEATHER"
+ ],
+ "unverified": [
+  "stores.apple.locales (from memory; check against App Store Connect before relying on it to reject a locale)",
+  "appleCategories (from memory of fastlane's category list)",
+  "capture.deviceType names (must match what `xcrun simctl list devicetypes` and `avdmanager list device` print)",
+  "play changelogs limit 500 (not on the preview-assets page)",
+  "play title/short/full description limits (not on the preview-assets page)"
+ ]
+}
