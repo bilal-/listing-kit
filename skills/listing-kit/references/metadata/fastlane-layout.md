@@ -99,7 +99,7 @@ For another declaration, use its repository-relative path in both places. The ex
 
 New listings commit only [listing.json](../plan-file.md) for asset coverage. Each active target contributes one screenshot per applicable screen in each selected store locale. Apple graphics supply the expected header filenames. To postpone an optional Apple display, mark its target `deferred` and give a single-line reason. Review and handoff show that reason. Validation fails when a required display is deferred.
 
-**Older listings.** When `.listing-kit/asset-plan.json` is the only plan, the kit still reads its Apple counts, header filenames and deferral reasons. When both files exist, validation uses `listing.json` and reports that the older file is safe to delete.
+**Older listings.** When `.listing-kit/asset-plan.json` is the only plan, the kit still reads its Apple counts, header filenames and deferral reasons. When both files exist, validation uses `listing.json` and lists any older declarations missing from the new plan.
 
 ## Store management
 

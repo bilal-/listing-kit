@@ -53,8 +53,18 @@ def load_coverage(root, rules=None, view=None):
     elif (Path(root) / listing_plan.LISTING).is_file():
         data = listing_plan.read_listing(Path(root).resolve())
         manifest = listing_plan.manifest(data, rules, root)
-        return listing_plan.coverage(data, rules, manifest["outputs"])
+        return planned_coverage(root, data, rules, manifest["outputs"])
     return {"apple": load_legacy(root, rules)}
+
+
+def planned_coverage(root, data, rules, outputs, publish_store=None):
+    disk = set()
+    if listing_plan.targets(data, "apple", "deferred"):
+        tree = paths(root)["apple"]
+        disk.update(Path(loc).name for loc in listing_apple_locales(tree, rules, files_only=True))
+        disk.update(loc for loc in header_locales(tree) if header_files(tree, loc)
+                    or any(images(folder) for folder in (header_dir(tree, loc) / "screenshots").glob("*")))
+    return listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk)
 
 
 def load_plan(root, rules=None):
@@ -101,13 +111,44 @@ def load_legacy(root, rules=None):
     return plan["apple"]
 
 
-def reported_deferrals(entry):
-    """Include individual targets whose display still has an active set."""
-    yield from entry.get("deferredScreenshots", {}).items()
+def legacy_warning(root, rules, coverage):
+    prefix = "asset-plan.json is ignored"
+    try:
+        legacy = load_legacy(root, rules)
+    except (OSError, ValueError) as exc:
+        return f"{prefix}; cannot compare its declarations: {exc}"
+    lost = []
+    for locale, entry in legacy.items():
+        modern = coverage.get(locale, {})
+        for name in entry.get("headers", []):
+            if name not in modern.get("headers", []):
+                lost.append(f"{locale}/{name}")
+        for label, count in entry.get("screenshots", {}).items():
+            ids = deferred_slots(rules, [label])
+            if sum(modern.get("screenshots", {}).get(key, 0) for key in ids) != count:
+                lost.append(f"{locale}/{label} ({count} screenshots)")
+        for label, reason in entry.get("deferredScreenshots", {}).items():
+            if any(modern.get("deferredScreenshots", {}).get(key) != reason
+                   for key in deferred_slots(rules, [label])):
+                lost.append(f"{locale}/{label} (deferred: {reason})")
+    if lost:
+        return prefix + "; listing.json does not cover: " + ", ".join(lost)
+    return prefix + " and safe to delete. Coverage comes from listing.json."
+
+
+def display_name(rules, key, planned):
+    return specs.slot(rules, "apple", key)["label"] if planned else key
+
+
+def reported_deferrals(entry, rules, planned):
+    for key, reason in entry.get("deferredScreenshots", {}).items():
+        yield display_name(rules, key, planned), reason
     yield from entry.get("deferredTargets", {}).items()
 
 
-def deferred_slots(rules, displays):
+def deferred_slots(rules, displays, planned=False):
+    if planned:
+        return set(displays)
     return {s["id"] for label in displays for s in specs.slot_by_label(rules, "apple", label)}
 
 
@@ -148,7 +189,7 @@ def header_rule(path, info, rules):
     return None
 
 
-def validate(root, required_displays=(), rules=None, requirements=None, tree=None, coverage=None):
+def validate(root, required_displays=(), rules=None, requirements=None, tree=None, coverage=None, planned=False):
     tree = tree if tree is not None else paths(root)["apple"]
     rules = rules if rules is not None else specs.load(root)
     headers = rules["stores"]["apple"]["graphics"]
@@ -187,22 +228,36 @@ def validate(root, required_displays=(), rules=None, requirements=None, tree=Non
                     results.append(("FAIL" if level == "required" else "WARN",
                                     f'{graphic["label"]} MISSING ({locale}) {reason}'.rstrip()))
     try:
-        for locale, target in (load_plan(root, rules) if coverage is None else coverage).items():
+        if coverage is None:
+            snapshot = load_coverage(root, rules)
+            planned = "play" in snapshot
+            coverage = snapshot["apple"]
+            if planned:
+                required_displays = deferred_slots(rules, required_displays)
+        for locale, target in coverage.items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
-            for display, reason in target.get("deferredScreenshots", {}).items():
-                if any(s["label"] in required_displays for s in specs.slot_by_label(rules, "apple", display)):
-                    results.append(("FAIL", "cannot defer required screenshot class: {} ({})".format(display, locale)))
+            for key, reason in target.get("deferredScreenshots", {}).items():
+                display = display_name(rules, key, planned)
+                required = (key in required_displays if planned else any(
+                    s["label"] in required_displays for s in specs.slot_by_label(rules, "apple", key)))
+                if required:
+                    results.append(("FAIL", f"cannot defer required screenshot class: {display} ({locale})"))
                 else:
-                    results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
+                    results.append(("WARN", f"deferred {locale}/{display}: {reason}"))
             for target_id, reason in target.get("deferredTargets", {}).items():
                 results.append(("WARN", f"deferred {locale}/{target_id}: {reason}"))
-            deferred = deferred_slots(rules, target.get("deferredScreenshots", {}))
-            counts = Counter(shot.slot["label"] for shot in screenshots.active(root, "apple", locale, rules, deferred, tree=tree)
-                             if not shot.error and not shot.platform)
-            for display, expected in shots.items():
-                actual = sum(counts[s["label"]] for s in specs.slot_by_label(rules, "apple", display))
-                results.append(("PASS" if actual == expected else "FAIL",
-                                "planned {}/{}: {} of {} screenshots".format(locale, display, actual, expected)))
+            deferred = deferred_slots(rules, target.get("deferredScreenshots", {}), planned)
+            counts = Counter(shot.slot["id" if planned else "label"] for shot in screenshots.active(
+                root, "apple", locale, rules, deferred, tree=tree, suffixes=target.get("suffixes"))
+                if not shot.error and not shot.platform)
+            for key, expected in shots.items():
+                display = display_name(rules, key, planned)
+                actual = counts[key] if planned else sum(counts[s["label"]] for s in specs.slot_by_label(rules, "apple", key))
+                prefix = f"planned {locale}/{display}: "
+                if expected == 0:
+                    results.append(("WARN", prefix + "nothing planned yet"))
+                else:
+                    results.append(("PASS" if actual == expected else "FAIL", prefix + f"{actual} of {expected} screenshots"))
             for name in headers:
                 exists = os.path.isfile(os.path.join(header_dir(tree, locale), name))
                 results.append(("PASS" if exists else "FAIL", "planned Apple header {}/{}: {}".format(

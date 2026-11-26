@@ -95,6 +95,20 @@ def _target_locales(locales, target):
     return [loc for loc in locales if loc.get(target["store"]) and (selected is None or loc["id"] in selected)]
 
 
+def apple_suffixes(data, rules):
+    """Custom filename suffixes for fastlane slots that share image dimensions."""
+    by_locale = {}
+    locales = [_locale(item) for item in data["locales"]]
+    for target in targets(data, "apple"):
+        slot = specs.slot(rules, "apple", target["slot"])
+        if (target.get("upload", slot["upload"]) != "fastlane" or "suffix" not in target
+                or len(specs.apple_slots_for_size(rules, *target["size"])) < 2):
+            continue
+        for loc in _target_locales(locales, target):
+            by_locale.setdefault(loc["apple"], {}).setdefault(slot["id"], []).append(target["suffix"])
+    return by_locale
+
+
 def _allocation(data, rules, members):
     counts = Counter()
     locales = [_locale(item) for item in data["locales"]]
@@ -617,6 +631,7 @@ class _Checker:
     def output_records(self, data, trees):
         paths = {s["id"]: f"screens[{i}]" for i, s in enumerate(data["screens"])}
         base = dict(mode="raw", template=None, fit=None, palette={}, bezel={})
+        suffixes = apple_suffixes(data, self.rules)
         for t, s, slot, upload, locale, primary, index in _allocation(data, self.rules, targets(data)):
             store, loc, tid, sid = t["store"], locale["id"], t["id"], s["id"]
             code, tree = locale[store], trees[store]
@@ -627,10 +642,12 @@ class _Checker:
             else:
                 folder = tree["screenshots"] / code / slot.get("folder", "")
             output = (folder / _filename(index, t, s, slot)).as_posix()
-            if store == "apple" and upload == "fastlane" and any(candidate["id"] == "vision-pro"
-                    for candidate in specs.apple_slots_for_size(self.rules, *t["size"])):
-                selected = specs.apple_slot_for_file(self.rules, *t["size"], output)
-                if selected["id"] != slot["id"]:
+            if store == "apple" and upload == "fastlane":
+                relative = str(Path(output).relative_to(tree["screenshots"]))
+                selected = specs.apple_slot_for_file(self.rules, *t["size"], relative, suffixes.get(code))
+                if selected is None:
+                    self.error(f"{tid}/{sid}", f"Apple upload path cannot distinguish {slot['id']} from another slot")
+                elif selected["id"] != slot["id"]:
                     self.error(f"{tid}/{sid}", f"Apple upload path selects {selected['id']} instead of {slot['id']}")
             capture = locale if t.get("captureLocales") == "all" else primary
             flow = self.resolved(flow_for(s, t))
@@ -824,9 +841,10 @@ def manifest(data, rules, app_root, repo_root=None):
     return _inspect(data, rules, app_root, repo_root=repo_root).result
 
 
-def coverage(data, rules, outputs, publish_store=None):
+def coverage(data, rules, outputs, publish_store=None, *, disk_apple=()):
     """Expected screenshots, headers and deferrals per store locale for a validated plan."""
-    result = {"apple": {}, "play": {}}
+    result = {"apple": {}, "play": {}, "inferred": specs.conditions_from_plan(data, rules=rules)}
+    suffixes = apple_suffixes(data, rules)
     locales = [_locale(item) for item in data["locales"]]
     selected = set()
     for target in targets(data, publish_store):
@@ -836,39 +854,43 @@ def coverage(data, rules, outputs, publish_store=None):
         slot = specs.slot(rules, store, target["slot"])
         codes = [loc[store] for loc in _target_locales(locales, target)]
         selected.update(codes)
-        if publish_store and target.get("upload", slot["upload"]) != "fastlane":
-            continue
-        key = slot["label"] if store == "apple" else slot["id"]
+        key = slot["id"]
         count = len(screens_for(data, target["id"]))
         for code in codes:
             entry = result[store].setdefault(code, {})
+            if store == "apple" and code in suffixes:
+                entry["suffixes"] = suffixes[code]
             counts = entry.setdefault("screenshots", {})
             counts[key] = counts.get(key, 0) + count
     for row in outputs:
-        if row["kind"] == "graphic" and row["store"] == "apple":
+        if row["kind"] == "graphic":
+            store = row["store"]
             code = row["storeCode"]
-            if publish_store and (publish_store != "apple" or code not in selected):
+            if publish_store and (publish_store != store or code not in selected):
                 continue
-            entry = result["apple"].setdefault(code, {})
-            entry.setdefault("headers", []).append(Path(row["outputPath"]).name)
+            entry = result[store].setdefault(code, {})
+            field = "headers" if store == "apple" else "graphics"
+            entry.setdefault(field, []).append(Path(row["outputPath"]).name)
     if publish_store == "play":
         return result
     for target in targets(data, "apple", "deferred"):
-        label = specs.slot(rules, "apple", target["slot"])["label"]
+        key = target["slot"]
         for loc in _target_locales(locales, target):
             code = loc["apple"]
             if publish_store and code not in selected:
                 continue
+            if code not in result["apple"] and code not in disk_apple:
+                continue
             entry = result["apple"].setdefault(code, {})
-            if label in entry.get("screenshots", {}):
+            if key in entry.get("screenshots", {}):
                 # Another target still supplies this display in the same locale.
                 entry.setdefault("deferredTargets", {})[target["id"]] = target["reason"]
             else:
                 reasons = entry.setdefault("deferredScreenshots", {})
-                if label in reasons:
-                    reasons[label] += " / " + target["reason"]
+                if key in reasons:
+                    reasons[key] += " / " + target["reason"]
                 else:
-                    reasons[label] = target["reason"]
+                    reasons[key] = target["reason"]
     return result
 
 

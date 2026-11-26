@@ -75,11 +75,11 @@ def apple_screenshot_dirs(base, locale, rules):
         yield platform, os.path.join(base, locale, platform)
 
 
-def apple_locales(tree, rules):
+def apple_locales(tree, rules, files_only=False):
     """Include known locales and directories containing localized deliver assets."""
     apple = rules["stores"]["apple"]
     meta, shots = tree["metadata"], tree["screenshots"]
-    known = set(apple["locales"])
+    known = set() if files_only else set(apple["locales"])
     localized = localized_files(rules)
     names = {n for n in _subdirs(meta) if n not in apple.get("nonLocaleFolders", ())
              and (n in known or _has_files(os.path.join(meta, n), localized))}
@@ -108,6 +108,11 @@ def has_apple_app_metadata(meta, rules):
 
 def play_locales(metadata):
     return [os.path.join(metadata, n) for n in _subdirs(metadata)]
+
+
+def play_asset_locales(tree, planned):
+    return sorted({Path(path).name for path in play_locales(tree["metadata"])}
+                  | set(_subdirs(tree["storeAssets"])) | set(planned))
 
 
 def images(d):

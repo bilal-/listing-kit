@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apple_assets
 import plan
 import specs
 from plan import PlanError, listing_roots
@@ -77,11 +78,12 @@ def prepare_view(view, trees, source, coverage_path, repo_root=None):
         try:
             rules = specs.load(source)
             manifest = plan.manifest(data, rules, source, repo_root=repo_root)
-            coverage = plan.coverage(data, rules, manifest["outputs"])
         except (PlanError, specs.SpecsError):
             write_view_plan(view, trees, data, preserve_errors=True)
             return []
     write_view_plan(view, trees, data)
+    if data:
+        coverage = apple_assets.planned_coverage(view, data, rules, manifest["outputs"])
     coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
     return ["--coverage-view", str(coverage_path)]
 

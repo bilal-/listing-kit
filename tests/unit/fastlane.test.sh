@@ -582,6 +582,40 @@ assert_contains "$out" "planned Apple header en-US/header-16x9.png: MISSING"
 assert_contains "$out" "cannot defer required screenshot class: Apple Watch"
 rm "$app/.listing-kit/asset-plan.json"
 
+it "text-only Apple preview validates the active Vision console set"
+cp "$fixture/saved" "$app/.listing-kit/listing.json"
+python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["platforms"]["hasVisionApp"] = True
+d["targets"].append(dict(id="vision", store="apple", slot="vision-pro", size=[3840,2160], state="active"))
+p.write_text(json.dumps(d))
+PYPLAN
+fake_png "$app/store-assets/apple/en-US/screenshots/vision-pro/console-capture.png" 3840 2160
+run_lk publish --store apple
+assert_eq 0 "$rc"
+assert_not_contains "$out" "no Apple Vision Pro screenshots"
+
+it "publish preview sees native Watch evidence even with an explicit tablet flag"
+cp -R "$ROOT/tests/fixtures/platforms/iphone/App.xcodeproj" "$app/"
+python3 - "$app/.listing-kit/listing.json" "$app/App.xcodeproj/project.pbxproj" <<'PYPLAN'
+import json, sys
+from pathlib import Path
+project = Path(sys.argv[2])
+project.write_text(project.read_text().replace("SDKROOT = iphoneos;", "SDKROOT = iphoneos; WATCHOS_DEPLOYMENT_TARGET = 10.0;"))
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["targets"][-1] = dict(id="watch", store="apple", slot="watch", size=[422,514], state="deferred", reason="Watch later")
+d["platforms"] = {"supportsIpad":False}
+p.write_text(json.dumps(d))
+PYPLAN
+run_lk publish --store apple
+assert_eq 1 "$rc"
+assert_contains "$out" "cannot defer required screenshot class: Apple Watch"
+remove_fixture "$app/App.xcodeproj" "$app/store-assets/apple/en-US/screenshots/vision-pro"
+
 it "active console target protects every Apple set in its locale"
 cp "$fixture/saved" "$app/.listing-kit/listing.json"
 python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
@@ -591,6 +625,7 @@ d = json.load(open(p))
 d["targets"].append(dict(d["targets"][0], id="manual", upload="console"))
 json.dump(d, open(p, "w"))
 PYPLAN
+fake_png "$app/store-assets/apple/en-US/screenshots/iphone-di-medium/manual.png" 1206 2622
 fake_png "$shots/en-US/01_one_iphone-medium.png" 1206 2622
 fake_png "$rs/en-US/01_remote_medium.png" 1179 2556
 : > "$fixture/sent"

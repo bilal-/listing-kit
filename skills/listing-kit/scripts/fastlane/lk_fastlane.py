@@ -25,6 +25,7 @@ import apple_assets
 import imginfo
 import listing
 import plan
+from project_files import project_files
 from review_inputs import write_view_plan
 import secret_scan
 import specs
@@ -470,10 +471,10 @@ def working_inventory(store, require_outputs=False):
         source.text = {k: p for k, p in source.text.items() if len(k.split("/")) == 2
                        or k.split("/")[1] in locales | {"default"}}
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
-        coverage = plan.coverage(store.data, store.rules, store.manifest["outputs"], publish_store=store.name)
+        coverage = apple_assets.planned_coverage(store.root, store.data, store.rules, store.manifest["outputs"],
+                                                publish_store=store.name)
     elif store.name == "apple":
         coverage = {"apple": apple_assets.load_legacy(store.root, store.rules)}
-    if store.name == "apple":
         for key, path in list(source.shots.items()):
             deferred = coverage["apple"].get(path.parent.name, {}).get("deferredScreenshots")
             if deferred:
@@ -512,6 +513,21 @@ def prepared(store, view):
             if header.is_file() and header.suffix.lower() in IMAGE:
                 dest = view / "store-assets/apple" / loc / header.name
                 checked_copy(safe(store.root, header), dest)
+    if store.data:
+        # Console images participate in validation but stay outside the upload inventory.
+        assets = store.trees["storeAssets"]
+        active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
+        ids = {t["id"] for t in active}
+        held_paths = {store.root / row["outputPath"] for row in store.manifest["outputs"]
+                      if row["kind"] == "screenshot" and row["targetId"] not in ids}
+        folders = {assets / loc / "screenshots" / t["slot"] for t in active
+                   if t.get("upload", specs.slot(store.rules, store.name, t["slot"])["upload"]) == "console"
+                   for loc in target_locales(store, t)}
+        for folder in sorted(folders):
+            for path in map(Path, listing.images(safe(store.root, folder))):
+                if path not in held_paths:
+                    dest = view / "store-assets" / store.name / path.relative_to(assets)
+                    checked_copy(safe(store.root, path), dest)
     for key, path in source.files().items():
         tree, rel = key.split("/", 1)
         dest = (metadata if tree == "metadata" else screenshots) / rel
@@ -521,22 +537,8 @@ def prepared(store, view):
         dest = view / specs.OVERRIDE
         checked_copy(safe(store.root, override), dest)
     env = dict(os.environ, LK_REVIEW_DISPLAY_ROOT=str(store.root))
-    facts = specs.conditions_from_plan(store.data, rules=store.rules)
-    for key, var in (("supportsIpad", "LK_SUPPORTS_IPAD"), ("supportsIphone", "LK_SUPPORTS_IPHONE")):
-        if key in facts:
-            env[var] = str(int(facts[key]))
-    # Preserve native/Expo tablet detection when validating the isolated store view.
-    if store.name == "apple" and "LK_SUPPORTS_IPAD" not in env:
-        for parent, dirs, names in os.walk(store.root):
-            dirs[:] = [d for d in dirs if d not in (".git", ".listing-kit", "node_modules", "Pods",
-                                                    "build", "DerivedData", ".expo", "dist", ".dart_tool")]
-            for name in names:
-                p = Path(parent, name)
-                if (p.parent == store.root and name in ("app.json", "app.config.json", "app.config.js",
-                                                        "app.config.ts", "app.config.mjs", "app.config.cjs")
-                        or name.endswith(".pbxproj") or name == "Info.plist"):
-                    dest = view / p.relative_to(store.root)
-                    checked_copy(safe(store.root, p), dest)
+    for path in project_files(store.root):
+        checked_copy(safe(store.root, path), view / path.relative_to(store.root))
     if store.data:
         # Required deferrals depend on the listing's platform overrides in the isolated view too.
         write_view_plan(view, plan.listing_trees(view), store.data)

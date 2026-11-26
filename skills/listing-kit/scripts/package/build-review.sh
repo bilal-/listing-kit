@@ -107,13 +107,17 @@ def esc(s):
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
-    apple_plan = apple_assets.load_coverage(root, rules, sys.argv[6])["apple"]
+    coverage = apple_assets.load_coverage(root, rules, sys.argv[6])
 except (OSError, ValueError):
-    apple_plan = {}  # The validation section displays the malformed plan error.
+    coverage = {"apple": {}}  # The validation section displays the malformed plan error.
 
-def screenshot_groups(store, locale, deferred=()):
+apple_plan = coverage["apple"]
+planned = "play" in coverage
+requirements.apply_inferred(coverage.get("inferred", {}))
+
+def screenshot_groups(store, locale, deferred=(), suffixes=None):
     groups = {}
-    for shot in screenshots.active(root, store, locale, rules, deferred, tree=trees[store]):
+    for shot in screenshots.active(root, store, locale, rules, deferred, suffixes=suffixes, tree=trees[store]):
         if shot.manual and shot.error:
             sys.exit(shot.error)
         label = shot.slot["label"] if shot.slot else "{}×{}".format(*shot.size)
@@ -125,15 +129,17 @@ def screenshot_groups(store, locale, deferred=()):
 # ---- iOS (deliver) ----
 ios_locs = apple_assets.apple_locales(root, rules, apple_plan, apple_tree)
 apple_default = listing.apple_default(apple_tree["metadata"], rules)
-if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
+# A filtered legacy view has a generated listing.json that only pins its layout.
+legacy_view = sys.argv[6] and not planned and os.path.isfile(os.path.join(root, apple_assets.LEGACY))
+if legacy_view or apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
         fields = field_rows("apple", ld, apple_default)
         entry = apple_plan.get(loc, {})
-        deferred = dict(apple_assets.reported_deferrals(entry))
-        deferred_ids = apple_assets.deferred_slots(rules, entry.get("deferredScreenshots", {}))
-        shots = screenshot_groups("apple", loc, deferred_ids)
+        deferred = list(apple_assets.reported_deferrals(entry, rules, planned))
+        deferred_ids = apple_assets.deferred_slots(rules, entry.get("deferredScreenshots", {}), planned)
+        shots = screenshot_groups("apple", loc, deferred_ids, entry.get("suffixes"))
         graphics = []
         for f in images(apple_assets.header_dir(apple_tree, loc)):
             info = image_info(f)
@@ -151,9 +157,11 @@ if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
 
 # ---- Android (supply) ----
 A = play_tree["metadata"]
-if os.path.isdir(A):
+play_locales = ([A / code for code in listing.play_asset_locales(play_tree, coverage["play"])]
+                if planned else listing.play_locales(A))
+if os.path.isdir(A) or play_locales:
     locs = []
-    for ld in listing.play_locales(A):
+    for ld in play_locales:
         loc = os.path.basename(ld)
         fields = field_rows("play", ld)
         shots = screenshot_groups("play", loc)
@@ -210,7 +218,7 @@ def render_deferred(deferred):
     if not deferred: return ""
     return '<div class="dc">Deferred screenshot targets</div>' + ''.join(
         f'<p class="muted"><strong>{esc(display)} — deferred</strong>: {esc(reason)}</p>'
-        for display, reason in deferred.items())
+        for display, reason in deferred)
 
 def render_graphics(graphics):
     if not graphics:
