@@ -5,6 +5,7 @@ Reads skills/listing-kit/specs/stores.json and, when an app root is given, merge
 <app-root>/.listing-kit/specs.override.json over it. Standard library only.
 
 CLI:  specs.py verified [<app-root>]            -> the date the rules were checked
+      specs.py graphic-size <store> <id> [<app-root>]       -> WIDTHxHEIGHT
       specs.py slot <store> <width> <height> [<app-root>]   -> slot id, or "-"
       specs.py slots <store> [<app-root>]       -> id<TAB>label<TAB>lifecycle per slot
 """
@@ -466,6 +467,12 @@ if __name__ == "__main__":
     try:
         if a[:1] == ["verified"]:
             print(load(a[1] if len(a) > 1 else None)["verified"])
+        elif a[:1] == ["graphic-size"] and len(a) in (3, 4):
+            store = load(a[3] if len(a) == 4 else None)["stores"].get(a[1], {})
+            graphic = next((g for g in store.get("graphics", []) if g["id"] == a[2]), None)
+            if graphic is None:
+                raise SpecsError("unknown graphic: " + a[2])
+            print("{}x{}".format(*graphic["size"]))
         elif a[:1] == ["slot"] and len(a) >= 4:
             d = load(a[4] if len(a) > 4 else None)
             s = apple_slot_for_size(d, int(a[2]), int(a[3])) if a[1] == "apple" else None

@@ -36,5 +36,11 @@ new_stubdir; stub magick
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" "#000000" "#ffffff" 2>&1)"; RC=$?
 assert_contains "$(stub_log)" "gradient:#000000-#ffffff"
 
+it "an app-specific feature graphic size reaches ImageMagick"
+mkdir -p "$T/.listing-kit"
+printf '%s' '{"stores":{"play":{"graphics":[{"id":"featureGraphic","size":[1200,600]}]}}}' > "$T/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+OUT="$(cd "$T" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" 2>&1)"; assert_eq 0 "$?"
+assert_contains "$(stub_log)" "-size 1200x600"
 remove_fixture "$T"
 summary
