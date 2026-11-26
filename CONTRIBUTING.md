@@ -6,7 +6,7 @@ against a real app and tells us what broke.
 
 ## Ways to help
 
-- **Update a store rule.** Edit `skills/listing-kit/specs/stores.json`, including the source URL and verification date. Run `python3 -I skills/listing-kit/scripts/specs/render.py` to refresh the reference tables, then `bash tests/run.sh`. Commit the generated tables with the rules change.
+- **Update a store rule.** Follow the steps under “When a store changes its rules” below.
 - **Deepen a stack module.** Add detection signals, build/launch commands, or
   discovery heuristics for frameworks and edge cases in
   `skills/listing-kit/references/stacks/*.md`.
@@ -16,6 +16,21 @@ against a real app and tells us what broke.
   patterns, or feature-graphic styles.
 - **File issues.** A clear bug report against a real repo (stack, OS, what you
   expected, what happened) is a contribution.
+
+## When a store changes its rules
+
+The weekly drift watch opens or updates **Store rules drift detected** when an
+upstream fact changes or a source cannot be checked. Review the named pages.
+If a page stopped yielding facts, fix its extractor and fixture before accepting
+a new baseline.
+
+1. Edit `skills/listing-kit/specs/stores.json` and bump `verified` to the date you checked the rules.
+2. Run `python3 skills/listing-kit/scripts/specs/render.py` to regenerate the reference tables.
+3. Run `bash tests/run.sh`.
+4. Run `python3 skills/listing-kit/scripts/specs/drift.py update --fetch`. Review and commit the digest changes with the rules and generated tables, then close the issue.
+
+GitHub can disable scheduled workflows after 60 days of repository inactivity.
+If that happens, re-enable **Store rules drift watch** in Actions and run it manually.
 
 ## Project shape
 
