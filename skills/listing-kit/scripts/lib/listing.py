@@ -38,6 +38,22 @@ def apple_default(fl):
     return d if os.path.isdir(d) else None
 
 
+def has_apple_app_metadata(fl):
+    """True if fastlane/metadata holds deliver app-level files or non-locale dirs."""
+    meta = os.path.join(fl, "metadata")
+    try:
+        entries = os.listdir(meta)
+    except OSError:
+        return False
+    for e in entries:
+        if e.startswith(".") or e == "android":
+            continue
+        p = os.path.join(meta, e)
+        if os.path.isfile(p) or (e in NOT_LOCALES and os.path.isdir(p)):
+            return True
+    return False
+
+
 def play_locales(fl):
     a = os.path.join(fl, "metadata", "android")
     return [os.path.join(a, n) for n in _subdirs(a)]

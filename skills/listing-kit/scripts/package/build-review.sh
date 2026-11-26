@@ -65,7 +65,7 @@ except (OSError, ValueError):
 # ---- iOS (deliver) ----
 ios_locs = apple_assets.apple_locales(root)
 apple_default = listing.apple_default(FL)
-if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
+if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")) or listing.has_apple_app_metadata(FL):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
@@ -80,6 +80,9 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
+    if not locs and apple_default:
+        locs.append(dict(locale="default", fields=store_fields.rows("apple", apple_default),
+                         shots={}, graphics=[], deferred={}))
     applevel = store_fields.rows("apple-app", os.path.join(FL, "metadata"))
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
@@ -169,7 +172,16 @@ for i, (plat, data) in enumerate(platforms.items()):
         right = render_shots(L["shots"]) + render_deferred(L.get("deferred", {})) + render_graphics(L["graphics"])
         body.append(f'<div class="loc"><div class="loclabel">locale: {esc(L["locale"])}</div>'
                     f'<div class="cols"><div class="left">{left}</div><div class="right">{right}</div></div></div>')
+    if not body and data["applevel"]:
+        left = "".join(render_field(r) for r in data["applevel"])
+        body.append('<div class="loc"><div class="loclabel">app-level metadata</div>'
+                    f'<div class="cols"><div class="left">{left}</div>'
+                    '<div class="right"><p class="muted">No locale folders.</p></div></div></div>')
     panels.append(f'<section class="panel{on}" id="p-{plat}">{"".join(body)}</section>')
+if not panels:
+    panels.append('<section class="panel on" id="p-empty">'
+                  '<p class="muted">Nothing to validate — no App Store or Google Play listing was found.</p>'
+                  '</section>')
 
 for plat in ("iOS", "Android"):
     if plat in platforms and platforms[plat]["locales"]:

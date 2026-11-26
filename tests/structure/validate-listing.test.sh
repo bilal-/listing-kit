@@ -54,7 +54,7 @@ rm -rf "$T"
 
 # --- #2: single-store listings validate without failing for the absent store ---
 it "a Play-only listing passes (no spurious Apple iPhone-screenshot failure)"
-T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0 for Play-only"
 assert_contains "$OUT" "== Google Play =="
@@ -82,7 +82,7 @@ rm -rf "$T"
 # --- store-rule checks driven by tiny synthetic images (tests/helpers.sh) ---
 png() { fake_png "$@"; }   # <path> <w> <h> [depth=8] [colortype=2]
 apple_only() { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"; rm -rf "$T"/fastlane/metadata/android; }
-play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US; }
+play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt; }
 PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
 
 it "a Face ID large set alone cannot fill the medium upload slot"
@@ -342,6 +342,28 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "01_recipes.png: 0x0 is not an App Store screenshot size"
 rm -rf "$T"
 
+it "a 41-byte truncated PNG (IHDR + IDAT chunk header) fails"
+apple_only
+python3 -c 'import struct,sys,zlib
+ihdr=struct.pack(">IIBBBBB",1206,2622,8,2,0,0,0)
+open(sys.argv[1],"wb").write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"+ihdr+struct.pack(">I",zlib.crc32(b"IHDR"+ihdr))+b"\x00\x00\x00\x01IDAT")
+' "$T/fastlane/screenshots/en-US/medium_01.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "medium_01.png: 0x0 is not an App Store screenshot size"
+rm -rf "$T"
+
+it "a JPEG without SOS or EOI fails validation"
+play_only; rm "$T/$IMG/featureGraphic.png"
+python3 -c 'import struct,sys
+sof=struct.pack(">BHHB",8,500,1024,3)+b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+open(sys.argv[1],"wb").write(b"\xff\xd8\xff\xc0"+struct.pack(">H",len(sof)+2)+sof+b"\xff\xd9")
+' "$T/$IMG/featureGraphic.jpg"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "feature graphic must be 1024x500"
+rm -rf "$T"
+
 it "a JPEG saved as icon.png fails"
 play_only; fake_jpeg "$T/$IMG/icon.png" 512 512
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
@@ -377,5 +399,73 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_not_contains "$OUT" "locale .backup"
 rm -rf "$T"
+
+it "fails with exit 1 when pointed at a directory with no listing at all"
+for sub in "" "fastlane" "fastlane/metadata"; do
+  T="$(mktemp -d)"; [ -n "$sub" ] && mkdir -p "$T/$sub"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "empty listing ($sub) exits 1"
+  assert_contains "$OUT" "no App Store or Google Play listing was found under $T"
+  assert_not_contains "$OUT" "LISTING VALID"
+  rm -rf "$T"
+done
+
+it "detects a tree with only Apple app-level files as an Apple listing"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata"
+printf '2026 Example Inc.\n' > "$T/fastlane/metadata/copyright.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "incomplete Apple listing exits 1"
+assert_contains "$OUT" "== Apple App Store =="
+assert_contains "$OUT" "copyright: set"
+assert_not_contains "$OUT" "no App Store or Google Play listing was found"
+rm -rf "$T"
+
+it "detects a tree with only metadata/default/ as an Apple listing and validates its copy"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata/default"
+cp "$APP/fastlane/metadata/en-US/"*.txt "$T/fastlane/metadata/default/"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "default copy without screenshots exits 1"
+assert_contains "$OUT" "== Apple App Store =="
+assert_contains "$OUT" "name: 23/30 chars"
+assert_not_contains "$OUT" "no App Store or Google Play listing was found"
+rm -rf "$T"
+
+it "counts failures of python helpers (locale discovery and imginfo) as validation failures"
+SHIM="$(mktemp -d)"
+cp -R "$SCRIPTS/validate" "$SCRIPTS/lib" "$SHIM/"
+# 1. apple_assets.py failing ONLY on --locales (so later apple_assets.py call still succeeds)
+printf '#!/usr/bin/env python3\nimport sys\nif len(sys.argv) > 1 and sys.argv[1] == "--locales": sys.exit(1)\n' > "$SHIM/lib/apple_assets.py"
+tail -n +2 "$SCRIPTS/lib/apple_assets.py" >> "$SHIM/lib/apple_assets.py"
+apple_only
+OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "apple_assets.py --locales failure exits 1"
+assert_contains "$OUT" "apple_assets.py"
+assert_not_contains "$OUT" "LISTING VALID"
+rm -rf "$T"
+# 2. listing.py failing on play-locales
+cp "$SCRIPTS/lib/apple_assets.py" "$SHIM/lib/apple_assets.py"
+printf '#!/usr/bin/env python3\nimport sys\nif len(sys.argv) > 1 and sys.argv[1] == "play-locales": sys.exit(1)\n' > "$SHIM/lib/listing.py"
+tail -n +2 "$SCRIPTS/lib/listing.py" >> "$SHIM/lib/listing.py"
+play_only
+OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "listing.py play-locales failure exits 1"
+assert_contains "$OUT" "listing.py"
+assert_not_contains "$OUT" "LISTING VALID"
+rm -rf "$T"
+# 3. imginfo.py failing on screenshots/graphics (even when device screenshot minimums are overridden)
+cp "$SCRIPTS/lib/listing.py" "$SHIM/lib/listing.py"
+sed 's/^if __name__ == "__main__":/if __name__ == "__main__": sys.exit(1)\nif False:/' "$SCRIPTS/lib/imginfo.py" > "$SHIM/lib/imginfo.py"
+apple_only
+OUT="$(LK_SUPPORTS_IPHONE=0 LK_SUPPORTS_IPAD=0 bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "imginfo.py failure on Apple screenshots exits 1"
+assert_contains "$OUT" "imginfo.py"
+assert_not_contains "$OUT" "all screenshots are RGB/no-alpha"
+rm -rf "$T"
+play_only
+OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "imginfo.py failure on Play graphics exits 1"
+assert_contains "$OUT" "imginfo.py"
+assert_not_contains "$OUT" "integer expression"
+rm -rf "$T" "$SHIM"
 
 summary

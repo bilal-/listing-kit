@@ -126,4 +126,29 @@ for stem in copyright primary_category; do
   rm -rf "$T"
 done
 
+it "produces a review page saying nothing to validate when fastlane/ has no store listing"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_file "$T/listing-review.html"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" "nothing to validate"
+assert_not_contains "$PAGE" "LISTING VALID"
+rm -rf "$T"
+
+it "renders Apple review panels when only metadata/default/ or app-level copy is present"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata/default"
+printf 'Default Name\n' > "$T/fastlane/metadata/default/name.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$(cat "$T/listing-review.html")" "Default Name"
+rm -rf "$T"
+
+T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata"
+printf '2026 Studio\n' > "$T/fastlane/metadata/copyright.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$(cat "$T/listing-review.html")" "2026 Studio"
+rm -rf "$T"
+
 summary
