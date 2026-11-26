@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Where things are in a fastlane listing tree. Shared by validate-listing.sh and
-build-review.sh so both see the same locales and images.
+"""Where things are in a fastlane listing tree. Shared by validate-listing.sh,
+apple_assets.py, and build-review.sh so all three see the same stores, locales, and images.
 
 CLI:    listing.py {apple-locales|play-locales} <fastlane-dir>
 Prints one locale directory per line (apple-locales: metadata/<locale> paths, some
@@ -12,7 +12,22 @@ import sys
 from imginfo import is_image
 
 # deliver folders under metadata/ that are not locales.
-NOT_LOCALES = {"android", "default", "review_information", "trade_representative_contact_information"}
+DELIVER_META_DIRS = {"default", "review_information", "trade_representative_contact_information"}
+NOT_LOCALES = {"android"} | DELIVER_META_DIRS
+
+# Recognized deliver app-level metadata files directly under fastlane/metadata/.
+DELIVER_APP_FILES = {
+    "copyright.txt",
+    "primary_category.txt",
+    "secondary_category.txt",
+    "primary_first_sub_category.txt",
+    "primary_second_sub_category.txt",
+    "secondary_first_sub_category.txt",
+    "secondary_second_sub_category.txt",
+    "app_store_rating_config.json",
+    "age_rating_declaration.json",
+    "apple_tv_privacy_policy.txt",
+}
 
 
 def _subdirs(d):
@@ -39,17 +54,15 @@ def apple_default(fl):
 
 
 def has_apple_app_metadata(fl):
-    """True if fastlane/metadata holds deliver app-level files or non-locale dirs."""
+    """True if fastlane/metadata holds recognized deliver app-level files or non-locale dirs."""
     meta = os.path.join(fl, "metadata")
     try:
         entries = os.listdir(meta)
     except OSError:
         return False
     for e in entries:
-        if e.startswith(".") or e == "android":
-            continue
         p = os.path.join(meta, e)
-        if os.path.isfile(p) or (e in NOT_LOCALES and os.path.isdir(p)):
+        if (e in DELIVER_APP_FILES and os.path.isfile(p)) or (e in DELIVER_META_DIRS and os.path.isdir(p)):
             return True
     return False
 

@@ -20,12 +20,15 @@ fail(){ FAIL=$((FAIL+1)); printf '  %s✗%s %s\n' "$R" "$Z" "$1"; }
 warn(){ WARN=$((WARN+1)); printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 
 # Tab-separated facts for PNG/JPEG files (extension case-insensitive):
-#   W H DEPTH COLORTYPE BYTES APPLE_CLASS PATH   (colortype 2=RGB, 6=RGBA, 99=unreadable)
+#   W H DEPTH COLORTYPE BYTES APPLE_CLASS DECODE_STATUS PATH
 imginfo_out=""
+dir_img_files=()
+im_unavailable=0
+
 run_imginfo(){ # label file...
   local label="$1"; shift
   local rc=0
-  imginfo_out="$(python3 "$LIB/imginfo.py" "$@")" || rc=$?
+  imginfo_out="$(python3 "$LIB/imginfo.py" --validate "$@")" || rc=$?
   if [ "$rc" != 0 ]; then
     fail "could not inspect images for $label (imginfo.py exit $rc)"
     imginfo_out=""
@@ -34,14 +37,23 @@ run_imginfo(){ # label file...
   return 0
 }
 
+record_decode(){ # status basename
+  case "$1" in
+    ok) return 0 ;;
+    unavailable) im_unavailable=1; return 0 ;;
+    *) fail "$2: image failed full decode"; return 1 ;;
+  esac
+}
+
 dir_images(){ # label dir
-  local label="$1" dir="$2" f files=()
+  local label="$1" dir="$2" f
+  dir_img_files=()
   imginfo_out=""
   for f in "$dir"/*; do
-    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && files+=("$f");; esac
+    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && dir_img_files+=("$f");; esac
   done
-  [ "${#files[@]}" -gt 0 ] || return 0
-  run_imginfo "$label" "${files[@]}"
+  [ "${#dir_img_files[@]}" -gt 0 ] || return 0
+  run_imginfo "$label" "${dir_img_files[@]}"
 }
 
 # fastlane globs *.png / *.jpg / *.jpeg; on case-sensitive filesystems (Linux CI)
@@ -111,15 +123,23 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 
 # Scope to the store(s) actually present, so a single-store listing (e.g. Play
 # only) is not failed for the store it never targeted.
-# Apple locales include headers/plans via apple_assets.py; Play uses listing.py.
+# Apple presence + locales come from apple_assets.py; Play uses listing.py.
 # Both discovery paths are shared with build-review.sh.
 apple_locales=(); play_locales=()
-apple_loc_rc=0; play_loc_rc=0
+apple_loc_rc=0; apple_det_rc=0; play_loc_rc=0
 apple_loc_out="$(python3 "$LIB/apple_assets.py" --locales "$ROOT")" || apple_loc_rc=$?
 [ "$apple_loc_rc" = 0 ] || fail "could not discover Apple locales (apple_assets.py exit $apple_loc_rc)"
 while IFS= read -r loc; do
   [ -n "$loc" ] && apple_locales+=("$loc")
 done <<<"$apple_loc_out"
+
+apple_present=0
+apple_det_out="$(python3 "$LIB/apple_assets.py" --has-apple "$ROOT")" || apple_det_rc=$?
+if [ "$apple_det_rc" != 0 ]; then
+  fail "could not detect Apple listing (apple_assets.py exit $apple_det_rc)"
+elif [ "$apple_det_out" = 1 ]; then
+  apple_present=1
+fi
 
 play_loc_out="$(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")" || play_loc_rc=$?
 [ "$play_loc_rc" = 0 ] || fail "could not discover Google Play locales (listing.py exit $play_loc_rc)"
@@ -128,17 +148,8 @@ while IFS= read -r loc; do
 done <<<"$play_loc_out"
 
 apple_default="$ROOT/fastlane/metadata/default"
-apple_app_present=0
-for f in "$ROOT/fastlane/metadata"/*; do
-  [ -f "$f" ] && { apple_app_present=1; break; }
-done
-for d in default review_information trade_representative_contact_information; do
-  [ -d "$ROOT/fastlane/metadata/$d" ] && apple_app_present=1
-done
-
-apple_present=0; play_present=0
+play_present=0
 required_classes=()
-{ [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ] || [ "$apple_app_present" = 1 ] || [ -f "$ROOT/.listing-kit/asset-plan.json" ]; } && apple_present=1
 [ -d "$ROOT/fastlane/metadata/android" ] && play_present=1
 
 # ---------------- App Store (deliver) ----------------
@@ -172,11 +183,12 @@ if [ "$apple_present" = 1 ]; then
     echo " screenshots $(basename "$sdir"):"
     classes=""; badfmt=0
     if dir_images "screenshots $(basename "$sdir")" "$sdir"; then
-      while IFS=$'\t' read -r w h depth ct bytes cls path; do
+      while IFS=$'\t' read -r w h depth ct bytes cls dec path; do
         [ -n "$w" ] || continue
         base="${path##*/}"; check_ext "$path"
+        s_dec=1; record_decode "$dec" "$base" || { s_dec=0; badfmt=1; }
         if [ "$cls" = "-" ]; then fail "$base: ${w}x${h} is not an App Store screenshot size (see scripts/lib/apple-screenshot-sizes.tsv)"
-        else classes="$classes$cls"$'\n'; fi
+        elif [ "$s_dec" = 1 ]; then classes="$classes$cls"$'\n'; fi
         [ "$ct" = 2 ] || { fail "$base: must be RGB no-alpha (colortype=$ct)"; badfmt=1; }
       done <<<"$imginfo_out"
     else
@@ -208,7 +220,7 @@ asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${
 [ "$asset_rc" = 0 ] || fail "could not validate Apple assets (apple_assets.py exit $asset_rc)"
 while IFS=$'\t' read -r level msg; do
   [ -n "$level" ] || continue
-  case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
+  case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; IM_UNAVAILABLE) im_unavailable=1;; *) fail "$msg";; esac
 done <<<"$asset_result"
 if [ "$apple_present" = 1 ] && [ ! -f "$ROOT/.listing-kit/asset-plan.json" ]; then
   warn "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"
@@ -219,11 +231,13 @@ fi
 # long side ≤ 2× short side, ≤8 per device type, ≥2 in total across types.
 # Promotion eligibility (warn only): ≥4 screenshots at ≥1080 px, 9:16 or 16:9.
 play_shots(){ # dir label
-  local w h depth ct bytes cls path base lo hi n=0 big=0
+  local w h depth ct bytes cls dec path base lo hi n=0 big=0 dec_ok=1
   dir_images "$2 screenshots" "$1" || return
-  while IFS=$'\t' read -r w h depth ct bytes cls path; do
+  [ "${#dir_img_files[@]}" -gt 0 ] || return
+  while IFS=$'\t' read -r w h depth ct bytes cls dec path; do
     [ -n "$w" ] || continue
     n=$((n+1)); base="${path##*/}"; check_ext "$path"
+    record_decode "$dec" "$base" || dec_ok=0
     lo=$w; hi=$h; [ "$w" -gt "$h" ] && { lo=$h; hi=$w; }
     { [ "$lo" -ge 320 ] && [ "$hi" -le 3840 ]; } || fail "$base: side out of 320–3840 (${w}x${h})"
     [ "$lo" -gt 0 ] && [ $((hi * 1000)) -gt $((lo * 2000)) ] && fail "$base: aspect ${hi}/${lo} exceeds 2:1"
@@ -233,7 +247,11 @@ play_shots(){ # dir label
     [ "$lo" -ge 1080 ] && [ $((hi * 900)) -ge $((lo * 1584)) ] && [ $((hi * 900)) -le $((lo * 1616)) ] && big=$((big+1))
   done <<<"$imginfo_out"
   [ "$n" -eq 0 ] && return
-  [ "$n" -le 8 ] && pass "$2 screenshots: $n (≤8) ✓ format/size/aspect" || fail "$2 screenshots: $n (max 8)"
+  if [ "$n" -le 8 ]; then
+    [ "$dec_ok" = 1 ] && pass "$2 screenshots: $n (≤8) ✓ format/size/aspect"
+  else
+    fail "$2 screenshots: $n (max 8)"
+  fi
   [ "$2" = phone ] && [ "$big" -lt 4 ] && warn "$2: only $big screenshot(s) at ≥1080px; Play needs 4 at 9:16 or 16:9 for promotion eligibility"
   play_total=$((play_total+n))
 }
@@ -272,10 +290,13 @@ if [ "$play_present" = 1 ]; then
     if [ -n "$fg" ]; then
       check_ext "$fg"
       if run_imginfo "feature graphic" "$fg"; then
-        IFS=$'\t' read -r w h depth ct bytes cls path <<<"$imginfo_out"
-        { [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; } \
-          && pass "feature graphic 1024x500 24-bit no-alpha" \
-          || fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
+        IFS=$'\t' read -r w h depth ct bytes cls dec path <<<"$imginfo_out"
+        fg_dec=1; record_decode "$dec" "${fg##*/}" || fg_dec=0
+        if [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
+          [ "$fg_dec" = 1 ] && pass "feature graphic 1024x500 24-bit no-alpha"
+        else
+          fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
+        fi
       fi
     else fail "feature graphic MISSING (required to publish): images/featureGraphic.png"; fi
 
@@ -286,8 +307,13 @@ if [ "$play_present" = 1 ]; then
       { case "$ic" in *.png) true;; *) false;; esac && [ "$(head -c 4 "$ic" | od -An -tx1 | tr -d ' \n')" = 89504e47 ]; } \
         || fail "icon must be a PNG (Play requires a 32-bit PNG)"
       if run_imginfo "Play icon" "$ic"; then
-        IFS=$'\t' read -r w h depth ct bytes cls path <<<"$imginfo_out"
-        { [ "$w" = 512 ] && [ "$h" = 512 ]; } && pass "icon 512x512" || fail "icon must be 512x512 (got ${w}x${h})"
+        IFS=$'\t' read -r w h depth ct bytes cls dec path <<<"$imginfo_out"
+        ic_dec=1; record_decode "$dec" "${ic##*/}" || ic_dec=0
+        if [ "$w" = 512 ] && [ "$h" = 512 ]; then
+          [ "$ic_dec" = 1 ] && pass "icon 512x512"
+        else
+          fail "icon must be 512x512 (got ${w}x${h})"
+        fi
         { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } \
           || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
         [ "$bytes" -le 1048576 ] || fail "icon is over 1 MB ($bytes bytes)"
@@ -296,8 +322,12 @@ if [ "$play_present" = 1 ]; then
   done
 fi
 
+if [ "$im_unavailable" = 1 ]; then
+  warn "ImageMagick not available: images were checked structurally only"
+fi
+
 # ---------------- scope notice ----------------
-if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ] && [ "$apple_loc_rc" = 0 ] && [ "$play_loc_rc" = 0 ]; then
+if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ] && [ "$apple_det_rc" = 0 ] && [ "$apple_loc_rc" = 0 ] && [ "$play_loc_rc" = 0 ]; then
   fail "no App Store or Google Play listing was found under $ROOT — nothing to validate"
 fi
 

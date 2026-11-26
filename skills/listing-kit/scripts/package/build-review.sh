@@ -17,13 +17,24 @@ command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review p
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
-# Run the validator and strip ANSI so its output embeds cleanly. Never fail the
-# build on a validator non-zero exit — we embed whatever it reported.
-VAL_TXT="$(mktemp)"; trap 'rm -f "$VAL_TXT"' EXIT
-if [ -f "$VALIDATOR" ]; then
-  (cd "$ROOT" && bash "$VALIDATOR" .) 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' > "$VAL_TXT" || true
-else
-  echo "(validate-listing.sh not found; validation section omitted)" > "$VAL_TXT"
+# Run the validator and strip ANSI so its output embeds cleanly. Exit 0 and 1
+# are expected listing verdicts; any other exit or empty transcript is an error.
+VAL_RAW="$(mktemp)"; VAL_TXT="$(mktemp)"
+trap 'rm -f "$VAL_RAW" "$VAL_TXT"' EXIT
+if [ ! -f "$VALIDATOR" ]; then
+  echo "Error: failed to capture validation transcript (missing $VALIDATOR)." >&2
+  exit 1
+fi
+val_rc=0
+(cd "$ROOT" && bash "$VALIDATOR" .) >"$VAL_RAW" 2>&1 || val_rc=$?
+if [ "$val_rc" -ne 0 ] && [ "$val_rc" -ne 1 ]; then
+  cat "$VAL_RAW" >&2
+  echo "Error: failed to capture validation transcript (validate-listing.sh exited $val_rc)." >&2
+  exit 1
+fi
+if ! LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' "$VAL_RAW" > "$VAL_TXT" || [ ! -s "$VAL_TXT" ]; then
+  echo "Error: failed to capture validation transcript." >&2
+  exit 1
 fi
 
 OUT="$ROOT/listing-review.html"
@@ -65,7 +76,7 @@ except (OSError, ValueError):
 # ---- iOS (deliver) ----
 ios_locs = apple_assets.apple_locales(root)
 apple_default = listing.apple_default(FL)
-if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")) or listing.has_apple_app_metadata(FL):
+if apple_assets.has_apple_listing(root):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)

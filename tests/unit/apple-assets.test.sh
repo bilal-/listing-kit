@@ -168,4 +168,33 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" 'no iPhone Dynamic Island (medium display) screenshots'
 
+it "fails when an Apple header fails full ImageMagick decode"
+fake_png "$SHOTS/medium.png" 1206 2622
+fake_png "$HEADERS/header-16x9.png" 5244 2950
+new_stubdir
+cat > "$STUB_BIN/magick" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *header-16x9.png*) exit 1;; *) exit 0;; esac
+EOF
+chmod +x "$STUB_BIN/magick"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "bad header decode fails validation"
+assert_contains "$OUT" "header-16x9.png"
+assert_not_contains "$OUT" "Apple header en-US/header-16x9.png: 5244x2950 RGB/no-alpha"
+
+if command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
+  python3 - "$HEADERS/alternate.jpg" <<'PY'
+import struct, sys
+def seg(m, d): return b"\xff" + bytes([m]) + struct.pack(">H", len(d) + 2) + d
+dqt = seg(0xDB, b"\x00" + b"\x10" * 64)
+sof = seg(0xC0, struct.pack(">BHHB", 8, 1646, 3840, 3) + b"\x01\x22\x00\x02\x11\x00\x03\x11\x00")
+dht = seg(0xC4, b"\x00\x01" + b"\x00" * 15 + b"\x00") + seg(0xC4, b"\x10\x01" + b"\x00" * 15 + b"\x00")
+sos = seg(0xDA, b"\x03\x01\x00\x02\x00\x03\x00\x00\x3f\x00")
+open(sys.argv[1], "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + b"\x01\xff\xd9")
+PY
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "real ImageMagick rejects corrupt scan in 3840x1646 JPEG header"
+  assert_not_contains "$OUT" "Apple header en-US/alternate.jpg: 3840x1646 RGB/no-alpha"
+fi
+
 summary

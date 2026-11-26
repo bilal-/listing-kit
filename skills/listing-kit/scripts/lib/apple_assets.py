@@ -3,6 +3,7 @@
 
 CLI: apple_assets.py <root> [<required-display> ...]
      apple_assets.py --locales <root>
+     apple_assets.py --has-apple <root>
 """
 
 import json
@@ -11,8 +12,8 @@ import re
 import sys
 from collections import Counter
 
-from imginfo import APPLE_SIZES, apple_class, image_info
-from listing import apple_locales as listing_apple_locales, images
+from imginfo import APPLE_SIZES, apple_class, decode_many, image_info
+from listing import apple_locales as listing_apple_locales, has_apple_app_metadata, images
 
 HEADER_SIZES = {(5244, 2950), (3840, 1646)}
 
@@ -76,20 +77,38 @@ def apple_locales(root):
     })
 
 
+def has_apple_listing(root):
+    """True when root has recognized Apple deliver metadata, screenshots, headers, or plan."""
+    fastlane = os.path.join(root, "fastlane")
+    return bool(
+        apple_locales(root)
+        or os.path.isdir(os.path.join(fastlane, "screenshots"))
+        or has_apple_app_metadata(fastlane)
+        or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
+    )
+
+
 def validate(root, required_displays=()):
     results = []
-    for locale in header_locales(root):
-        for path in images(header_dir(root, locale)):
-            w, h, depth, color = image_info(path)
-            with open(path, "rb") as source:
-                is_png = source.read(8) == b"\x89PNG\r\n\x1a\n"
-            valid = ((w, h) in HEADER_SIZES and depth == 8 and color == 2
+    saw_unavailable = False
+    header_items = [(locale, path) for locale in header_locales(root) for path in images(header_dir(root, locale))]
+    header_statuses = decode_many([path for _, path in header_items])
+    for (locale, path), dec in zip(header_items, header_statuses):
+        w, h, depth, color = image_info(path)
+        with open(path, "rb") as source:
+            is_png = source.read(8) == b"\x89PNG\r\n\x1a\n"
+        struct_ok = ((w, h) in HEADER_SIZES and depth == 8 and color == 2
                      and ((w, h) != (5244, 2950) or
                           (is_png and path.lower().endswith(".png"))))
-            label = "{}/{}".format(locale, os.path.basename(path))
-            results.append(("PASS" if valid else "FAIL", "Apple header {}: {}".format(
-                label, "{}x{} RGB/no-alpha".format(w, h) if valid else
-                "expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha")))
+        if dec == "unavailable":
+            saw_unavailable = True
+        label = "{}/{}".format(locale, os.path.basename(path))
+        if not struct_ok:
+            results.append(("FAIL", "Apple header {}: expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha".format(label)))
+        elif dec == "bad":
+            results.append(("FAIL", "Apple header {}: image failed full decode".format(label)))
+        else:
+            results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
     try:
         for locale, target in load_plan(root).items():
@@ -111,6 +130,8 @@ def validate(root, required_displays=()):
                     locale, name, "present" if exists else "MISSING")))
     except (OSError, ValueError) as error:
         results.append(("FAIL", "asset-plan.json: " + str(error)))
+    if saw_unavailable:
+        results.append(("IM_UNAVAILABLE", "images were checked structurally only"))
     return results
 
 
@@ -118,6 +139,8 @@ if __name__ == "__main__":
     if sys.argv[1] == "--locales":
         for path in apple_locales(sys.argv[2]):
             print(path)
+    elif sys.argv[1] == "--has-apple":
+        print("1" if has_apple_listing(sys.argv[2]) else "0")
     else:
         for level, message in validate(sys.argv[1], sys.argv[2:]):
             print(level + "\t" + message)

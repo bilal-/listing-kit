@@ -53,10 +53,11 @@ assert_not_contains "$OUT" "OVER LIMIT"
 rm -rf "$T"
 
 # --- #2: single-store listings validate without failing for the absent store ---
-it "a Play-only listing passes (no spurious Apple iPhone-screenshot failure)"
+it "a Play-only listing passes (even with an unrelated fastlane/metadata/README.md)"
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
+printf '# Listing metadata notes\n' > "$T/fastlane/metadata/README.md"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "exit 0 for Play-only"
+assert_eq 0 "$RC" "exit 0 for Play-only with README.md"
 assert_contains "$OUT" "== Google Play =="
 assert_not_contains "$OUT" "== Apple App Store =="
 rm -rf "$T"
@@ -467,5 +468,51 @@ assert_eq 1 "$RC" "imginfo.py failure on Play graphics exits 1"
 assert_contains "$OUT" "imginfo.py"
 assert_not_contains "$OUT" "integer expression"
 rm -rf "$T" "$SHIM"
+
+it "warns once when ImageMagick is unavailable and fails on bad full decode of any screenshot or graphic"
+NOIM_BIN="$(mktemp -d)"; STUB_DIRS+=("$NOIM_BIN")
+for cmd in bash sh python3 dirname grep sort uniq head od tr awk; do
+  p="$(command -v "$cmd" 2>/dev/null || true)"
+  [ -n "$p" ] && ln -s "$p" "$NOIM_BIN/$cmd"
+done
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$APP/app.json" "$T/"
+fake_png "$T/store-assets/apple/en-US/header-16x9.png" 5244 2950
+OUT="$(PATH="$NOIM_BIN" "$BASH_BIN" "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "structural-only validation passes with a warning when IM is absent"
+assert_contains "$OUT" "structurally only"
+WARN_LINES="$(printf '%s\n' "$OUT" | grep -c 'structurally only' || true)"
+assert_eq 1 "$WARN_LINES" "prints exactly ONE structural-only warning across all images"
+
+# PATH stub reporting bad decode for each asset category
+for bad_target in "medium_01.png" "phoneScreenshots/01_recipes.png" "featureGraphic.png" "icon.png"; do
+  new_stubdir
+  cat > "$STUB_BIN/magick" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *"$bad_target"*) exit 1;; *) exit 0;; esac
+EOF
+  chmod +x "$STUB_BIN/magick"
+  OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "bad decode of $bad_target fails validation"
+  assert_contains "$OUT" "${bad_target##*/}"
+done
+rm -rf "$T"
+
+if command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
+  it "real ImageMagick: rejects a Play feature graphic with valid header/tables but corrupt scan"
+  play_only; rm "$T/$IMG/featureGraphic.png"
+  python3 - "$T/$IMG/featureGraphic.jpg" <<'PY'
+import struct, sys
+def seg(m, d): return b"\xff" + bytes([m]) + struct.pack(">H", len(d) + 2) + d
+dqt = seg(0xDB, b"\x00" + b"\x10" * 64)
+sof = seg(0xC0, struct.pack(">BHHB", 8, 500, 1024, 3) + b"\x01\x22\x00\x02\x11\x00\x03\x11\x00")
+dht = seg(0xC4, b"\x00\x01" + b"\x00" * 15 + b"\x00") + seg(0xC4, b"\x10\x01" + b"\x00" * 15 + b"\x00")
+sos = seg(0xDA, b"\x03\x01\x00\x02\x00\x03\x00\x00\x3f\x00")
+open(sys.argv[1], "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + b"\x01\xff\xd9")
+PY
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "real IM rejects corrupt scan in 1024x500 featureGraphic.jpg"
+  assert_not_contains "$OUT" "✓ feature graphic 1024x500"
+  rm -rf "$T"
+fi
 
 summary

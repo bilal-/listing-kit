@@ -126,15 +126,50 @@ for stem in copyright primary_category; do
   rm -rf "$T"
 done
 
-it "produces a review page saying nothing to validate when fastlane/ has no store listing"
+it "produces a review page with #p-empty saying Nothing to validate when fastlane/ has no store listing"
 T="$(mktemp -d)"; mkdir -p "$T/fastlane"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_file "$T/listing-review.html"
 PAGE="$(cat "$T/listing-review.html")"
-assert_contains "$PAGE" "nothing to validate"
+assert_contains "$PAGE" '<section class="panel on" id="p-empty"><p class="muted">Nothing to validate'
 assert_not_contains "$PAGE" "LISTING VALID"
 rm -rf "$T"
+
+it "ignores an unrelated fastlane/metadata/README.md on a Play-only listing"
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"
+rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
+printf '# Metadata notes\n' > "$T/fastlane/metadata/README.md"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" 'data-p="Android"'
+assert_not_contains "$PAGE" 'data-p="iOS"'
+rm -rf "$T"
+
+it "agrees with validate-listing.sh when fastlane/ is empty and asset-plan.json is malformed"
+T="$(mktemp -d)"; mkdir -p "$T/fastlane" "$T/.listing-kit"
+printf '{invalid\n' > "$T/.listing-kit/asset-plan.json"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '== Apple App Store =='
+assert_contains "$PAGE" 'id="p-iOS"'
+assert_not_contains "$PAGE" 'id="p-empty"'
+rm -rf "$T"
+
+it "fails explicitly instead of emitting an empty validation section when transcript capture fails"
+SHIM="$(mktemp -d)"
+cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
+mkdir -p "$SHIM/validate"
+printf '#!/usr/bin/env bash\necho "validator crashed" >&2\nexit 2\n' > "$SHIM/validate/validate-listing.sh"
+chmod +x "$SHIM/validate/validate-listing.sh"
+T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "validator exit 2 fails build-review"
+assert_contains "$OUT" "transcript"
+if [ -f "$T/listing-review.html" ]; then fail "should not write listing-review.html on failed transcript capture"; else pass "no broken html written"; fi
+rm -rf "$T" "$SHIM"
 
 it "renders Apple review panels when only metadata/default/ or app-level copy is present"
 T="$(mktemp -d)"; mkdir -p "$T/fastlane/metadata/default"
