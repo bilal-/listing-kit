@@ -1,0 +1,4 @@
+[
+  "IMAGES_TYPES :: [\"featureGraphic\",\"icon\",\"tvBanner\"]",
+  "SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\",\"tenInchScreenshots\",\"tvScreenshots\",\"wearScreenshots\"]"
+]

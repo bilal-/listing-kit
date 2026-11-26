@@ -1,0 +1,4 @@
+[
+  "App information / Name / The localized name of your app as it appears on App Store product pages and when users install your app. The name must be at least two characters and :: no more than 30 characters",
+  "App information / Subtitle / A summary of your app that appears under your app's name on your App Store product page. This can’t be longer than :: 30 characters"
+]
