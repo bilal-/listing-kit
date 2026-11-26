@@ -52,7 +52,7 @@ ln -s loop "$D/loop"
 OUT="$(bash "$SUT" "$D" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_not_contains "$OUT" "Secret scan clean"
-rm -rf "$D"
+remove_fixture "$D"
 
 # --- current credential formats (each on its own line, no "token:" keyword) ---
 # Fixtures are split into two literals and joined by the shell, so this file never

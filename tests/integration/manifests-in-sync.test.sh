@@ -31,5 +31,5 @@ else
   fail "stale — run: bash skills/listing-kit/scripts/package/generate-manifests.sh"
 fi
 
-rm -rf "$T"
+remove_fixture "$T"
 summary

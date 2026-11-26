@@ -6,13 +6,12 @@ SUT="$SCRIPTS/package/build-review.sh"
 new_tempdir APP
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
 fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
-trap 'rm -rf "$APP"' EXIT
 
 it "exits 2 when there is no fastlane tree"
 new_tempdir T
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
-rm -rf "$T"
+remove_fixture "$T"
 
 # Build the review page against the committed example (both stores present).
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
@@ -43,14 +42,14 @@ before="$(cd "$T" && find fastlane -type f -exec cksum {} \; | sort)"   # cksum 
 bash "$SUT" "$T" >/dev/null 2>&1
 after="$(cd "$T" && find fastlane -type f -exec cksum {} \; | sort)"
 assert_eq "$before" "$after" "fastlane tree unchanged"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "shows a missing required field as 'missing' rather than inventing a value"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
 rm -f "$T/fastlane/metadata/en-US/support_url.txt"
 OUT="$(bash "$SUT" "$T" 2>&1)"
 assert_contains "$(cat "$T/listing-review.html")" "missing"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "rebuilds from edited metadata txt files"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
@@ -62,7 +61,7 @@ PAGE="$(cat "$T/listing-review.html")"
 assert_contains "$PAGE" "Edited copy from txt"
 assert_contains "$PAGE" "Generated "
 assert_contains "$PAGE" "from fastlane metadata .txt files"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "non-locale metadata dirs (review_information/) are not shown as locales"
 new_tempdir T; cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
@@ -70,7 +69,7 @@ mkdir -p "$T/fastlane/metadata/review_information"
 printf 'demo@example.test\n' > "$T/fastlane/metadata/review_information/email_address.txt"
 bash "$SUT" "$T" >/dev/null 2>&1
 assert_not_contains "$(cat "$T/listing-review.html")" "locale: review_information"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "keyword badge counts UTF-8 bytes, matching the validator"
 new_tempdir T; cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
@@ -78,7 +77,7 @@ python3 -c "import sys;open(sys.argv[1],'w',encoding='utf-8').write('料'*40)" "
 bash "$SUT" "$T" >/dev/null 2>&1
 PAGE="$(cat "$T/listing-review.html")"
 assert_contains "$PAGE" '<span class="b bad">120/100 bytes</span>'
-rm -rf "$T"
+remove_fixture "$T"
 
 it "shows Play graphics from images/featureGraphic.png and images/icon.png"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"
@@ -87,7 +86,7 @@ PAGE="$(cat "$T/listing-review.html")"
 assert_contains "$PAGE" "images/featureGraphic.png"
 assert_contains "$PAGE" "Feature graphic 1024×500"
 assert_contains "$PAGE" "images/icon.png"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "malformed URL hosts and ports fail validation without crashing the review"
 for url in 'https://[::1' 'https://example.test:abc/help' 'https://example.test:70000/help'; do
@@ -105,7 +104,7 @@ for url in 'https://[::1' 'https://example.test:abc/help' 'https://example.test:
   else
     fail 'review page was not generated for invalid URL'
   fi
-  rm -rf "$T"
+  remove_fixture "$T"
 done
 
 it "invalid UTF-8 in app-level copy fails validation and remains reviewable"
@@ -123,7 +122,7 @@ for stem in copyright primary_category; do
   else
     fail 'review page was not generated for invalid app-level copy'
   fi
-  rm -rf "$T"
+  remove_fixture "$T"
 done
 
 

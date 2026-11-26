@@ -3,6 +3,19 @@
 # Source this from a *.test.sh file, write assertions, end with `summary`.
 set -uo pipefail
 
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+export PYTHONDONTWRITEBYTECODE=1
+
+# The suite owns one private temporary directory. Standalone tests own theirs.
+if [ "${1:-}" = --suite-root ]; then
+  SUITE_ROOT="$2"
+else
+  suite_parent="$(cd -P "${TMPDIR:-/tmp}" && pwd -P)" || exit 1
+  SUITE_ROOT="$(python3 -I -c 'import sys,tempfile; print(tempfile.mkdtemp(prefix="listing-kit-suite.", dir=sys.argv[1]))' "$suite_parent")" || exit 1
+  trap 'if [ "$(cd -P "$SUITE_ROOT" && pwd -P)" = "$SUITE_ROOT" ] && [ "${SUITE_ROOT%/*}" = "$suite_parent" ]; then rm -rf -- "$SUITE_ROOT"; fi' EXIT
+fi
+export TMPDIR="$SUITE_ROOT" GIT_CEILING_DIRECTORIES="$SUITE_ROOT"
+
 HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HELPER_DIR/.." && pwd)"
 SCRIPTS="$ROOT/skills/listing-kit/scripts"
@@ -34,17 +47,27 @@ json_path()     { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));exe
 # Assign in the calling shell so allocation failure stops the entire test file.
 new_tempdir() {
   local created
-  if ! created="$(mktemp -d "${TMPDIR:-/tmp}/listing-kit-test.XXXXXX")" || [ -z "$created" ] || [ ! -d "$created" ]; then
+  if ! created="$(mktemp -d "$SUITE_ROOT/listing-kit-test.XXXXXX")" || [ -z "$created" ] || [ ! -d "$created" ] || [ -L "$created" ] ||
+     [ "$(cd -P "$created/.." && pwd -P)" != "$SUITE_ROOT" ] ||
+     [ "$(cd -P "$created" && pwd -P)" != "$created" ]; then
     echo "Could not create test fixture directory (mktemp -d)." >&2
     exit 1
   fi
   printf -v "$1" '%s' "$created"
 }
 
-# --- command stubbing: shim a binary onto PATH and record its invocations ---
-STUB_DIRS=()
-new_stubdir() { new_tempdir STUB_BIN; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; STUB_DIRS+=("$STUB_BIN"); }
-trap 'for d in ${STUB_DIRS[@]+"${STUB_DIRS[@]}"}; do rm -rf "$d"; done' EXIT
+# Resolve paths again before deleting, including intermediate symlinks.
+remove_fixture() {
+  python3 -I -c 'from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+if any(root not in Path(p).resolve().parents for p in sys.argv[2:]):
+    sys.exit("Refusing cleanup outside suite root")' "$SUITE_ROOT" "$@" || exit 1
+  rm -rf -- "$@"
+}
+
+# --- command stubbing: put a shim binary on PATH and record invocations ---
+new_stubdir() { new_tempdir STUB_BIN; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; }
 stub() {
   local name="$1" code="${2:-0}"
   cat > "$STUB_BIN/$name" <<EOF

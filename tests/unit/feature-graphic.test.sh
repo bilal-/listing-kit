@@ -36,5 +36,5 @@ new_stubdir; stub magick
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" "#000000" "#ffffff" 2>&1)"; RC=$?
 assert_contains "$(stub_log)" "gradient:#000000-#ffffff"
 
-rm -rf "$T"
+remove_fixture "$T"
 summary

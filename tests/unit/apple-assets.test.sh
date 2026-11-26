@@ -2,7 +2,6 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 SUT="$SCRIPTS/validate/validate-listing.sh"
 new_tempdir T
-trap 'rm -rf "$T"' EXIT
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$T/"
 SHOTS="$T/fastlane/screenshots/en-US"
 HEADERS="$T/store-assets/apple/en-US"

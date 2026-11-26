@@ -22,14 +22,14 @@ new_tempdir T
 OUT="$(GIT_CEILING_DIRECTORIES="$(dirname "$T")" bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Not inside a git worktree"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "installs a pre-commit hook"
 make_app "Initial description"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_exec "$T/.git/hooks/pre-commit"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "refreshes and stages listing-review.html when fastlane metadata is committed"
 make_app "Initial description"
@@ -42,7 +42,7 @@ printf 'Updated description from hook\n' > "$T/fastlane/metadata/en-US/descripti
 git -C "$T" add fastlane/metadata/en-US/description.txt
 git -C "$T" commit -m "update listing copy" >/dev/null
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" "Updated description from hook"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "supports app roots below the git worktree root"
 new_tempdir T
@@ -56,7 +56,7 @@ bash "$SUT" "$T/apps/mobile" >/dev/null
 git -C "$T" add apps/mobile/fastlane
 git -C "$T" commit -m "nested listing" >/dev/null
 assert_contains "$(git -C "$T" show HEAD:apps/mobile/listing-review.html)" "Nested description"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "installs into the shared hooks dir from a linked worktree"
 make_app "Worktree description"
@@ -68,14 +68,14 @@ assert_exec "$T/.git/hooks/pre-commit"
 printf 'Worktree update\n' > "$WT/fastlane/metadata/en-US/description.txt"
 git -C "$WT" commit -qam "update from worktree" >/dev/null
 assert_contains "$(git -C "$WT" show HEAD:listing-review.html)" "Worktree update"
-rm -rf "$T" "$(dirname "$WT")"
+remove_fixture "$T" "$(dirname "$WT")"
 
 it "honors core.hooksPath"
 make_app "Hooks path description"
 git -C "$T" config core.hooksPath .husky
 bash "$SUT" "$T" >/dev/null
 assert_exec "$T/.husky/pre-commit"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "rerunning does not duplicate the hook call or the app entry"
 make_app "Idempotent"
@@ -83,7 +83,7 @@ bash "$SUT" "$T" >/dev/null
 bash "$SUT" "$T" >/dev/null
 assert_eq 1 "$(grep -c 'listing-kit review refresh' "$T/.git/hooks/pre-commit")" "one call line"
 assert_eq 1 "$(grep -c '^apps+=' "$T/.git/hooks/listing-kit-review")" "one app entry"
-rm -rf "$T"
+remove_fixture "$T"
 
 # Each fake kit writes its version into the page so we can observe which kit
 # the installed hook actually ran, without consulting the developer's home.
@@ -121,7 +121,7 @@ it "uses the recorded kit while it exists"
 make_kit "$test_home/.agents/skills/listing-kit" 0.9.0
 kit_commit recorded
 assert_eq 0.5.0 "$(git -C "$T" show HEAD:listing-review.html)"
-rm -rf "$recorded"
+remove_fixture "$recorded"
 
 it "finds the highest version across installed kits after the recorded copy moves"
 kit_commit agents
@@ -136,11 +136,11 @@ for entry in '.codex/skills:0.10.0' '.gemini/extensions/listing-kit/skills:0.11.
 done
 
 it "warns visibly and permits the commit when no installed kit is available"
-rm -rf "$test_home"
+remove_fixture "$test_home"
 OUT="$(kit_commit missing 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "not refreshed"
-rm -rf "$T" "$installs"
+remove_fixture "$T" "$installs"
 
 
 it "an existing failing shell hook still blocks the commit"
@@ -151,7 +151,7 @@ git -C "$T" add fastlane
 OUT="$(git -C "$T" commit -m "listing" 2>&1)"; RC=$?
 assert_ne 0 "$RC" "commit is still rejected"
 assert_contains "$OUT" "lint failed"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "an existing hook that ends in 'exit 0' still gets the refresh"
 make_app "Exit zero hook"
@@ -159,7 +159,7 @@ printf '#!/bin/bash\nexit 0\n' > "$T/.git/hooks/pre-commit"; chmod +x "$T/.git/h
 bash "$SUT" "$T" >/dev/null
 git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html 2>&1)" "Exit zero hook"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "a non-shell hook is left unchanged and the call to add is printed"
 make_app "Python hook"
@@ -171,7 +171,7 @@ assert_eq 0 "$RC"
 assert_eq "$BEFORE" "$(cat "$T/.git/hooks/pre-commit")" "hook untouched"
 assert_contains "$OUT" "listing-kit-review"
 assert_exec "$T/.git/hooks/listing-kit-review"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "husky 9: wires .husky/pre-commit, not the regenerated .husky/_/pre-commit"
 make_app "Husky"
@@ -182,7 +182,7 @@ bash "$SUT" "$T" >/dev/null
 assert_contains "$(cat "$T/.husky/pre-commit")" "listing-kit review refresh"
 assert_not_contains "$(cat "$T/.husky/_/pre-commit")" "listing-kit"
 assert_exec "$T/.husky/_/listing-kit-review"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "migrates a listing-kit 0.2 inline hook block"
 make_app "Legacy"
@@ -200,7 +200,7 @@ bash "$SUT" "$T" >/dev/null
 assert_not_contains "$(cat "$T/.git/hooks/pre-commit")" "BEGIN listing-kit"
 assert_contains "$(cat "$T/.git/hooks/pre-commit")" "listing-kit review refresh"
 if [ -x "$T/.git/hooks/pre-commit" ]; then fail "enabled disabled legacy hook"; else pass; fi
-rm -rf "$T"
+remove_fixture "$T"
 
 # --- what the page is built from ---
 it "the page reflects staged content, not unstaged edits"
@@ -212,7 +212,7 @@ git -C "$T" commit -qm "listing" >/dev/null 2>&1
 PAGE="$(git -C "$T" show HEAD:listing-review.html)"
 assert_contains "$PAGE" "Staged text"
 assert_not_contains "$PAGE" "Unstaged text"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "deletion-only commits refresh the page"
 make_app "Deletions"
@@ -222,7 +222,7 @@ git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
 git -C "$T" rm -q fastlane/metadata/en-US/promotional_text.txt
 git -C "$T" commit -qm "drop promo" >/dev/null 2>&1
 assert_not_contains "$(git -C "$T" show HEAD:listing-review.html)" "Promo to delete"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "registers several app roots in one repo"
 new_tempdir T; git -C "$T" init -q
@@ -236,7 +236,7 @@ done
 git -C "$T" add apps && git -C "$T" commit -qm "two listings" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:apps/one/listing-review.html)" "Description of apps/one"
 assert_contains "$(git -C "$T" show HEAD:apps/two/listing-review.html)" "Description of apps/two"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "app dirs with glob characters are matched literally"
 new_tempdir T; git -C "$T" init -q
@@ -250,7 +250,7 @@ bash "$SUT" "$T/apps/mobile[1]" >/dev/null
 git -C "$T" add apps && git -C "$T" commit -qm "listings" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show 'HEAD:apps/mobile[1]/listing-review.html')" "Description of apps/mobile[1]"
 assert_not_contains "$(git -C "$T" ls-files)" "apps/mobile1/listing-review.html" "the look-alike dir is untouched"
-rm -rf "$T"
+remove_fixture "$T"
 
 it "header-only and plan-only commits refresh from staged assets"
 new_tempdir T; git -C "$T" init -q
@@ -272,7 +272,7 @@ printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Duo":5}}}}' > "$T/.list
 git -C "$T" add .listing-kit/asset-plan.json
 git -C "$T" commit -qm "plan" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'iPhone Duo: 0 of 5 screenshots'
-rm -rf "$T"
+remove_fixture "$T"
 
 it "flow-only and app-config-only commits refresh validation from the index"
 new_tempdir T; git -C "$T" init -q
@@ -312,7 +312,7 @@ assert_contains "$PAGE" 'LISTING HAS FAILURES'
 git -C "$T" mv app.json retired-app.json
 git -C "$T" commit -qm "remove app config from listing inputs" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
-rm -rf "$T"
+remove_fixture "$T"
 
 it "reinstallation replaces the permissive v0.5.0 call and runner"
 make_app "Legacy call"
@@ -330,7 +330,7 @@ OUT="$(git -C "$T" commit -qm "secret" 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'fastlane/metadata/en-US/name.txt'
 if [ ! -e "$T/listing-review.html" ]; then pass "no review created"; else fail "wrote review"; fi
-rm -rf "$T"
+remove_fixture "$T"
 
 it "refuses a globally configured hooks path outside the repository before creating it"
 make_app "External hooks"
@@ -340,7 +340,7 @@ OUT="$(GIT_CONFIG_GLOBAL="$shared/global-config" bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'outside'
 if [ -e "$shared/missing" ]; then fail "created shared hooks directory"; else pass; fi
-rm -rf "$T" "$shared"
+remove_fixture "$T" "$shared"
 
 it "refuses an in-repo hooks path or hook file symlinked outside"
 make_app "Linked hooks"
@@ -360,7 +360,7 @@ for target in pre-commit listing-kit-review; do
   assert_eq '#!/bin/sh' "$(cat "$shared/original")" "preserves external $target"
   rm -f "$T/.hooks/pre-commit" "$T/.hooks/listing-kit-review"
 done
-rm -rf "$T" "$shared"
+remove_fixture "$T" "$shared"
 
 it "preserves a pre-existing shell hook's non-executable mode on install and reinstall"
 make_app "Disabled hook"
@@ -369,6 +369,6 @@ chmod 640 "$T/.git/hooks/pre-commit"
 bash "$SUT" "$T" >/dev/null
 bash "$SUT" "$T" >/dev/null
 if [ -x "$T/.git/hooks/pre-commit" ]; then fail "enabled existing hook"; else pass; fi
-rm -rf "$T"
+remove_fixture "$T"
 
 summary
