@@ -126,4 +126,14 @@ for stem in copyright primary_category; do
   rm -rf "$T"
 done
 
+
+it "stops before rendering a credential in a displayed field"
+printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$APP/fastlane/metadata/en-US/description.txt"
+echo 'previous safe page' > "$APP/listing-review.html"
+OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" 'description.txt'
+assert_not_contains "$OUT" '0123456789abcdefghijklmnopqrstuvwxyz'
+assert_eq 'previous safe page' "$(cat "$APP/listing-review.html")"
+
 summary

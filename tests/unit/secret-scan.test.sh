@@ -48,9 +48,8 @@ assert_eq 0 "$RC" "binary/screenshot files are not scanned for copy secrets"
 
 it "a scan error exits 2 instead of reporting clean"
 new_tempdir D; echo "harmless copy" > "$D/description.txt"
-new_stubdir
-printf '#!/usr/bin/env bash\nexit 2\n' > "$STUB_BIN/grep"; chmod +x "$STUB_BIN/grep"
-OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$D" 2>&1)"; RC=$?
+ln -s loop "$D/loop"
+OUT="$(bash "$SUT" "$D" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_not_contains "$OUT" "Secret scan clean"
 rm -rf "$D"
@@ -108,5 +107,45 @@ printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/asset-pla
 OUT="$(bash "$SUT" "$TREE/asset-plan.json" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" 'POTENTIAL SECRET'
+
+
+mktree
+for name in Fastfile .env setup.rb config.toml; do
+  it "scans listing text in $name"
+  printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/$name"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$name"
+  rm "$TREE/$name"
+done
+
+for name in .p8 cert.p8 cert.p12 cert.pem cert.key cert.jks cert.keystore demo_password.txt account.json; do
+  it "identifies credential file $name"
+  case "$name" in
+    demo_password.txt) echo 'short' > "$TREE/$name" ;;
+    account.json) printf '{"type":\n "service_account"}\n' > "$TREE/$name" ;;
+    *) printf '\0' > "$TREE/$name" ;;
+  esac
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$name"
+  rm "$TREE/$name"
+done
+
+it "identifies a credential filename even when the file is a symbolic link"
+ln -s unavailable "$TREE/upload.keystore"
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'upload.keystore'
+rm "$TREE/upload.keystore"
+
+it "skips binary content, fonts, empty demo passwords and nested raw captures"
+mkdir -p "$TREE/nested/.listing-kit/raw"
+printf 'AKIAIOSFODNN7EXAMPLE\0' > "$TREE/blob"
+printf 'AKIAIOSFODNN7EXAMPLE' > "$TREE/font.woff2"
+touch "$TREE/demo_password.txt" "$TREE/nested/.listing-kit/raw/device.key"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$TREE/nested/.listing-kit/raw/log.txt"
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
 
 summary

@@ -232,25 +232,21 @@ printf '%s\n' '{"expo":{"ios":{"supportsTablet":false}}}' > "$T/app.json"
 bash "$SUT" "$T" >/dev/null
 git -C "$T" add fastlane app.json && git -C "$T" commit -qm "phone listing" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
-mkdir -p "$T/.listing-kit/flows"
-printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/.listing-kit/flows/login.yaml"
-git -C "$T" add .listing-kit/flows && git -C "$T" commit -qm "add flow" >/dev/null 2>&1
-PAGE="$(git -C "$T" show HEAD:listing-review.html)"
-assert_contains "$PAGE" 'LISTING HAS FAILURES'
-assert_contains "$PAGE" 'flow secret scan: credentials inlined'
-git -C "$T" mv .listing-kit/flows/login.yaml retired-flow.yaml
-git -C "$T" commit -qm "move flow outside listing inputs" >/dev/null 2>&1
-assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
-it "creative-asset-only commits refresh validation for every asset folder"
-mkdir -p "$T/store-assets/promo"
-printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/store-assets/promo/notes.txt"
-git -C "$T" add store-assets && git -C "$T" commit -qm "add creative asset notes" >/dev/null 2>&1
-PAGE="$(git -C "$T" show HEAD:listing-review.html)"
-assert_contains "$PAGE" 'LISTING HAS FAILURES'
-assert_contains "$PAGE" 'creative asset secret scan: credentials found'
-git -C "$T" mv store-assets/promo/notes.txt retired-asset.txt
-git -C "$T" commit -qm "move notes outside creative assets" >/dev/null 2>&1
-assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+it "blocks credentials in staged listing inputs and leaves the previous page intact"
+page_hash="$(git -C "$T" rev-parse HEAD:listing-review.html)"
+for file in .listing-kit/flows/login.yaml store-assets/promo/notes.txt .listing-kit/settings/notes fastlane/metadata/en-US/description.txt app.config.js; do
+  mkdir -p "$(dirname "$T/$file")"
+  printf '%s%s\n' 'password: abc123' 'def456ghi789' > "$T/$file"
+  git -C "$T" add -- "$file"
+  echo 'safe unstaged edit' > "$T/$file"
+  OUT="$(git -C "$T" commit -qm "listing edit" 2>&1)"; RC=$?
+  assert_ne 0 "$RC" "blocks $file"
+  assert_contains "$OUT" "$file"
+  assert_not_contains "$OUT" 'abc123def456ghi789'
+  assert_eq "$page_hash" "$(git -C "$T" rev-parse :listing-review.html)" "index page unchanged"
+  assert_eq "$page_hash" "$(git -C "$T" hash-object listing-review.html)" "working page unchanged"
+  git -C "$T" reset -q HEAD -- "$file"
+done
 
 it "app-config-only commits use the staged device support settings"
 printf '%s\n' '{"expo":{"ios":{"supportsTablet":true}}}' > "$T/app.json"
@@ -264,6 +260,24 @@ assert_contains "$PAGE" 'LISTING HAS FAILURES'
 git -C "$T" mv app.json retired-app.json
 git -C "$T" commit -qm "remove app config from listing inputs" >/dev/null 2>&1
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+rm -rf "$T"
+
+it "reinstallation replaces the permissive v0.5.0 call and runner"
+make_app "Legacy call"
+cat > "$T/.git/hooks/pre-commit" <<'EOF'
+#!/bin/sh
+r="$(git rev-parse --git-path hooks)/listing-kit-review"; [ ! -x "$r" ] || "$r" || true # listing-kit review refresh
+exit 0
+EOF
+printf '#!/bin/bash\napps=()\napps+=(\x27\x27)\nexit 0\n' > "$T/.git/hooks/listing-kit-review"
+chmod +x "$T/.git/hooks/pre-commit" "$T/.git/hooks/listing-kit-review"
+bash "$SUT" "$T" >/dev/null
+printf 'AKIAIOSFODNN7EXAMPLE\n' > "$T/fastlane/metadata/en-US/name.txt"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -qm "secret" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" 'fastlane/metadata/en-US/name.txt'
+if [ ! -e "$T/listing-review.html" ]; then pass "no review created"; else fail "wrote review"; fi
 rm -rf "$T"
 
 summary

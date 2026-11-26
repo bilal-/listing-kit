@@ -5,7 +5,7 @@
 # output embedded verbatim. Open the file in any browser; no server needed.
 #
 # Usage: build-review.sh [<app-root>]    (default: current directory)
-# Exit:  0 = wrote listing-review.html, 1 = generation failed, 2 = usage / no fastlane / no python3.
+# Exit:  0 = wrote listing-review.html, 1 = generation failed, 2 = usage / scan error, 3 = credential found.
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
@@ -17,14 +17,16 @@ command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review p
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
-# Run the validator and strip ANSI so its output embeds cleanly. Never fail the
-# build on a validator non-zero exit — we embed whatever it reported.
-VAL_TXT="$(mktemp)"; trap 'rm -f "$VAL_TXT"' EXIT
-if [ -f "$VALIDATOR" ]; then
-  (cd "$ROOT" && bash "$VALIDATOR" .) 2>&1 | sed $'s/\x1b\\[[0-9;]*m//g' > "$VAL_TXT" || true
-else
-  echo "(validate-listing.sh not found; validation section omitted)" > "$VAL_TXT"
-fi
+# Render ordinary validation failures. A credential hit (3) or an incomplete
+# scan must return before the renderer opens the output file.
+VAL_TXT="$(mktemp)" || exit 2
+trap 'rm -f "$VAL_TXT"' EXIT
+rc=0
+(cd "$ROOT" && bash "$VALIDATOR" . --review) > "$VAL_TXT" 2>&1 || rc=$?
+case "$rc" in
+  0|1) ;;
+  *) cat "$VAL_TXT" >&2; exit "$rc" ;;
+esac
 
 OUT="$ROOT/listing-review.html"
 python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }

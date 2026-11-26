@@ -378,4 +378,17 @@ assert_eq 0 "$RC"
 assert_not_contains "$OUT" "locale .backup"
 rm -rf "$T"
 
+
+it "checks public .listing-kit files while excluding local settings and raw captures"
+mkdir -p "$APP/.listing-kit/raw" "$APP/.listing-kit/config"
+for file in local.json config/secrets.local raw/device.txt; do
+  echo 'AKIAIOSFODNN7EXAMPLE' > "$APP/.listing-kit/$file"
+done
+OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$APP/.listing-kit/config/notes"
+OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" '.listing-kit/config/notes'
+
 summary

@@ -114,10 +114,9 @@ The committed tree is the source of truth for non-secrets only. Login
 credentials, API tokens, and seed-data secrets live in a git-ignored
 `.listing-kit/secrets.local` or environment variables, and flows reference them
 rather than inlining them. `validate-listing.sh` runs `secret-scan.sh` on `fastlane/`,
-`store-assets/`, `.listing-kit/flows/`, and the public `.listing-kit/asset-plan.json`
-file. It checks known credential formats and generic `key = value` assignments;
-Assemble and Validate fail on a hit. Private `.listing-kit/secrets.local` files
-remain outside these scans.
+`store-assets/`, and public files under `.listing-kit/`. It skips `local.json`,
+`*.local`, and raw captures. Credentials in staged listing inputs block the
+commit before the review page is written.
 
 ## Store rules drift
 

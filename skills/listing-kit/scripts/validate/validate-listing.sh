@@ -19,6 +19,20 @@ pass(){ PASS=$((PASS+1)); printf '  %s✓%s %s\n' "$G" "$Z" "$1"; }
 fail(){ FAIL=$((FAIL+1)); printf '  %s✗%s %s\n' "$R" "$Z" "$1"; }
 warn(){ WARN=$((WARN+1)); printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 
+# Scan before evaluating copy or plans, whose diagnostics may quote their values.
+scan_rc=0
+bash "$LIB/secret-scan.sh" "$ROOT/fastlane" "$ROOT/store-assets" "$ROOT/.listing-kit" || scan_rc=$?
+if [ "$scan_rc" != 0 ]; then
+  echo "LISTING HAS FAILURES"
+  # The review builder needs to distinguish unsafe inputs from listing-rule failures.
+  if [ "${2:-}" = --review ]; then
+    [ "$scan_rc" = 1 ] && exit 3
+    exit 2
+  fi
+  exit 1
+fi
+pass "secret scan: clean"
+
 # Tab-separated facts for every PNG/JPEG directly in a dir (extension case-insensitive):
 #   W H DEPTH COLORTYPE BYTES APPLE_CLASS PATH   (colortype 2=RGB, 6=RGBA, 99=unreadable)
 images_in(){
@@ -245,17 +259,6 @@ fi
 if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ]; then
   warn "no App Store or Google Play listing content found under $ROOT/fastlane — nothing to validate"
 fi
-
-# ---------------- secrets ----------------
-scan(){ # dir label found-msg
-  local rc=0; bash "$LIB/secret-scan.sh" "$1" >/dev/null 2>&1 || rc=$?
-  case "$rc" in 0) pass "$2: clean";; 1) fail "$2: $3";; *) fail "$2: could not complete (exit $rc)";; esac
-}
-[ -d "$ROOT/fastlane" ] && scan "$ROOT/fastlane" "secret scan" "credentials found in committed tree"
-# Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
-[ -d "$ROOT/store-assets" ] && scan "$ROOT/store-assets" "creative asset secret scan" "credentials found in creative assets"
-[ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
-[ -f "$ROOT/.listing-kit/asset-plan.json" ] && scan "$ROOT/.listing-kit/asset-plan.json" "asset plan secret scan" "credentials found in asset-plan.json"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
 [ "$FAIL" -eq 0 ] && { echo "${G}LISTING VALID${Z}"; exit 0; } || { echo "${R}LISTING HAS FAILURES${Z}"; exit 1; }
