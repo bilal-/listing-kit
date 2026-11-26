@@ -3,6 +3,9 @@
 # Source this from a *.test.sh file, write assertions, end with `summary`.
 set -uo pipefail
 
+# A caller (including a Git hook) may have exported paths into its own repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+
 HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HELPER_DIR/.." && pwd)"
 SCRIPTS="$ROOT/skills/listing-kit/scripts"

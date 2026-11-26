@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import unquote
 
+UPLOAD = Path(".listing-kit/upload")
+SWAP = ".upload.listing-kit-swap"
 MARKER = ".listing-kit-upload"
 INDEX = "INDEX.md"
 ROW = re.compile(r"\| \d+ \| `([^`|]+)` \| `[^`|]*` \| `([0-9a-f]{64})` \|")
@@ -60,35 +62,27 @@ def digest(path):
     return h.hexdigest()
 
 
-def destination(root, arg):
-    path = Path(arg).absolute()
-    for part in (*reversed(path.parents), path):
-        if is_link(part):
-            raise ValueError("symlink in output path: %s" % part)
-    path = path.resolve()
-    # Compare folded components too, for case-insensitive macOS/Windows volumes.
-    folded = Path(str(path).casefold())
-    for name in ("fastlane", "store-assets"):
-        protected = Path(str(root / name).casefold())
-        if folded == protected or folded in protected.parents or protected in folded.parents:
-            raise ValueError("output overlaps the listing: %s" % path)
-    return path
-
-
 @contextmanager
-def lock_parent(parent):
+def locked_upload(root):
     """Serialize swaps and crash recovery; the OS releases the lock on process exit."""
-    parent.mkdir(parents=True, exist_ok=True)
+    upload = root / UPLOAD
+    parent = upload.parent
+    if is_link(parent):
+        raise ValueError("symlink in output path: %s" % parent)
+    parent.mkdir(exist_ok=True)
     if os.name == "nt":
         # Windows deletes this exclusive handle's file even on abnormal termination.
         fd = os.open(parent / ".listing-kit-handoff.lock", os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_TEMPORARY)
     else:
         import fcntl
-        fd = os.open(parent, os.O_RDONLY)
+        fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         if os.name != "nt":
             fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+        if is_link(upload):
+            raise ValueError("symlink in output path: %s" % upload)
+        _recover(upload)
+        yield upload
     finally:
         os.close(fd)
 
@@ -146,6 +140,8 @@ def owned_files(directory):
     if (is_link(marker) or not marker.is_file() or is_link(index) or not index.is_file()
             or marker.read_bytes() != (digest(index) + "\n").encode()):
         names = ", ".join(sorted(p.relative_to(directory).as_posix() for p in _entries(directory)))
+        if not names:
+            return {}
         raise ValueError("missing or modified %s or %s in %s (contents: %s)" % (MARKER, INDEX, directory, names))
     files = {MARKER: digest(marker), INDEX: digest(index)}
     for line in index.read_text(encoding="utf-8").split("\n"):
@@ -168,13 +164,9 @@ def _remove_tree(directory, files):
     directory.rmdir()
 
 
-def _transaction(out):
-    return out.parent / (".%s.listing-kit-swap" % out.name)
-
-
-def recover(out):
+def _recover(upload):
     """Restore the previous output first, even if this invocation's inputs are invalid."""
-    txn = _transaction(out)
+    txn = upload.with_name(SWAP)
     journal = txn.with_suffix(txn.suffix + ".json")
     if not os.path.lexists(txn) and not os.path.lexists(journal):
         return
@@ -182,19 +174,19 @@ def recover(out):
         raise ValueError("unrecognized handoff transaction: %s" % txn)
     record = json.loads(journal.read_text(encoding="utf-8"))
     if (not isinstance(record, dict) or record.get("format") != "listing-kit-handoff-swap-v1"
-            or record.get("out") != str(out) or not isinstance(record.get("stage"), list)
+            or record.get("out") != str(upload) or not isinstance(record.get("stage"), list)
             or not (record.get("previous") is None or isinstance(record["previous"], dict))):
         raise ValueError("unexpected handoff transaction: %s" % txn)
     old, stage = txn / "previous", txn / "stage"
     if os.path.lexists(old):
         if is_link(old) or not old.is_dir() or record.get("previous") is None:
             raise ValueError("unexpected backup: %s" % old)
-        if not os.path.lexists(out):
-            os.replace(old, out)
+        if not os.path.lexists(upload):
+            os.replace(old, upload)
         elif not os.path.lexists(stage):
             _remove_tree(old, record["previous"])
         else:
-            raise ValueError("cannot restore %s over %s" % (old, out))
+            raise ValueError("cannot restore %s over %s" % (old, upload))
     if os.path.lexists(stage):
         if (stage / MARKER).exists():
             stage_files = owned_files(stage)
@@ -202,9 +194,6 @@ def recover(out):
             stage_files = dict.fromkeys(record["stage"])
         _remove_tree(stage, stage_files)
     if txn.exists():
-        extras = [p.name for p in txn.iterdir()]
-        if extras:
-            raise ValueError("unexpected files in %s: %s" % (txn, ", ".join(extras)))
         txn.rmdir()
     journal.unlink()
 
@@ -237,17 +226,18 @@ def _write(stage, items, verified, root):
         dest.write((digest(index) + "\n").encode())
 
 
-def install(out, previous, items, verified, root):
-    txn = _transaction(out)
+def install(root, previous, items, verified):
+    upload = root / UPLOAD
+    txn = upload.with_name(SWAP)
     stage = txn / "stage"
     paths = [_target(stage, dest).relative_to(stage).as_posix() for _, dest, _, _ in items]
     # Write the recovery record before creating any payload or moving the old tree.
-    record = {"format": "listing-kit-handoff-swap-v1", "out": str(out),
+    record = {"format": "listing-kit-handoff-swap-v1", "out": str(upload),
               "stage": [INDEX, MARKER] + paths, "previous": previous}
     journal = txn.with_suffix(txn.suffix + ".json")
     # Publish a complete journal before making a work directory. Remove it last
     # during recovery, so interruption while creating/removing directories is retryable.
-    with tempfile.NamedTemporaryFile(dir=out.parent, mode="w", encoding="utf-8", delete=False) as pending:
+    with tempfile.NamedTemporaryFile(dir=upload.parent, mode="w", encoding="utf-8", delete=False) as pending:
         try:
             json.dump(record, pending)
             pending.close()
@@ -261,18 +251,18 @@ def install(out, previous, items, verified, root):
         stage.mkdir()
         _write(stage, items, verified, root)
         owned_files(stage)
-        if owned_files(out) != previous:
-            raise ValueError("output changed during build: %s" % out)
+        if owned_files(upload) != previous:
+            raise ValueError("output changed during build: %s" % upload)
         # Defer ordinary termination across the two renames and cleanup. The
         # journal also supports uncatchable termination or a Windows process exit.
         if hasattr(signal, "pthread_sigmask"):
             mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
         if previous is not None:
-            os.rename(out, txn / "previous")
-        os.rename(stage, out)
+            os.rename(upload, txn / "previous")
+        os.rename(stage, upload)
     finally:
         try:
-            recover(out)
+            _recover(upload)
         finally:
             if mask is not None:
                 signal.pthread_sigmask(signal.SIG_SETMASK, mask)

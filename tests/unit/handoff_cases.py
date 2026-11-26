@@ -38,19 +38,12 @@ class HandoffTests(unittest.TestCase):
         header = struct.pack(">I4sIIBBBBB", 13, b"IHDR", w, h, 8, 2, 0, 0, 0)
         return self.put(rel, b"\x89PNG\r\n\x1a\n" + header + bytes(4) + b"\0\0\0\0IDAT")
 
-    def run_build(self, *args, success=True):
+    def run_build(self, *, success=True):
         log = io.StringIO()
         with redirect_stderr(log), redirect_stdout(log):
-            rc = handoff.main([str(self.app)] + list(map(str, args)))
+            rc = handoff.main([str(self.app)])
         self.assertEqual(rc, 0 if success else 1, log.getvalue())
         return log.getvalue()
-
-    def test_01_protected_paths(self):
-        for target in (self.app / "fastlane/child", self.app / "store-assets/new",
-                       self.app / "fastlane", self.app / "store-assets", self.app, self.app.parent):
-            with self.subTest(target=target):
-                self.run_build("--out", target, success=False)
-                self.assertEqual(self.name.read_bytes(), b"Example")
 
     def test_01_ownership(self):
         self.run_build()
@@ -80,16 +73,27 @@ class HandoffTests(unittest.TestCase):
         (self.out / ".listing-kit-upload").touch()
         self.assertIn("personal.txt", self.run_build(success=False))
 
-    def test_02_special_destinations(self):
-        target = self.temp / "file"
-        target.write_text("mine")
-        link = self.temp / "alias"
-        link.symlink_to(self.temp / "project", target_is_directory=True)
-        for dest in (target, link, link / "child"):
-            with self.subTest(dest=dest):
-                self.run_build("--out", dest, success=False)
-        self.assertTrue(link.is_symlink())
-        self.assertEqual(target.read_text(), "mine")
+    def test_02_empty_upload(self):
+        self.out.mkdir(parents=True)
+        self.run_build()
+        self.assertTrue((self.out / "INDEX.md").is_file())
+
+    def test_02_upload_is_file(self):
+        self.put(".listing-kit/upload", b"mine")
+        self.run_build(success=False)
+        self.assertEqual(self.out.read_bytes(), b"mine")
+
+    def test_02_upload_links(self):
+        outside = self.temp / "outside"
+        outside.mkdir()
+        for link in (self.out.parent, self.out):
+            with self.subTest(link=link):
+                link.parent.mkdir(exist_ok=True)
+                link.symlink_to(outside, target_is_directory=True)
+                self.assertIn("symlink", self.run_build(success=False))
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(list(outside.iterdir()), [])
+                link.unlink()
 
     def test_02_rollback(self):
         self.run_build()
@@ -101,30 +105,34 @@ class HandoffTests(unittest.TestCase):
                     raise error
                 rename(src, dst)
             with self.subTest(error=type(error).__name__), patch.object(os, "rename", fail_install):
-                try:
+                with self.assertRaises(type(error)):
                     handoff.build(str(self.app))
-                except (OSError, KeyboardInterrupt):
-                    pass
                 self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
                 self.assertEqual(list(self.out.parent.iterdir()), [self.out])
 
-    def test_02_recover_after_process_death(self):
+    def interrupt_install(self, action):
         self.run_build()
         self.name.write_bytes(b"Changed")
         script = """
-import os, sys
+import os, signal, sys
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 import handoff
 rename = os.rename
 def interrupt(src, dst):
-    if str(dst) == sys.argv[3]:
-        os._exit(77)
-    rename(src, dst)
+    if Path(src).name == "stage":
+        if sys.argv[3] == "exit":
+            os._exit(77)
+        os.kill(os.getpid(), signal.SIGTERM)
+    return rename(src, dst)
 os.rename = interrupt
 handoff.build(sys.argv[2])
 """
-        proc = subprocess.run([sys.executable, "-c", script, str(SCRIPTS / "handoff"), str(self.app), str(self.out)])
-        self.assertEqual(proc.returncode, 77)
+        return subprocess.run([sys.executable, "-c", script, str(SCRIPTS / "handoff"),
+                               str(self.app), action]).returncode
+
+    def test_02_recover_after_process_death(self):
+        self.assertEqual(self.interrupt_install("exit"), 77)
         self.name.write_bytes(b"\xff")
         self.run_build(success=False)
         self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
@@ -132,22 +140,7 @@ handoff.build(sys.argv[2])
 
     @unittest.skipUnless(os.name == "posix", "POSIX termination signals")
     def test_02_termination_during_install(self):
-        self.run_build()
-        self.name.write_bytes(b"Changed")
-        script = """
-import os, signal, sys
-sys.path.insert(0, sys.argv[1])
-import handoff
-rename = os.rename
-def terminate(src, dst):
-    if str(dst) == sys.argv[3]:
-        os.kill(os.getpid(), signal.SIGTERM)
-    rename(src, dst)
-os.rename = terminate
-handoff.build(sys.argv[2])
-"""
-        proc = subprocess.run([sys.executable, "-c", script, str(SCRIPTS / "handoff"), str(self.app), str(self.out)])
-        self.assertLess(proc.returncode, 0)
+        self.assertLess(self.interrupt_install("signal"), 0)
         self.assertIn((self.out / "apple/en-US/text/name.txt").read_bytes(), [b"Example", b"Changed"])
         self.assertEqual(list(self.out.parent.iterdir()), [self.out])
 

@@ -91,9 +91,11 @@ mkdir -p "$T/empty"
 python3 "$SUT" "$T/empty" >/dev/null 2>&1; assert_eq 1 "$?" "exit 1"
 assert_no_file "$T/empty/.listing-kit/upload/INDEX.md"
 
-it "--out writes elsewhere, and bad usage exits 2"
-python3 "$SUT" "$A" --out "$T/elsewhere" >/dev/null 2>&1; assert_eq 0 "$?" "exit 0"
-assert_file "$T/elsewhere/INDEX.md"
+it "rejects --out and other bad usage with exit 2"
+OUT="$(python3 "$SUT" "$A" --out "$T/elsewhere" 2>&1)"; RC=$?
+assert_eq 2 "$RC" "removed --out flag"
+assert_contains "$OUT" "usage:"
+assert_no_file "$T/elsewhere"
 python3 "$SUT" >/dev/null 2>&1; assert_eq 2 "$?" "no args"
 python3 "$SUT" "$T/nope" >/dev/null 2>&1; assert_eq 2 "$?" "missing dir"
 

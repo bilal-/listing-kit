@@ -17,7 +17,7 @@ console slot, with the text fields, graphics and an index:
 The fastlane tree stays the source. The folder is built in a temporary directory and
 swapped in only when complete. Standard library only.
 
-Usage: handoff.py <app-root> [--out <dir>] [--open]
+Usage: handoff.py <app-root> [--open]
 Exit:  0 built, 1 nothing to hand over or a file could not be placed, 2 usage.
 """
 import argparse
@@ -36,8 +36,6 @@ import imginfo
 import listing
 import specs
 import handoff_output as output
-
-OUT_REL = Path(".listing-kit/upload")
 
 
 class Plan:
@@ -270,18 +268,16 @@ def inventory(root):
     return plan, data
 
 
-def build(root, out=None):
-    """Write the folder. Returns (out path, item count, problems)."""
+def build(root):
+    """Write the folder. Returns (upload path, item count, problems)."""
     root = Path(root).resolve()
-    destination = output.destination(root, out if out is not None else root / OUT_REL)
-    with output.lock_parent(destination.parent):
-        output.recover(destination)
+    with output.locked_upload(root) as destination:
         previous = output.owned_files(destination)
         plan, data = inventory(root)
         if not plan.items and not plan.problems:
             plan.problems.append("nothing to hand over from %s" % root)
         if not plan.problems:
-            output.install(destination, previous, plan.items, data["verified"], root)
+            output.install(root, previous, plan.items, data["verified"])
     return str(destination), len(plan.items), plan.problems
 
 
@@ -306,17 +302,16 @@ def open_folder(path):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("root")
-    parser.add_argument("--out")
     parser.add_argument("--open", action="store_true")
     try:
         args = parser.parse_args(argv)
     except SystemExit as error:
         return error.code
-    if not os.path.isdir(args.root) or args.out == "":
+    if not os.path.isdir(args.root):
         parser.print_usage(sys.stderr)
         return 2
     try:
-        path, count, problems = build(args.root, args.out)
+        path, count, problems = build(args.root)
     except (OSError, ValueError, specs.SpecsError) as e:
         sys.stderr.write("handoff: %s\n" % e)
         return 1
