@@ -176,4 +176,38 @@ OUT="$(bash "$SUT" "$app/.listing-kit" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" local.json
 
+for copy in 'Password: 12-character minimum' 'Token: ERC20-compatible wallets' 'Password: auto-generated, synced' 'apiKey: Env.GOOGLE_API_KEY,'; do
+  it "permits ordinary copy or reference: $copy"
+  echo "$copy" > "$TREE/en-US/description.txt"
+  bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 0 "$?"
+done
+for key in 'accessToken=' 'authToken:' 'dbPassword=' 'mypassword='; do
+  it "detects credential assignment $key"
+  echo "${key}abc123def456ghi789" > "$TREE/en-US/description.txt"
+  bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 1 "$?"
+done
+it "ignores components above the scan root and treats credential prefixes case-sensitively"
+mkdir -p "$TREE/xoxo-valentines-app/fastlane"
+echo 'GHP_0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/xoxo-valentines-app/fastlane/name"
+bash "$SUT" "$TREE/xoxo-valentines-app/fastlane" >/dev/null 2>&1; assert_eq 0 "$?"
+
+
+it "finds an assignment inside a longer field value"
+mktree
+echo 'note: accessToken=abc123def456ghi789' > "$TREE/en-US/description.txt"
+bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 1 "$?"
+
+it "recognizes PDF, Photoshop and preview media by path and signature"
+new_tempdir media
+python3 - "$media" <<'PYMEDIA'
+from pathlib import Path
+import sys
+for ext, magic in (("pdf", b"%PDF-1.7"), ("psd", b"8BPS\0\1" + b"\0"*6),
+                   ("mp4", b"\0\0\0\x18ftypisom"), ("mov", b"\0\0\0\x18ftypqt  ")):
+    (Path(sys.argv[1]) / ("asset." + ext)).write_bytes(magic + b"\0AKIAIOSFODNN7EXAMPLE")
+PYMEDIA
+bash "$SUT" "$media" >/dev/null 2>&1; assert_eq 0 "$?"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$media/plain.mp4"
+bash "$SUT" "$media" >/dev/null 2>&1; assert_eq 1 "$?"
+
 summary

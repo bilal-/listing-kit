@@ -15,6 +15,9 @@ ROOT="${1:-.}"
 command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review page." >&2; exit 2; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "${2:-}" != --prepared ]; then
+  exec python3 -I -B "$SELF_DIR/../lib/review_inputs.py" "$SELF_DIR/${BASH_SOURCE[0]##*/}" "$ROOT" "${@:2}"
+fi
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
 # Render ordinary validation failures. A credential hit (3) or an incomplete
@@ -22,7 +25,7 @@ VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 VAL_TXT="$(mktemp)" || exit 2
 trap 'rm -f "$VAL_TXT"' EXIT
 rc=0
-(cd "$ROOT" && bash "$VALIDATOR" . --review) > "$VAL_TXT" 2>&1 || rc=$?
+(cd "$ROOT" && bash "$VALIDATOR" . --prepared --review) > "$VAL_TXT" 2>&1 || rc=$?
 case "$rc" in
   0|1) ;;
   *) cat "$VAL_TXT" >&2; exit "$rc" ;;

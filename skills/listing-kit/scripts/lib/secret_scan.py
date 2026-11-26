@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import re
 import sys
@@ -13,18 +14,21 @@ TOKEN = re.compile(
     rb"sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}|"
     rb"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{24,}|"
     rb"ey[A-Za-z0-9_-]{8,}\.ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
-    rb"bearer[ \t]+[A-Za-z0-9._~+/-]{20,})|"
-    rb'aws_secret_access_key|github_pat_[A-Za-z0-9_]{22,}|AIza[0-9A-Za-z_-]{35}|'
-    rb'"(?:private_key_id|private_key)"[ \t]*:|-----BEGIN [A-Z ]*PRIVATE KEY-----',
-    re.I,
+    rb"(?i:bearer)[ \t]+[A-Za-z0-9._~+/-]{20,})|"
+    rb'(?i:aws_secret_access_key)|github_pat_[A-Za-z0-9_]{22,}|AIza[0-9A-Za-z_-]{35}|'
+    rb'(?i:"(?:private_key_id|private_key)"[ \t]*:|-----BEGIN [A-Z ]*PRIVATE KEY-----)',
 )
 # AWS IDs are uppercase. Lowercase "asia..." in an ordinary URL is clean.
 AWS = re.compile(BOUNDARY + rb"(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])")
 ASSIGNMENT = re.compile(
-    BOUNDARY + rb"""(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|client[_-]?secret|secret|password|passwd|token|bearer)"""
-    rb"""["']?[ \t]*[:=][ \t]*(?P<quote>["']?)(?P<value>[A-Za-z0-9/_+.=-]{12,})""",
-    re.I,
+    BOUNDARY + rb"""(?P<key>[A-Za-z][A-Za-z0-9_-]*)["']?[ \t]*(?P<op>[:=])[ \t]*"""
 )
+VALUE = re.compile(
+    rb"""(?P<quote>["']?)(?P<value>[A-Za-z0-9/_+.=-]{12,})""",
+)
+SENSITIVE_KEYS = {b"apikey", b"clientsecret", b"secret", b"password", b"mypassword",
+                  b"passwd", b"token", b"bearer"}
+REFERENCE = re.compile(rb"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+")
 # Require a digit in the value or an assignment terminator, so ordinary copy
 # such as "Password: synchronization made easy" does not match.
 TERMINATOR = re.compile(rb"""["',;}]|[ \t\r]*$""", re.M)
@@ -32,8 +36,18 @@ ACCOUNT = re.compile(rb'"type"\s*:\s*"service_account"')
 KEY_SUFFIXES = (".p8", ".p12", ".pem", ".key", ".jks", ".keystore")
 # Text store fields and JSON are always scanned, including malformed fields.
 def binary_media(path, head):
-    if path.suffix.lower() in (".txt", ".json"):
+    suffix = path.suffix.lower()
+    if suffix not in ("", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".ico", ".bmp", ".gif",
+                      ".woff", ".woff2", ".otf", ".ttf", ".ttc", ".webp", ".avif", ".heic",
+                      ".heif", ".pdf", ".psd", ".mp4", ".mov"):
         return False
+    if suffix == ".pdf" and re.match(rb"%PDF-\d\.\d", head):
+        return True
+    if suffix == ".psd" and head.startswith(b"8BPS\x00\x01" + b"\0" * 6):
+        return True
+    if suffix in (".mp4", ".mov") and (head[4:8] == b"ftyp" or
+            (suffix == ".mov" and head[4:8] in (b"moov", b"mdat", b"wide"))):
+        return True
     if head.startswith((b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", b"\xff\xd8\xff",
                         b"II*\x00", b"MM\x00*", b"\x00\x00\x01\x00")):
         return True
@@ -55,15 +69,32 @@ def secret_text(data):
     if TOKEN.search(data) or AWS.search(data) or ACCOUNT.search(data):
         return True
     for match in ASSIGNMENT.finditer(data):
-        value = match["value"]
-        if not match["quote"] and re.fullmatch(rb"process\.env\.[A-Za-z_][A-Za-z0-9_]*", value):
+        key = re.sub(rb"([a-z0-9])([A-Z])", rb"\1_\2", match["key"])
+        words = re.split(rb"[_-]+", key.lower())
+        if words[-1] not in SENSITIVE_KEYS and b"".join(words[-2:]) not in SENSITIVE_KEYS:
             continue
-        if re.search(rb"[0-9]", value) or TERMINATOR.match(data, match.end()):
+        literal = VALUE.match(data, match.end())
+        if not literal:
+            continue
+        value = literal["value"]
+        if not literal["quote"]:
+            if REFERENCE.fullmatch(value):
+                continue
+            # A colon followed by a hyphenated modifier and further prose.
+            if (match["op"] == b":" and b"-" in value
+                    and re.match(rb",?[ \t]+[A-Za-z]", data[literal.end():])):
+                continue
+        if re.search(rb"[0-9]", value) or TERMINATOR.match(data, literal.end()):
             return True
     return False
 
 
 def secret_content(path, data):
+    if path.name == "demo_password.txt":
+        try:
+            return bool(data.decode("utf-8").strip())
+        except UnicodeError:
+            return True
     if secret_text(data):
         return True
     if b"\0" in data:
@@ -100,54 +131,74 @@ def private_local(path):
     return ".listing-kit" in path.parts and (path.name == "local.json" or path.name.endswith(".local"))
 
 
-def tracked(path):
-    # A local-only file in an app outside Git can be ignored too. Other Git
-    # errors must reach the caller as an incomplete scan.
+def git_files(path, *args):
+    """Return paths relative to cwd, or an empty set outside a worktree."""
+    if shutil.which("git") is None:
+        return set()
     env = dict(os.environ, LC_ALL="C")
-    repo = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=path.parent, env=env,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if repo.returncode and b"not a git repository" in repo.stderr:
-        return False
-    repo.check_returncode()
-    return bool(subprocess.check_output(["git", "ls-files", "-z", "--", ":(literal)" + path.name],
-                                        cwd=path.parent, env=env))
+    result = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=path,
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode and b"not a git repository" in result.stderr:
+        return set()
+    result.check_returncode()
+    data = subprocess.check_output(["git", "ls-files", "-z", *args], cwd=path, env=env)
+    return {Path(os.fsdecode(item)) for item in data.split(b"\0") if item}
 
+def tracked(path):
+    return bool(git_files(path.parent, "--", ":(literal)" + path.name))
 
 def sensitive_name(path):
     return any(secret_text(os.fsencode(part)) for part in path.parts)
 
 
-def credential_file(path, size):
-    return path.name.lower().endswith(KEY_SUFFIXES) or (path.name == "demo_password.txt" and size > 0)
+def credential_file(path):
+    return path.name.lower().endswith(KEY_SUFFIXES)
 
 
 def report(path):
     label = "[redacted path]" if sensitive_name(path) else str(path)
-    print(f"POTENTIAL SECRET in committed listing: {label}", file=sys.stderr)
+    message = f"POTENTIAL SECRET in committed listing: {label}"
+    if path.name == "demo_password.txt":
+        message += " (keep the demo password out of the repo; supply it via the environment at upload)"
+    print(message, file=sys.stderr)
+
+def file_secret(path):
+    with path.open("rb") as stream:
+        head = stream.read(32)
+        return not binary_media(path, head) and secret_content(path, head + stream.read())
 
 
-def scan(path):
+def scan(path, base, ignored, roots):
+    relative = path.relative_to(base)
+    if relative in ignored:
+        return
     try:
-        if private_local(path) and not path.is_dir():
+        if private_local(relative) and not path.is_dir():
             if tracked(path):
-                report(path)
+                report(relative)
                 yield 1
             return
-        if sensitive_name(path) or path.name.lower().endswith(KEY_SUFFIXES):
-            report(path)
+        if sensitive_name(relative) or credential_file(relative):
+            report(relative)
             yield 1
         elif path.is_symlink():
-            raise OSError("symbolic link")
+            target = Path(os.readlink(path))
+            if secret_text(os.fsencode(target)):
+                report(relative)
+                yield 1
+            elif target.is_absolute() or not any(root == path.resolve() or root in path.resolve().parents
+                                                  for root in roots):
+                raise OSError("symbolic link leaves scan root")
+            elif path.is_file() and file_secret(path):
+                report(relative)
+                yield 1
         elif path.is_dir():
             for child in path.iterdir():
-                yield from scan(child)
+                yield from scan(child, base, ignored, roots)
         elif path.is_file():
-            with path.open("rb") as stream:
-                head = stream.read(32)
-                if credential_file(path, len(head)) or (
-                        not binary_media(path, head) and secret_content(path, head + stream.read())):
-                    report(path)
-                    yield 1
+            if file_secret(path):
+                report(relative)
+                yield 1
         elif path.exists():
             raise OSError("unsupported file type")
     except (OSError, subprocess.SubprocessError):
@@ -156,7 +207,19 @@ def scan(path):
 
 
 def main(paths):
-    results = {result for name in paths for result in scan(Path(name))}
+    results = set()
+    roots = [Path(p).resolve() for p in paths if not Path(p).is_symlink()]
+    for name in paths:
+        path = Path(name).absolute()
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            ignored = git_files(path.parent, "--others", "--ignored", "--exclude-standard",
+                                "--directory", "--", ":(literal)" + path.name)
+            results.update(scan(path, path.parent, ignored, roots))
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            print("ERROR: secret scan could not complete", file=sys.stderr)
+            results.add(2)
     if 1 in results:
         return 1
     if 2 in results:

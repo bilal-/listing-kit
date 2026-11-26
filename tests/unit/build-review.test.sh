@@ -159,4 +159,33 @@ bash "$SUT" "$APP" >/dev/null || fail "ordinary malformed copy prevented review"
 if grep -aq 'malformed field prefix' "$APP/listing-review.html"; then fail "copied invalid field"; else pass; fi
 assert_contains "$(cat "$APP/listing-review.html")" 'contains NUL'
 
+it "manual validation and build exclude ignored inputs and report unsafe names while continuing"
+new_tempdir T
+cp -R "$APP/fastlane" "$T/"
+git -C "$T" init -q
+printf 'AuthKey_ABC.p8\nignored.png\nsubtitle.txt\n' > "$T/.gitignore"
+touch "$T/fastlane/AuthKey_ABC.p8"
+echo 'Ignored marketing message' > "$T/fastlane/metadata/en-US/subtitle.txt"
+fake_png "$T/fastlane/screenshots/en-US/ignored.png" 1206 2622
+unsafe=AKIAIOSFODNN7EXAMPLE
+fake_png "$T/fastlane/screenshots/en-US/$unsafe.png" 1206 2622
+OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$OUT" '[redacted path]'
+assert_contains "$OUT" 'LISTING HAS FAILURES'
+OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '[redacted path]'
+assert_contains "$PAGE" 'LISTING HAS FAILURES'
+assert_not_contains "$PAGE" "$unsafe"
+assert_not_contains "$PAGE" 'Ignored marketing message'
+assert_not_contains "$PAGE" ignored.png
+assert_not_contains "$PAGE" AuthKey_ABC
+rm "$T/fastlane/screenshots/en-US/$unsafe.png"
+mkdir -p "$T/fastlane/metadata/review_information"
+echo abc > "$T/fastlane/metadata/review_information/demo_password.txt"
+OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$OUT" 'environment at upload'
+OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
+assert_contains "$(cat "$T/listing-review.html")" 'environment at upload'
+
 summary
