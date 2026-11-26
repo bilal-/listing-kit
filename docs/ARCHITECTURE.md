@@ -90,7 +90,9 @@ The agent handles judgment; anything that must be exact is a script with tests.
 
 Shared logic lives once in `scripts/lib/`:
 
-- `imginfo.py` reads PNG/JPEG headers (size, depth, alpha) with no ImageMagick.
+- `imginfo.py` checks PNG/JPEG stream structure (size, depth, alpha, CRCs, row
+  filters, tables) in pure Python and runs a full pixel decode via ImageMagick
+  when installed (`--decode`).
 - `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
 - `fields.py` defines every copy field's limit, unit, and required flag.
 - `listing.py` discovers locales and images within the fastlane tree.
