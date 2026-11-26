@@ -100,7 +100,7 @@ summary() {
   [ "$FAIL" -eq 0 ]
 }
 
-# --- tiny image fixtures (headers + minimal data; enough for lib/imginfo.py) ---
+# --- tiny structurally complete image fixtures (zero-filled scanlines/MCUs) ---
 # fake_png <path> <w> <h> [depth=8] [colortype=2] [trns]   (pass "trns" to add a tRNS chunk)
 fake_png() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
 import struct, sys, zlib
@@ -108,16 +108,35 @@ p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 depth = int(sys.argv[4]) if len(sys.argv) > 4 else 8
 ct = int(sys.argv[5]) if len(sys.argv) > 5 else 2
 def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
-extra = chunk(b"tRNS", b"\0\0\0\0\0\0") if "trns" in sys.argv[6:] else b""
+ch = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
+total = h * (1 + (w * ch * depth + 7) // 8)
+comp = zlib.compressobj(1)
+z = bytearray()
+blk = b"\x00" * min(65536, total)
+rem = total
+while rem:
+    n = min(len(blk), rem)
+    z.extend(comp.compress(blk if n == len(blk) else blk[:n]))
+    rem -= n
+z.extend(comp.flush())
+plte = chunk(b"PLTE", b"\x00\x00\x00") if ct == 3 else b""
+trns = chunk(b"tRNS", b"\x00" * {0: 2, 2: 6, 3: 1}.get(ct, 6)) if "trns" in sys.argv[6:] else b""
 open(p, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, ct, 0, 0, 0))
-                    + extra + chunk(b"IDAT", zlib.compress(b"\0")) + chunk(b"IEND", b""))
+                    + plte + trns + chunk(b"IDAT", bytes(z)) + chunk(b"IEND", b""))
 PY
 }
-# fake_jpeg <path> <w> <h>   (8-bit, 3-component baseline JPEG header)
+# fake_jpeg <path> <w> <h>   (8-bit, 3-component baseline JPEG with DQT, DHT, SOF0, SOS, scan, EOI)
 fake_jpeg() { mkdir -p "$(dirname "$1")"; python3 - "$@" <<'PY'
 import struct, sys
 p, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-sof = struct.pack(">BHHB", 8, h, w, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
-open(p, "wb").write(b"\xff\xd8\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9")
+def seg(m, d): return b"\xff" + bytes([m]) + struct.pack(">H", len(d) + 2) + d
+dqt = seg(0xDB, b"\x00" + b"\x10" * 64)
+sof = seg(0xC0, struct.pack(">BHHB", 8, h, w, 3) + b"\x01\x22\x00\x02\x11\x00\x03\x11\x00")
+dht = seg(0xC4, b"\x00\x01" + b"\x00" * 15 + b"\x00") + seg(0xC4, b"\x10\x01" + b"\x00" * 15 + b"\x00")
+sos = seg(0xDA, b"\x03\x01\x00\x02\x00\x03\x00\x00\x3f\x00")
+bits = max(1, ((w + 15) // 16) * ((h + 15) // 16)) * 12
+rem = bits % 8
+scan = b"\x00" * (bits // 8) + (bytes([(1 << (8 - rem)) - 1]) if rem else b"")
+open(p, "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + scan + b"\xff\xd9")
 PY
 }

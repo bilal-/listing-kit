@@ -4,6 +4,9 @@
 unset LISTING_KIT_HOME CODEX_HOME
 
 SUT="$SCRIPTS/package/install-review-hook.sh"
+# A caller running tests from a Git hook can export its live index and gitdir.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 make_app() {
   new_tempdir T

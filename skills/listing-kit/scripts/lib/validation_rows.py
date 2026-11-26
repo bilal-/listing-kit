@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apple_assets
 import fields
-from imginfo import image_row
+from imginfo import validation_rows
 import listing
 
 
@@ -27,14 +27,18 @@ def collect(root, cache):
 
     def screenshots(directory):
         write(Path("shots") / directory.relative_to(root) / "rows",
-              (image_row(p) for p in listing.images(directory)))
+              validation_rows(listing.images(directory)))
 
     apple = list(map(Path, apple_assets.apple_locales(root)))
     play = list(map(Path, listing.play_locales(fl)))
+    write("apple-present", [int(apple_assets.has_apple_listing(root))])
     write("apple-locales", apple)
     write("play-locales", play)
     for directory in apple:
         copy_fields("apple", directory, listing.apple_default(fl))
+    default = fl / "metadata" / "default"
+    if not apple and default.is_dir():
+        copy_fields("apple", default)
     copy_fields("apple-app", fl / "metadata")
     for directory in (fl / "screenshots").glob("*"):
         if directory.is_dir():
@@ -46,8 +50,8 @@ def collect(root, cache):
             screenshots(images / (device + "Screenshots"))
         for image in listing.images(images):
             path = Path(image)
-            if path.stem in ("featureGraphic", "icon"):
-                write(Path("graphics") / path.relative_to(root), [image_row(image)])
+            if path.stem in ("featureGraphic", "icon", "tvBanner"):
+                write(Path("graphics") / path.relative_to(root), validation_rows([image]))
 
 
 if __name__ == "__main__":

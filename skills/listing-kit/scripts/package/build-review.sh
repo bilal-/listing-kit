@@ -20,19 +20,36 @@ if [ "${2:-}" != --prepared ]; then
 fi
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
-# Render ordinary validation failures. A credential hit (3) or an incomplete
-# scan must return before the renderer opens the output file.
-VAL_TXT="$(mktemp)" || exit 2
-trap 'rm -f "$VAL_TXT"' EXIT
-rc=0
-(cd "$ROOT" && bash "$VALIDATOR" . --prepared --review) > "$VAL_TXT" 2>&1 || rc=$?
-case "$rc" in
-  0|1) ;;
-  *) cat "$VAL_TXT" >&2; exit "$rc" ;;
+# Keep the transcript visible even if the validator exits without a matching verdict.
+VAL_RAW="$(mktemp)"; VAL_TXT="$(mktemp)"
+trap 'rm -f "$VAL_RAW" "$VAL_TXT"' EXIT
+if [ ! -f "$VALIDATOR" ]; then
+  echo "Error: failed to capture validation transcript (missing $VALIDATOR)." >&2
+  exit 1
+fi
+val_rc=0
+bash "$VALIDATOR" "$ROOT" --prepared --review >"$VAL_RAW" 2>&1 || val_rc=$?
+case "$val_rc" in
+  3|4) cat "$VAL_RAW" >&2; [ "$val_rc" = 3 ] && exit 3; exit 2 ;;
+esac
+if ! LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' "$VAL_RAW" > "$VAL_TXT"; then
+  echo "Error: failed to capture validation transcript." >&2
+  exit 1
+fi
+verdict="$(awk 'NF {last=$0} END {print last}' "$VAL_TXT")"
+crash=""
+case "$val_rc/$verdict" in
+  "0/LISTING VALID"|"1/LISTING HAS FAILURES") ;;
+  *) crash="validator crashed (exit $val_rc): missing or inconsistent final verdict"
+     echo "$crash" >&2
+     # A crash may precede the validator's scan. Scan before rendering its report.
+     scan_rc=0
+     bash "$SELF_DIR/../lib/secret-scan.sh" "$ROOT/fastlane" "$ROOT/store-assets" "$ROOT/.listing-kit" >/dev/null || scan_rc=$?
+     case "$scan_rc" in 0) ;; 1) exit 3 ;; *) exit 2 ;; esac ;;
 esac
 
 OUT="$ROOT/listing-review.html"
-python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
+python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -75,7 +92,7 @@ except (OSError, ValueError):
 # ---- iOS (deliver) ----
 ios_locs = apple_assets.apple_locales(root)
 apple_default = listing.apple_default(FL)
-if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
+if apple_assets.has_apple_listing(root):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
@@ -90,6 +107,9 @@ if ios_locs or os.path.isdir(os.path.join(FL, "screenshots")):
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
                     for f in images(apple_assets.header_dir(root, loc))]
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
+    if not locs and apple_default:
+        locs.append(dict(locale="default", fields=store_fields.rows("apple", apple_default),
+                         shots={}, graphics=[], deferred={}))
     applevel = store_fields.rows("apple-app", os.path.join(FL, "metadata"))
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
@@ -108,8 +128,8 @@ if os.path.isdir(A):
             if fs:
                 shots[lbl] = [os.path.relpath(f, root) for f in fs]
         graphics = []
-        # supply uploads images/featureGraphic.<ext> and images/icon.<ext> directly.
-        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon")]:
+        # supply reads the graphics directly from the locale images directory.
+        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon"), ("tvBanner", "TV banner")]:
             for f in images(os.path.join(ld, "images")):
                 if os.path.splitext(os.path.basename(f))[0].lower() == name.lower():
                     graphics.append((lbl, os.path.relpath(f, root), dims(f)))
@@ -117,6 +137,8 @@ if os.path.isdir(A):
     platforms["Android"] = dict(locales=locs, applevel=[])
 
 val_output = read(val_txt) or ""
+if sys.argv[5]:
+    val_output = sys.argv[5] + "\n\n" + val_output
 
 # ---- render helpers ----
 def badge(r):
@@ -179,7 +201,16 @@ for i, (plat, data) in enumerate(platforms.items()):
         right = render_shots(L["shots"]) + render_deferred(L.get("deferred", {})) + render_graphics(L["graphics"])
         body.append(f'<div class="loc"><div class="loclabel">locale: {esc(L["locale"])}</div>'
                     f'<div class="cols"><div class="left">{left}</div><div class="right">{right}</div></div></div>')
+    if not body and data["applevel"]:
+        left = "".join(render_field(r) for r in data["applevel"])
+        body.append('<div class="loc"><div class="loclabel">app-level metadata</div>'
+                    f'<div class="cols"><div class="left">{left}</div>'
+                    '<div class="right"><p class="muted">No locale folders.</p></div></div></div>')
     panels.append(f'<section class="panel{on}" id="p-{plat}">{"".join(body)}</section>')
+if not panels:
+    panels.append('<section class="panel on" id="p-empty">'
+                  '<p class="muted">Nothing to validate — no App Store or Google Play listing was found.</p>'
+                  '</section>')
 
 for plat in ("iOS", "Android"):
     if plat in platforms and platforms[plat]["locales"]:
@@ -250,3 +281,4 @@ open(out_path, "w", encoding="utf-8").write(page)
 print(f"Wrote {out_path}")
 PY
 echo "Open it in a browser: $OUT"
+[ -z "$crash" ]

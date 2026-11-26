@@ -187,5 +187,74 @@ OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?
 assert_contains "$OUT" 'environment at upload'
 OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
 assert_contains "$(cat "$T/listing-review.html")" 'environment at upload'
+it "produces a review page with #p-empty saying Nothing to validate when fastlane/ has no store listing"
+new_tempdir T; mkdir -p "$T/fastlane"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_file "$T/listing-review.html"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '<section class="panel on" id="p-empty"><p class="muted">Nothing to validate'
+assert_not_contains "$PAGE" "LISTING VALID"
+rm -rf "$T"
+
+it "ignores an unrelated fastlane/metadata/README.md on a Play-only listing"
+new_tempdir T; cp -R "$APP/fastlane" "$T/"
+rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
+printf '# Metadata notes\n' > "$T/fastlane/metadata/README.md"
+mkdir -p "$T/fastlane/metadata/notes" "$T/fastlane/screenshots/notes"
+touch "$T/fastlane/metadata/notes/README.md" "$T/fastlane/screenshots/notes/README.md"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" 'data-p="Android"'
+assert_not_contains "$PAGE" 'data-p="iOS"'
+rm -rf "$T"
+
+it "agrees with validate-listing.sh when fastlane/ is empty and asset-plan.json is malformed"
+new_tempdir T; mkdir -p "$T/fastlane" "$T/.listing-kit"
+printf '{invalid\n' > "$T/.listing-kit/asset-plan.json"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '== Apple App Store =='
+assert_contains "$PAGE" 'id="p-iOS"'
+assert_not_contains "$PAGE" 'id="p-empty"'
+rm -rf "$T"
+
+it "shows escaped crash output and accepts only matching terminal verdicts"
+new_tempdir SHIM
+cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
+mkdir -p "$SHIM/validate"
+new_tempdir T; mkdir -p "$T/fastlane"
+for spec in '1|unexpected <exception>' '2|LISTING HAS FAILURES' '0|LISTING VALID\nLISTING HAS FAILURES' '1|LISTING VALID' '0|LISTING VALID\nTraceback' '1|RuntimeError: nothing to validate handler failed' '1|nothing to validate'; do
+  printf 'printf "%%b\\n" "%s"\nexit %s\n' "${spec#*|}" "${spec%%|*}" > "$SHIM/validate/validate-listing.sh"
+  OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "crash or mismatched terminal verdict fails build-review"
+  PAGE="$(cat "$T/listing-review.html" 2>/dev/null)"
+  assert_contains "$PAGE" "validator crashed"
+  case "$spec" in *exception*) assert_contains "$PAGE" "unexpected &lt;exception&gt;";; esac
+done
+for spec in '1|LISTING HAS FAILURES' '0|LISTING VALID'; do
+  printf 'echo "%s"\nexit %s\n' "${spec#*|}" "${spec%%|*}" > "$SHIM/validate/validate-listing.sh"
+  OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "accept matching terminal verdict $spec"
+  assert_not_contains "$(cat "$T/listing-review.html")" 'validator crashed'
+done
+rm -rf "$T" "$SHIM"
+
+it "renders Apple review panels when only metadata/default/ or app-level copy is present"
+new_tempdir T; mkdir -p "$T/fastlane/metadata/default"
+printf 'Default Name\n' > "$T/fastlane/metadata/default/name.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$(cat "$T/listing-review.html")" "Default Name"
+rm -rf "$T"
+
+new_tempdir T; mkdir -p "$T/fastlane/metadata"
+printf '2026 Studio\n' > "$T/fastlane/metadata/copyright.txt"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$(cat "$T/listing-review.html")" "2026 Studio"
+rm -rf "$T"
 
 summary

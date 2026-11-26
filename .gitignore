@@ -17,6 +17,7 @@ Thumbs.db
 # Build/scratch output that may appear when running against a repo
 *.log
 .maestro/
+__pycache__/
 
 
 # brand kit: downloaded font cache
