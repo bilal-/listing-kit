@@ -2,10 +2,13 @@
 import contextlib
 import hashlib
 import io
+import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -26,6 +29,49 @@ def png(w=2, h=2):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(bytes(h * (w * 3 + 1)))) + chunk(b"IEND", b""))
+
+
+class RendererVersion(unittest.TestCase):
+    def test_source_mutations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            kit = Path("skills/listing-kit")
+            for directory in ("scripts/compose", "scripts/lib", "templates", "specs"):
+                shutil.copytree(ROOT / kit / directory, root / kit / directory,
+                                ignore=shutil.ignore_patterns("__pycache__"))
+            guard = Path("tests/unit/renderer_version.py")
+            (root / guard.parent).mkdir(parents=True)
+            shutil.copy(ROOT / guard, root / guard)
+            (root / "tests/fixtures").mkdir()
+            command = [sys.executable, "-B", str(guard)]
+            subprocess.run(command + ["--record"], cwd=root, check=True)
+
+            imginfo = compose.imginfo
+            mutations = (
+                (compose.report_failures, "print(", 'print("Error:", ', False),
+                (compose.text_of, 'val("caption")', 'val("detail")', True),
+                (compose.flatten_rgb, '"white"', '"black"', True),
+                (compose.Job, "shot_size = (w, h)", "shot_size = (h, w)", True),
+                (compose.build, "size=(w, h)", "size=(h, w)", True),
+                (compose.verify_rgb, "return data", 'return b""', True),
+                (imginfo._png_passes, "expected = h * stride", "expected = w * stride", True),
+                (imginfo._png, "return w, h, depth", "return h, w, depth", True),
+                (imginfo._inspect, "else _png(f)", "else UNKNOWN", True),
+                (imginfo.image_info, "_inspect(path)[0]", "_inspect(path)[0][::-1]", True),
+            )
+            for obj, before, after, guarded in mutations:
+                with self.subTest(symbol=obj.__name__):
+                    path = Path(inspect.getfile(obj)).relative_to(ROOT)
+                    target = root / path
+                    original = target.read_text()
+                    source = inspect.getsource(obj)
+                    self.assertIn(before, source)
+                    target.write_text(original.replace(source, source.replace(before, after, 1)))
+                    result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+                    target.write_text(original)
+                    self.assertEqual(result.returncode, int(guarded), result.stderr)
+                    if guarded:
+                        self.assertIn(f"{path.relative_to(kit)}:{obj.__name__}", result.stderr)
 
 
 class Composer(unittest.TestCase):

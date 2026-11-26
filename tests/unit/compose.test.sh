@@ -312,6 +312,13 @@ PY
   case "$OUT" in "frame-text 0 "*|"frame-text -1 "*) pass "the local file frame is empty";; *) fail "local file content reached the page: $OUT";; esac
 fi
 
+it "renderer version matches the reviewed source hashes"
+if python3 "$ROOT/tests/unit/renderer_version.py"; then pass; else fail; fi
+
+if framed_case "bundled template PNG layouts"; then
+  if python3 "$ROOT/tests/unit/compose_layouts.py"; then pass; else fail; fi
+fi
+
 it "composer regression cases"
 if python3 "$ROOT/tests/unit/compose_regressions.py"; then pass; else fail; fi
 remove_fixture "$T"

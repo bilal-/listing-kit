@@ -6,6 +6,7 @@
 <style>
   body{padding:calc(8*var(--u)) calc(9*var(--u));align-items:stretch;justify-content:center;gap:calc(7*var(--u))}
   .brand{display:flex;justify-content:center;align-items:center;gap:calc(3*var(--u))}
+  .brand:empty,.brand:has(> .name:only-child:empty),.name:empty{display:none}
   .brand img.logo{max-width:62%;max-height:calc(14*var(--u))}
   .brand img.icon{width:calc(16*var(--u));height:calc(16*var(--u));border-radius:calc(3.6*var(--u))}
   .brand .name{font-size:calc(7*var(--u));font-family:var(--font-headline);font-weight:700}

@@ -12,7 +12,7 @@
   .detail{font-size:calc(var(--detail-size,2.8)*var(--u));margin-block-start:calc(1*var(--u))}
   .stage{flex:1 1 0;min-height:0;width:100%;display:flex;justify-content:center;align-items:flex-start}
   .stage img{display:block;height:100%;max-width:100%}
-  body[data-fit="contain"] .stage img{object-fit:contain}
+  body[data-fit="contain"] .stage img{object-fit:contain;object-position:top}
   body[data-fit="cover"] .stage img{width:100%;object-fit:cover;object-position:top}
 </style>
 <body data-fit="{{fit}}">
