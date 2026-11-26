@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<link rel="stylesheet" href="/fonts.css">
+<link rel="stylesheet" href="/base.css">
+<style>
+  body{padding:calc(6.5*var(--u)) calc(6*var(--u)) 0}
+  .headline{font-size:calc(var(--headline-size,7)*var(--u))}
+  .detail{font-size:calc(var(--detail-size,3.6)*var(--u));margin-block-start:calc(2*var(--u))}
+  .stage{flex:1 1 0;min-height:0;width:100%;display:flex;justify-content:center;align-items:flex-start;
+    margin-block-start:calc(5*var(--u));padding-block-end:calc(5*var(--u))}
+  /* contain: the whole capture is visible. bleed: fixed width, runs off the bottom edge. */
+  body[data-fit="contain"] .device{height:100%;aspect-ratio:var(--shot-w)/var(--shot-h);max-width:100%}
+  body[data-fit="bleed"] .stage{padding-block-end:0;align-items:flex-start;overflow:hidden}
+  body[data-fit="bleed"] .device{width:84%;aspect-ratio:var(--shot-w)/var(--shot-h);border-end-start-radius:0;border-end-end-radius:0}
+</style>
+<body data-fit="{{fit}}">
+  <h1 class="headline" data-check="text">{{caption}}</h1>
+  <p class="detail" data-check="text">{{detail}}</p>
+  <div class="stage"><div class="device" data-check="device"><img src="/raw.png" alt=""></div></div>
+</body>
+</html>
