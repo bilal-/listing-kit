@@ -7,3 +7,4 @@ sizes = {
   # DisplayType::UNUSED => [[123, 456]],
 }
 lookup = { [1024, 768] => DisplayType::IPAD }
+IOS_55 = [[1242, 2208]]

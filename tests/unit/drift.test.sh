@@ -43,14 +43,14 @@ expect_digest() {
     python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]) != json.loads(sys.argv[2]))' "$out" "$2" && pass || fail "$out"
   fi
 }
-expect_digest apple-screenshots.html '["1284x2778","2778x1284","512x512","April 2027","September 9, 2026"]'
+expect_digest apple-screenshots.html '["1284x2778","2778x1284","512x512","9 April 2027","April 2027","Sept. 9, 2026","September 9, 2026"]'
 expect_digest apple-version-info.html '["Keywords: up to 100 bytes","Promotional text: 170 characters"]'
 expect_digest apple-app-info.html '["Name: 30 characters","Subtitle: 30 characters"]'
 expect_digest apple-creative-assets.html '["1024x1024"]'
 expect_digest play-preview-assets.html '["1024x500","512x512"]'
 expect_digest play-store-listing-fields.html '["App name: 30 characters","Full description: up to 4000 characters","Short description: 80 characters","Tags: up to 5"]'
-expect_digest apple-upcoming-requirements.html '["App icon requirements: May 2027","SDK requirements: September 9, 2026","Screenshot requirements: April 2027"]'
-expect_digest fastlane-screenshots.rb '["APPLE_TV: 1920x1080","IOS_65: 1284x2778","IOS_65: 2778x1284","IPAD: 1024x768"]'
+expect_digest apple-upcoming-requirements.html '["App icon requirements: May 2027","Icon updates: June 2027","SDK requirements: September 9, 2026","Screenshot requirements: April 2027"]'
+expect_digest fastlane-screenshots.rb '["APPLE_TV: 1920x1080","IOS_55: 1242x2208","IOS_65: 1284x2778","IOS_65: 2778x1284","IPAD: 1024x768"]'
 expect_digest fastlane-supply.rb '["IMAGES_TYPES: featureGraphic","IMAGES_TYPES: icon","METADATA_UPLOAD_FIELDS: short_description","METADATA_UPLOAD_FIELDS: title","SCREENSHOT_TYPES: phoneScreenshots","SCREENSHOT_TYPES: sevenInchScreenshots"]'
 expect_digest fastlane-languages.rb '["ALL_LANGUAGES: de-DE","ALL_LANGUAGES: en-US"]'
 

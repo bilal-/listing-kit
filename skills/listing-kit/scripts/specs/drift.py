@@ -16,9 +16,11 @@ import specs
 
 DIGESTS = Path(specs.BUNDLED).parent / "digests"
 SIZE = re.compile(r"(?<!\d)(\d{3,5})\s*[×x]\s*(\d{3,5})(?!\d)", re.I)
-MONTH = (r"(?:January|February|March|April|May|June|July|August|September|October|"
-         r"November|December)")
-DATE = re.compile(r"\b(?:" + MONTH + r" (?:\d{1,2},? )?\d{4}|\d{4}-\d{2}-\d{2})\b", re.I)
+MONTH = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+         r"Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?")
+DAY = r"\d{1,2}(?:st|nd|rd|th)?"
+DATE = re.compile(r"\b(?:" + MONTH + r" (?:" + DAY + r",? )?\d{4}|"
+                  + DAY + " " + MONTH + r" \d{4}|\d{4}-\d{2}-\d{2})\b", re.I)
 NUMBER = r"\d+(?:,\d{3})*"
 LIMIT = re.compile(r"\b(?:up to " + NUMBER + r"(?: (?:characters?|bytes?))?|"
                    + NUMBER + r" (?:characters?|bytes?))\b", re.I)
@@ -119,13 +121,16 @@ def dated_items(blocks, in_item):
     # A plain list item can put its title and date in one sentence or adjacent
     # blocks. Prefer explicit headings when available (including on flat pages).
     if in_item and not any(role == "heading" for role, _ in blocks):
-        text = " ".join(value for _, value in blocks)
-        match = DATE.search(text)
-        if match:
-            title = (text[:match.start()].strip(" ()–—-:,") or
-                     text[match.end():].strip(" ()–—-:,"))
-            if title:
-                yield title + ": " + match.group()
+        title = date = ""
+        for _, text in blocks:
+            match = DATE.search(text)
+            if match:
+                date = match.group()
+                text = text[:match.start()] or text[match.end():]
+            title = title or text.strip(" ()–—-:,")
+            if title and date:
+                yield title + ": " + date
+                break
         return
 
     title = date = ""
@@ -157,7 +162,7 @@ def dated_list(events):
 PAIR = r"\[\s*\d+\s*,\s*\d+\s*\]"
 SIZES = r"(?P<sizes>\[\s*(?:" + PAIR + r"\s*,?\s*)+\]|" + PAIR + ")"
 DISPLAY = r"""(?P<display>(?:\w+::)*[A-Z]\w*|['"][^'"\n]+['"]|:\w+)"""
-DISPLAY_ROWS = [re.compile(DISPLAY + r"\s*=>\s*" + SIZES),
+DISPLAY_ROWS = [re.compile(DISPLAY + r"\s*(?:=>|=)\s*" + SIZES),
                 re.compile(SIZES + r"\s*=>\s*" + DISPLAY)]
 LIST_NAMES = {
     "languages.rb": ("ALL_LANGUAGES",),
