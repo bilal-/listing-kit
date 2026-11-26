@@ -1,0 +1,12 @@
+appId: com.example.recipebox.flutter
+---
+- launchApp:
+    clearState: true
+    arguments:
+      recipeBoxState: demo
+- tapOn:
+    id: open_shopping
+- assertVisible:
+    id: grocery_spaghetti
+- assertVisible:
+    id: back

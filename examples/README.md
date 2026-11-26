@@ -3,10 +3,13 @@
 | Example | Stack | Status |
 | --- | --- | --- |
 | [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | Historical listing output. The iPhone medium set needs recapture. [Capture report](expo-recipe-box/LISTING-REPORT.md) |
+| [`ios-recipe-box`](ios-recipe-box) | Native iOS / SwiftUI | Source and plan only. Not yet built or captured on a device. |
+| [`android-recipe-box`](android-recipe-box) | Native Android / Jetpack Compose | Source and plan only. Not yet built or captured on a device. |
+| [`flutter-recipe-box`](flutter-recipe-box) | Flutter / iOS and Android | Source and plan only. Not yet built or captured on a device. |
 
-Recipe Box is a small recipe saver with seeded data and accessible controls. Its four saved Maestro flows visit the recipe list, a recipe detail, the shopping list and settings. The app config declares the recipebox URL scheme and the routes live under `app/`.
+All four apps show the same five recipes, ingredients, cooking steps and shopping list. Each example includes Maestro flows for the recipe list, recipe detail, shopping list and settings. The three source examples have capture plans and build instructions in their READMEs.
 
-Start with the [first-run walkthrough](../docs/GUIDE.md). It uses a copy of this app, the committed fastlane listing and two existing flows. You can validate the historical listing and build a review page without a simulator. Capture needs a matching simulator or emulator and an installed build.
+The [first-run walkthrough](../docs/GUIDE.md) uses a copy of the Expo app, its committed fastlane listing and two of its flows. You can validate the historical listing and build a review page without a simulator. Capture needs a matching simulator or emulator and an installed build.
 
 For a quick look at the app itself:
 
