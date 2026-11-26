@@ -129,15 +129,18 @@ class Browser:
         return product.partition("/")[2].partition(".")[0] or "unknown"
 
     def _stop(self):
-        try:
-            os.killpg(self.proc.pid, signal.SIGTERM)
-            self.proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            os.killpg(self.proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        finally:
-            self.proc.wait()
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(self.proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                # macOS can report EPERM while the last group member is exiting.
+                pass
+            try:
+                self.proc.wait(timeout=2)
+                return
+            except subprocess.TimeoutExpired:
+                if sig == signal.SIGKILL:
+                    raise
 
     def close(self):
         self._resources.close()
@@ -154,7 +157,13 @@ class Browser:
                 raise BrowserError("the browser closed the connection (exit %s)" % self.proc.poll())
             self._buf += chunk
         raw, self._buf = self._buf.split(b"\0", 1)
-        return json.loads(raw)
+        try:
+            message = json.loads(raw)
+        except ValueError as exc:
+            raise BrowserError("invalid JSON on the browser control pipe") from exc
+        if not isinstance(message, dict):
+            raise BrowserError("expected an object on the browser control pipe")
+        return message
 
     def send(self, method, params=None, session=None):
         self._id += 1

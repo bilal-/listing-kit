@@ -393,7 +393,7 @@ remove_fixture "$T"
 it "refuses a globally configured hooks path outside the repository before creating it"
 make_app "External hooks"
 new_tempdir shared
-git config --file "$shared/global-config" core.hooksPath "$shared/missing/hooks"
+git -C "$T" config --file "$shared/global-config" core.hooksPath "$shared/missing/hooks"
 OUT="$(GIT_CONFIG_GLOBAL="$shared/global-config" bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'outside'

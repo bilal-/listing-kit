@@ -459,6 +459,9 @@ open(sys.argv[1], "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + b"\x01\xff\x
 PY
   assert_eq "$(printf '64\t64\t8\t2')" "$(info4 "$TMP/short_scan.jpg")" "structural check reads framed header"
   assert_eq "bad" "$(dec1 "$TMP/short_scan.jpg")" "real IM rejects premature end of JPEG scan"
+else
+  it "real decoder handles PNG and JPEG scan data"
+  skip "no ImageMagick"
 fi
 
 if [ "${LK_TEST_IM6:-0}" = 1 ]; then
@@ -473,6 +476,9 @@ if [ "${LK_TEST_IM6:-0}" = 1 ]; then
     assert_contains "$OUT" "$(printf 'bad\t%s' "$TMP/short_scan.jpg")" "$decoder detects incomplete pixels"
     rm "$IM6_BIN/$decoder"
   done
+else
+  it "real IM6 convert and identify-only decodes"
+  skip "Linux IM6 compatibility job only"
 fi
 
 summary

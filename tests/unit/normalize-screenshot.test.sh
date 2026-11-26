@@ -52,12 +52,16 @@ PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/in.png" "$TMP/out.png" --play >/dev/nul
 assert_not_contains "$(stub_log)" "-crop"
 
 # End-to-end with real ImageMagick, when the machine has it.
-if command -v magick >/dev/null 2>&1; then
+. "$SCRIPTS/lib/imagemagick.sh"
+if im_resolve convert; then
   it "real ImageMagick: RGBA 1080x2400 becomes RGB 1080x1920"
-  magick -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
+  "${IM[@]}" -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
   bash "$SUT" "$TMP/rgba.png" "$TMP/real.png" --play >/dev/null 2>&1
   INFO="$(python3 "$IMGINFO" "$TMP/real.png" | cut -f1-4)"
   assert_eq "$(printf '1080\t1920\t8\t2')" "$INFO"
+else
+  it "real screenshot normalization"
+  skip "no ImageMagick"
 fi
 
 it "--play on a non-image fails instead of skipping the crop"

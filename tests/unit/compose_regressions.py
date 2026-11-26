@@ -158,6 +158,100 @@ class Composer(unittest.TestCase):
         self.assertIn("shots/b.png: framed screenshots need Chrome, Chromium, Edge or Brave.", self.log)
         self.assertIn("ImageMagick is needed.", self.log)
 
+    @unittest.skipUnless(compose.magick(), "ImageMagick required")
+    def test_unusable_explicit_browser_preserves_raw_work(self):
+        nonexec = self.root / "non-executable"
+        nonexec.touch()
+        bad_launch = self.root / "bad interpreter"
+        bad_launch.write_text("#!/missing/listing-kit-interpreter\n")
+        bad_launch.chmod(0o755)
+        malformed = self.root / "invalid handshake"
+        malformed.write_text("#!/bin/sh\nprintf 'invalid\\000' >&4\n")
+        malformed.chmod(0o755)
+        silent = self.root / "silent browser"
+        silent.write_text('#!/bin/sh\necho $$ > "$PID_FILE"\nexec /bin/sleep 30\n')
+        silent.chmod(0o755)
+        pid_file = self.root / "pid"
+        frames = [dict(self.rec, styleMode="framed", outputPath="shots/" + name)
+                  for name in ("b.png", "c.png")]
+        for i, path in enumerate([self.root / "missing", nonexec, "/usr/bin/true",
+                                  "/usr/bin/false", bad_launch, malformed, silent]):
+            with self.subTest(browser=str(path)), patch.dict(os.environ, LK_BROWSER=str(path),
+                    LK_BROWSER_TIMEOUT="0.5", PID_FILE=str(pid_file)):
+                raw = dict(self.rec, outputPath=f"shots/raw-{i}.png")
+                for include_raw in (False, True):
+                    self.man["outputs"] = frames + ([raw] if include_raw else [])
+                    self.assertEqual(self.run_cli(), 1 if include_raw else 3, self.log)
+                    for frame in frames:
+                        prefix = f"compose: {frame['outputPath']}:"
+                        reasons = [line for line in self.log.splitlines() if line.startswith(prefix)]
+                        self.assertEqual(len(reasons), 1, self.log)
+                        self.assertIn("LK_BROWSER", reasons[0])
+                        self.assertIn(str(path), reasons[0])
+                    if path == silent:
+                        with self.assertRaises(ProcessLookupError):
+                            os.kill(int(pid_file.read_text()), 0)
+                self.assertTrue((self.root / raw["outputPath"]).is_file())
+                for record, key in [("outputs.json", "files"), ("compose.lock.json", "outputs")]:
+                    paths = json.loads((self.kit / record).read_text())[key]
+                    self.assertIn(raw["outputPath"], paths)
+                    for frame in frames:
+                        self.assertNotIn(frame["outputPath"], paths)
+
+    def test_browserless_adopt_leaves_conflicting_frame_alone(self):
+        self.rec.update(styleMode="framed")
+        self.out.write_bytes(b"keep")
+        with patch.dict(os.environ, LK_BROWSER=str(self.root / "missing")):
+            self.assertEqual(self.run_cli("--adopt"), 3, self.log)
+        self.assertNotIn("adopting shots/a.png", self.log)
+        self.assertEqual(self.out.read_bytes(), b"keep")
+
+    def test_unsuccessful_preview_does_not_report_adoption(self):
+        preview = self.kit / "preview.html"
+        preview.write_text("keep")
+        self.raw.unlink()
+        self.assertEqual(self.run_cli("--preview", "--adopt"), 1, self.log)
+        self.assertNotIn("adopting .listing-kit/preview.html", self.log)
+        self.assertEqual(preview.read_text(), "keep")
+
+    @unittest.skipUnless(compose.magick(), "ImageMagick required")
+    def test_pre_branch_frame_stays_current_alongside_new_raw_capture(self):
+        raw = dict(self.rec, outputPath="shots/new.png")
+        self.man["outputs"].append(raw)
+        font = str(ROOT / "skills/listing-kit/assets/fonts/Inter.ttf")
+        self.rec.update(styleMode="framed", storeCode="en-US", style=dict(
+            fonts=dict(headline=[font], detail=[font]), palette=dict(background=["#ffffff"], ink="#000000")))
+        self.out.write_bytes(png())
+        # Format-1 style digest from 809aac9 for this caption-top style.
+        entry = dict(content=self.job().keys()[0], sha256=compose.sha_file(self.out),
+                     style="d3c9c69ab92472dfc5a065ffb65fe6951076c3a0df9daba705e81a8a34a0b941",
+                     size=[2, 2], renderer=dict(os=sys.platform, browser="100"), checks={})
+        (self.kit / "compose.lock.json").write_text(json.dumps(dict(format=1, outputs={"shots/a.png": entry})))
+        (self.kit / "outputs.json").write_text(json.dumps(dict(format=1, files=["shots/a.png"])))
+        with patch.dict(os.environ, LK_BROWSER=str(self.root / "missing")):
+            self.assertEqual(self.run_cli(), 0, self.log)
+        self.assertIn("1 written, 1 unchanged", self.log)
+        self.assertTrue((self.root / raw["outputPath"]).is_file())
+
+    def test_closing_an_exited_browser_on_macos(self):
+        browser = object.__new__(cdp.Browser)
+        browser.proc = Mock(pid=42)
+        with patch("os.killpg", side_effect=PermissionError):
+            browser._stop()
+        browser.proc.wait.assert_called_once_with(timeout=2)
+
+    def test_browser_launch_flags_are_opt_in(self):
+        browser = object.__new__(cdp.Browser)
+        browser.path, browser.profile = "browser", str(self.root)
+        with patch.dict(os.environ), patch("subprocess.Popen") as spawn:
+            os.environ.pop("LK_BROWSER_ARGS", None)
+            browser._spawn(3, 4, [])
+            self.assertNotIn("--no-sandbox", spawn.call_args.args[0])
+            os.environ["LK_BROWSER_ARGS"] = "--no-sandbox --disable-dev-shm-usage"
+            browser._spawn(3, 4, [])
+            self.assertIn("--no-sandbox", spawn.call_args.args[0])
+            self.assertIn("--disable-dev-shm-usage", spawn.call_args.args[0])
+
     def test_09_mixed_browser_versions_only_emit_one_note(self):
         self.rec.update(styleMode="framed", storeCode="en-US")
         self.man["outputs"].append(dict(self.rec, targetId="b", outputPath="shots/b.png"))

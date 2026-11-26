@@ -123,71 +123,81 @@ PYP
     assert_eq 2 "$RC" "invalid $invalid rejects the plan"
     assert_contains "$OUT" "$invalid"
 done
-if have_magick; then
+browser_available=0
+if have_browser; then browser_available=1; fi
+browser_case() {
+  it "$1"
+  if [ "$browser_available" = 0 ]; then skip "no browser"; return 1; fi
+}
+magick_case() {
+  it "$1"
+  if ! have_magick; then skip "no ImageMagick"; return 1; fi
+}
+framed_case() { browser_case "$1" && magick_case "$1"; }
 
-it "raw mode copies captures to the store paths, numbered in screen order, and records what it owns"
-make_app "$T/raw" raw; raws "$T/raw" 1206 2622
-OUT="$(no_browser_compose "$T/raw" 2>&1)"; RC=$?
-assert_eq 1 "$RC" "mixed plan exits 1: $OUT"
-reason="framed screenshots need Chrome, Chromium, Edge or Brave."
-graphic="fastlane/metadata/android/en-US/images/featureGraphic.png"
-assert_contains "$OUT" "compose: $graphic: $reason"
-assert_contains "$OUT" "6 written, 0 unchanged, 0 held, 1 failed"
-assert_contains "$OUT" "wrote fastlane/screenshots/en-US/01_home_iphone-medium.png"
-A="$T/raw/fastlane/screenshots/en-US"; P="$T/raw/fastlane/metadata/android/en-US/images/phoneScreenshots"
-assert_eq 3 "$(ls "$A" | wc -l | tr -d ' ')" "three Apple screenshots"
-assert_eq "01_home.png 02_detail.png 03_shop.png" "$(ls "$P" | tr '\n' ' ' | sed 's/ $//')" "Play files in order"
-assert_eq "1206 2622 8 2" "$(size_of "$A"/01_home*.png)" "Apple file is the target size, RGB"
-assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" '"format": 1'
-assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" 'phoneScreenshots/02_detail.png'
-assert_file "$T/raw/.listing-kit/compose.lock.json"
-assert_not_contains "$(cat "$T/raw/.listing-kit/outputs.json")" "$graphic"
+if magick_case "raw mode copies captures to the store paths, numbered in screen order, and records what it owns"; then
+  make_app "$T/raw" raw; raws "$T/raw" 1206 2622
+  OUT="$(no_browser_compose "$T/raw" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "mixed plan exits 1: $OUT"
+  reason="framed screenshots need Chrome, Chromium, Edge or Brave."
+  graphic="fastlane/metadata/android/en-US/images/featureGraphic.png"
+  assert_contains "$OUT" "compose: $graphic: $reason"
+  assert_contains "$OUT" "6 written, 0 unchanged, 0 held, 1 failed"
+  assert_contains "$OUT" "wrote fastlane/screenshots/en-US/01_home_iphone-medium.png"
+  A="$T/raw/fastlane/screenshots/en-US"; P="$T/raw/fastlane/metadata/android/en-US/images/phoneScreenshots"
+  assert_eq 3 "$(ls "$A" | wc -l | tr -d ' ')" "three Apple screenshots"
+  assert_eq "01_home.png 02_detail.png 03_shop.png" "$(ls "$P" | tr '\n' ' ' | sed 's/ $//')" "Play files in order"
+  assert_eq "1206 2622 8 2" "$(size_of "$A"/01_home*.png)" "Apple file is the target size, RGB"
+  assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" '"format": 1'
+  assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" 'phoneScreenshots/02_detail.png'
+  assert_file "$T/raw/.listing-kit/compose.lock.json"
+  assert_not_contains "$(cat "$T/raw/.listing-kit/outputs.json")" "$graphic"
+fi
 
-it "without a browser each framed screenshot and graphic fails with its output path"
-make_app "$T/browser-only"; raws "$T/browser-only" 1206 2622
-OUT="$(no_browser_compose "$T/browser-only" 2>&1)"; RC=$?
-assert_eq 3 "$RC"
-for file in "$A"/*.png "$P"/*.png; do
-  assert_contains "$OUT" "compose: ${file#"$T/raw/"}: $reason"
-done
-assert_contains "$OUT" "compose: $graphic: $reason"
-assert_contains "$OUT" "0 written, 0 unchanged, 0 held, 7 failed"
+if magick_case "without a browser each framed screenshot and graphic fails with its output path"; then
+  make_app "$T/browser-only"; raws "$T/browser-only" 1206 2622
+  OUT="$(no_browser_compose "$T/browser-only" 2>&1)"; RC=$?
+  assert_eq 3 "$RC"
+  for file in "$A"/*.png "$P"/*.png; do
+    assert_contains "$OUT" "compose: ${file#"$T/raw/"}: $reason"
+  done
+  assert_contains "$OUT" "compose: $graphic: $reason"
+  assert_contains "$OUT" "0 written, 0 unchanged, 0 held, 7 failed"
+fi
 
-it "raw mode refuses a capture that is not the target size"
-make_app "$T/rawbad" raw; raws "$T/rawbad" 1320 2868
-OUT="$(python3 "$COMPOSE" "$T/rawbad" --target iphone 2>&1)"; RC=$?
-assert_eq 1 "$RC" "exit 1"
-assert_contains "$OUT" "raw mode needs a 1206x2622 capture"
+if magick_case "raw mode refuses a capture that is not the target size"; then
+  make_app "$T/rawbad" raw; raws "$T/rawbad" 1320 2868
+  OUT="$(python3 "$COMPOSE" "$T/rawbad" --target iphone 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "exit 1"
+  assert_contains "$OUT" "raw mode needs a 1206x2622 capture"
+fi
 
-it "a second run writes nothing"
-OUT="$(no_browser_compose "$T/raw" --target iphone --target phone 2>&1)"
-assert_contains "$OUT" "0 written"
+if magick_case "a second run writes nothing"; then
+  OUT="$(no_browser_compose "$T/raw" --target iphone --target phone 2>&1)"
+  assert_contains "$OUT" "0 written"
+fi
 
-it "a file the plan no longer produces is moved to held/, and only files the kit wrote are ever moved"
-echo "mine" > "$T/raw/fastlane/screenshots/en-US/99_my_own.png.txt"
-python3 - "$T/raw" <<'PY'
+if magick_case "a file the plan no longer produces is moved to held/, and only files the kit wrote are ever moved"; then
+  echo "mine" > "$T/raw/fastlane/screenshots/en-US/99_my_own.png.txt"
+  python3 - "$T/raw" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["screens"] = d["screens"][:2]
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(no_browser_compose "$T/raw" 2>&1)"
-assert_contains "$OUT" "moved out of the upload tree"
-assert_eq 2 "$(ls "$P" | wc -l | tr -d ' ')" "Play folder has two files left"
-assert_file "$T/raw/.listing-kit/held/fastlane/metadata/android/en-US/images/phoneScreenshots/03_shop.png"
-assert_file "$T/raw/fastlane/screenshots/en-US/99_my_own.png.txt" "the user's own file is untouched"
-
+  OUT="$(no_browser_compose "$T/raw" 2>&1)"
+  assert_contains "$OUT" "moved out of the upload tree"
+  assert_eq 2 "$(ls "$P" | wc -l | tr -d ' ')" "Play folder has two files left"
+  assert_file "$T/raw/.listing-kit/held/fastlane/metadata/android/en-US/images/phoneScreenshots/03_shop.png"
+  assert_file "$T/raw/fastlane/screenshots/en-US/99_my_own.png.txt" "the user's own file is untouched"
 fi
 
-render_skip=
-if ! have_browser; then render_skip="no browser"
-elif ! have_magick; then render_skip="no ImageMagick"
+if framed_case "raw captures and a feature graphic render together"; then
+  make_app "$T/raw-with-browser" raw; raws "$T/raw-with-browser" 1206 2622
+  OUT="$(python3 "$COMPOSE" "$T/raw-with-browser" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "raw plus feature graphic: $OUT"
+  assert_contains "$OUT" "7 written, 0 unchanged, 0 held, 0 failed"
+  assert_eq "1024 500 8 2" "$(size_of "$T/raw-with-browser/$graphic")" "feature graphic"
 fi
-
-framed_case() {
-  it "$1"
-  if [ -n "$render_skip" ]; then skip "$render_skip"; return 1; fi
-  return 0
-}
 
 if framed_case "framed mode renders every output at the exact store size, as RGB without alpha"; then
   make_app "$T/framed"; raws "$T/framed" 1206 2622 1080 2400
@@ -270,7 +280,7 @@ PY
   assert_contains "$OUT" "needs 4.5:1"
 fi
 
-if framed_case "the browser serves nothing outside the allow-list: local files, loopback, the network and workers are refused"; then
+if browser_case "the browser serves nothing outside the allow-list: local files, loopback, the network and workers are refused"; then
   OUT="$(cd "$SCRIPTS/compose" && python3 - <<'PY'
 import cdp
 b = cdp.Browser(); r = cdp.Renderer(b)
