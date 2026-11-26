@@ -1,13 +1,7 @@
-# Agents & skills in this repo
+# Working on this repository
 
-## listing-kit (v0.5.0)
+Edit the agent workflow in [SKILL.md](skills/listing-kit/SKILL.md). Check commands against the bundled launcher and their implementations. Run `bash tests/run.sh` before committing. Use temporary fixtures for tests that need Git or a listing.
 
-Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing (copy, metadata, graphics) into the repo as the source of truth — fastlane-compatible, cross-stack, cross-AI.
+Change store facts in [stores.json](skills/listing-kit/specs/stores.json), then run `python3 skills/listing-kit/scripts/specs/render.py`. The marked tables in the store references are generated.
 
-**Skill instructions:** [`skills/listing-kit/SKILL.md`](skills/listing-kit/SKILL.md)
-
-Codex installs it as a plugin (`codex plugin marketplace add bilal-/listing-kit`,
-then `codex plugin add listing-kit@listing-kit`). Under Copilot CLI, load the
-skill file above as context, then follow its pipeline. All work is plain shell-outs; see
-`skills/listing-kit/references/platforms/tool-mapping.md` for tool-name
-equivalents on your platform.
+Edit [.claude-plugin/plugin.json](.claude-plugin/plugin.json) and run `bash skills/listing-kit/scripts/package/generate-manifests.sh` to regenerate the marketplace, Gemini manifest and skill VERSION. Keep credentials and private settings out of commits.

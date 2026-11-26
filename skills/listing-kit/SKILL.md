@@ -1,162 +1,30 @@
 ---
 name: listing-kit
-description: Use when a user wants App Store / Google Play listing assets for a mobile app — screenshots, store copy, metadata, or a feature graphic — generated from their repo. Triggers on "store screenshots", "app store listing", "play store assets", "prepare my app for submission", "fastlane metadata", or pointing the agent at an iOS/Android/Flutter/React Native repo to produce listing material. Captures store-compliant screenshots and writes a complete, version-controlled listing into the repo as the source of truth.
+description: Use when the user wants App Store or Google Play listing assets for a mobile app, including screenshots, store copy, fastlane metadata or a feature graphic. Triggers on "store screenshots", "app store listing", "play store assets", "prepare my app submission", "fastlane metadata", or a request to prepare a listing from an iOS, Android, Flutter or React Native repo. Keep the listing in git with the app.
 ---
 
-# listing-kit
+# Prepare a store listing
 
-**App-store presence, in your repo.** This is *not* "a screenshot tool." It produces a complete, version-controlled source of truth for what appears on the App Store and Google Play — screenshots, copy, keywords, URLs, graphics — stored in the repo in a fastlane-compatible layout, kept in sync with the running app.
+Identify the stack from the app manifest and work from the mobile app root. In a monorepo, confirm which app the user wants. Run the skill's `bin/listing-kit` launcher there. Commands below assume it is on PATH.
 
-Use fastlane for automated store management. Run the bundled `bin/listing-kit` command for setup, pull, and publish. Publish previews each store until its live-test gate is enabled. [Store management and hand uploads](references/metadata/fastlane-layout.md#store-management)
+## Before editing
 
-## When to use this
+- Keep public listing content in git with the code. Read existing copy, plans, flows and assets first. Ask before rewriting committed content, including screenshots. Keep the user's wording and make the smallest approved change. Preserve the release version.
+- Never fabricate metadata. Ask for missing URLs, copyright, category and other facts. If the user is unavailable, leave missing files unwritten and report the gaps.
+- Use the user's voice. Write short captions and concrete sentences about what the screen shows. Avoid promotional filler and dash clauses.
+- Use seeded demo data. If a flow needs a login, have the user export a `MAESTRO_` variable from their environment or git-ignored `.listing-kit/secrets.local`. Reference it in the flow as `${MAESTRO_DEMO_PASSWORD}`. Never type the value into YAML, read it or print it.
+- For store credentials, only help the user configure a path to a private file outside the repo. Never ask for, read or print its contents.
+- Use the kit's [store rules](specs/stores.json) by default. When a live store page disagrees, record the difference and its source URL in `.listing-kit/specs.override.json` and tell the user.
 
-Use when the user points you at a mobile-app repository and wants store listing material. If they only want one screenshot of one screen, you can still run the relevant steps — but the value is the full, regenerable listing.
+## First run and reruns
 
-## Operating principles (read before acting)
-
-1. **The repo is the source of truth — for non-secrets only.** Listing copy, screenshots, and graphics get committed. **Credentials and seed secrets NEVER get committed** — see `references/metadata/fastlane-layout.md` §secrets and `scripts/lib/secret-scan.sh`.
-2. **Preserve existing listings on reruns.** If `fastlane/` already contains metadata or screenshots, treat it as the baseline, not disposable generated output. Read the existing `.txt` files before drafting copy, keep wording that is still accurate and within limits, and make surgical edits for new features, changed positioning, missing required fields, or validation failures. Do not rewrite a good description, title, subtitle, keyword list, release note, or caption just to make it sound new. Prefer a short inserted sentence or phrase in the best existing spot, then show the diff for review.
-3. **Store specs drift.** Use the kit’s rules by default. When a live store page disagrees, record the difference and its source URL in `.listing-kit/specs.override.json` and tell the user what changed.
-4. **Stay portable.** Core logic is markdown + shell. Shell out to `xcrun simctl`, `adb`, `flutter`, the Expo/RN CLI, `maestro`, and ImageMagick — never to an agent-specific browser/MCP capability. See `references/platforms/tool-mapping.md` for tool-name equivalents across AI platforms.
-5. **Gate heavy dependencies.** Maestro + JDK are only needed at the **Drive** step; ImageMagick only from **Capture** onward (screenshot normalization, feature graphic). Don't make the user install them up front.
-6. **Preserve release metadata.** Preparing listing assets does not require a marketing-version bump. Keep the app's current release version and follow its existing build-number policy; do not invent a release to capture screenshots.
-7. **Confirm before expensive work.** Get the user to commit to a screen list *before* building (the Discover step), and confirm target stores/devices before running.
-
-## The pipeline
-
-```
-detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
-```
-
-Run these in order. Each step has a reference doc; load it when you reach the step.
-
-### Init and first pull
-
-At initialization, ask for the Apple bundle identifier and/or Play package name for the selected stores first. Record them in the format-2 plan's `app.ios` and `app.android` fields during planning. For an existing store listing with an empty local tree, use these IDs with setup and pull, then run the Detect and Plan steps below against the downloaded copy. Keep an existing plan and its screen order.
-
-### 1. Detect — classify the stack and locate the app root
-Identify the stack from manifest signals. See `references/stacks/` (each stack doc opens with its detection signatures). A repo may be cross-platform (RN/Flutter) or contain both a native iOS and native Android project. **Report what you found and ask the user to confirm targets.**
-
-**Record the app root** — the directory that holds the manifest (`app.json`/`package.json`, `pubspec.yaml`, `*.xcodeproj`, `build.gradle`). This is the repo root for a single-app repo, but a **subdirectory in a monorepo** (e.g. `apps/mobile/`). All output — `fastlane/` and `.listing-kit/` — is written relative to the app root, never assumed at the repo root. If multiple apps are found, ask which to target; each gets its own `fastlane/` under its own root.
-
-### 2. Doctor — pre-flight the environment
-Verify required toolchains before any build: per-stack SDKs (Xcode + CocoaPods, JDK + Android SDK, Flutter SDK, Node), plus `xcrun simctl` / `adb`, and `python3` (the validator, review page, and commit hook use it). Report **optional** tools and what their absence degrades to:
-- **ImageMagick** missing → screenshots can't be normalized to RGB at Capture (prompt to install it then), and feature-graphic generation falls back to asking the user for one.
-- **Maestro + JDK** missing → the Drive step falls back to manual-assist. (Do not install Maestro here; it is gated to first use in Drive.)
-- **Optional device tooling** missing → defer only that target, with a reason in
-  the plan and review; continue buildable targets and store copy/graphics. Check
-  stack-specific capabilities before proposing the plan. Do not install or
-  switch SDKs automatically, or silently drop an already approved active target.
-
-Fail fast with clear fix instructions. Building mobile apps is fragile — a clean Doctor report saves the user a long, confusing build failure later.
-
-### 3. Discover — build the candidate screen inventory (static, before building)
-Enumerate screens/features from **static repo signals** (route configs, storyboards/SwiftUI, nav graphs, deep links) per the discovery table in each `references/stacks/*.md`. This is cheap and happens before any build. Produce a candidate inventory.
-
-### 4. Curate — let the user choose (part of Discover)
-Present the inventory and capture **four things per screen** the user keeps:
-1. **Select** — in the store set or not.
-2. **Order** — sequence on the listing (the first screenshot matters most).
-3. **Name** — the marketing caption/intent (differs from the in-app screen name). You may propose captions from component analysis; the user edits them.
-4. **Desired state** — free text, e.g. "Library, populated with books, not empty." You will reason about the UI to reach this.
-
-### 5. Plan — stores, devices, locales
-Ask which stores to target, then device classes. Detect hints (iPad support in `Info.plist`, Wear OS module, watchOS target) and pre-select, but always confirm. Default locale is `en-US` (single-locale in v1). Defaults: target both stores if both buildable; **5 hero screens** per device class. See `references/stores/`. For Apple, select exact console upload slots and any Header Asset variants, then persist the approved coverage in `.listing-kit/asset-plan.json` as described in `references/metadata/fastlane-layout.md`. Treat deferred targets as deferred, not missing launch requirements.
-
-### 6. Configure — inputs, credentials, seed data
-Gather/confirm metadata inputs (name, subtitle, URLs, copyright, category). If `fastlane/` already exists, inventory the current metadata first and ask which app changes it should reflect (then follow principle 2). Detect **Auth/Demo modes** (`mock_data.json`, `--demo` flags, demo build configs). **Secrets never enter the committed tree** — store them in a git-ignored `.listing-kit/secrets.local` or environment variables and reference (don't inline) them in Maestro flows.
-
-**Never fabricate metadata.** Values that can only come from the user — **support / marketing / privacy-policy URLs, copyright, category** — must never be invented. If you don't have a value, **ask**; under `--non-interactive`, **leave the field unwritten (omit the `.txt` file)** rather than writing a guessed or empty value. An omitted required field is then surfaced by Validate (and shown blank with a ⚠ marker on the review page); a fabricated URL could pass review while pointing somewhere wrong.
-
-**Copy style (applies to any caption or store text you draft or suggest, here and in Curate):** write the way a person would, and on an existing listing keep the user's voice (principle 2). **Avoid em dashes and "X — Y" dash clauses** (a common AI tell that makes a listing look machine-written); use commas, periods, or parentheses instead. Also avoid other tells like "Whether you're…", "elevate", "seamless", "unleash". Keep ordinary hyphenated words (`step-by-step`) and product names (`listing-kit`). Prefer short, concrete sentences. The user reviews and edits all copy, so propose plain drafts they can keep as-is.
-
-### 7. Run — build and install
-Bootstrap dependencies, build and install the app on the planned device. Follow the commands for the app's stack in `references/stacks/`. The capture flow launches the installed app, clears its state and requests its permissions.
-
-### 8. Drive — reach each curated state
-Driving is a **shared capability via Maestro** (one YAML flow language across all stacks/platforms). See `references/driving/maestro.md`. This is where Maestro + JDK get installed (prompt now, not earlier). For each screen:
-1. Confirm it exists at runtime (`maestro studio` / UI snapshot) and reconcile against the static inventory.
-2. Author a Maestro flow that starts from a clean launch and taps accessibility labels, asserting real content on the target screen. Deep links are fine on Android, but on iOS a custom-scheme link raises an "Open in app?" alert Maestro can't dismiss reliably (see `references/driving/maestro.md`).
-3. Reach the desired state via demo mode / mock data / mock-auth; prioritize bypass routes for social logins (they often fail on simulators).
-4. **Reject empty states before capturing.** A deep link or fresh launch lands on whatever state the app currently has, which is often empty ("No notes yet", an empty list, a zero-results screen) — the most common weak store screenshot. Confirm the screen is actually **populated** before you capture it; if it isn't, seed/mock data to fill it, go to a populated instance, or drop/replace the screen back in Curate. Don't ship an empty screen just because the route resolved.
-5. **Manual-assist fallback** when Maestro can't reach a state (canvas/game UIs, missing semantics, unscriptable auth). Under `--non-interactive`, skip and mark the screen **Missing**.
-
-Persist each Maestro flow — it is the rerunnable navigation recipe for next time.
-
-### 9. Capture — screenshot at required dimensions
-For a format-2 listing plan, run `scripts/capture/capture.py` against the app root. Use `--dry-run` to list jobs and device choices. Repeat `--target ID` and `--screen ID` to select a subset. Use `--keep-going` to finish independent jobs after a failure.
-
-The command checks the plan and installed app, drives each flow, sanitizes the status bar, and writes a validated RGB PNG to the manifest’s raw path. Raw uploads must match the target dimensions exactly. For framed and band compositions, capture preserves the native frame for the composer. Specify `capture.nativeSize` in the planned orientation.
-
-Check selected upload slots against the generated tables in `references/stores/`. For Apple, the Dynamic Island medium slot needs its own capture. Include tablet sets when the app supports them (iPad if `supportsTablet` or device-family 2, Android tablet if unrestricted).
-
-To pin a simulator UDID or emulator serial per target, keep `{"devices":{"play-phone":"emulator-5554"}}` in the app’s git-ignored `.listing-kit/local.json`. An explicit `--device` takes precedence. Physical Android devices require `--allow-device` because flows can clear app data and status-bar sanitization changes demo mode. For manual navigation, select the target and screen with `--manual` and press Enter when ready.
-
-Without a listing plan, normalize captures yourself with `scripts/capture/normalize-screenshot.sh` (input and output paths; `--play` for Play phone promotion crops).
-
-### 10. Assemble — write the fastlane tree, then assert the secrets boundary
-Write everything into the fastlane layout **at the app root from step 1** (`references/metadata/fastlane-layout.md` §Where the tree lives — repo root for single-app repos, a subdirectory in a monorepo). On reruns, update only files whose content actually changed, avoid churn in existing metadata and screenshots, and leave unrelated locales/stores untouched. Encode the curated order as numeric filename prefixes (`01_…`, `02_…`) — fastlane derives store display order from filename sort. Generate the Play **feature graphic** with `scripts/generate/feature-graphic.sh` (ImageMagick; falls back to prompting), writing it to `images/featureGraphic.png` and the icon specified in `references/stores/google-play.md` to `images/icon.png` directly under the Play locale (fastlane `supply` does not upload nested `featureGraphic/` or `icon/` folders). For Apple headers, follow the Header Asset section in `references/stores/apple-app-store.md`; save them outside Fastlane screenshots under `store-assets/apple/<locale>/` and include them in the review/handoff.
-
-**Finally, run `scripts/lib/secret-scan.sh` against the committed tree and FAIL the run if any credential leaked.**
-
-### 11. Validate & review — check the written tree against store rules
-Validate what Assemble actually wrote, so generated metadata and graphics are covered. Run `scripts/validate/validate-listing.sh` (pass the app root). It checks the listing against the rules in `references/stores/*.md` (copy limits and required fields, screenshot sizes, formats and counts per locale, Play graphics, and the secret scan) and exits non-zero on any failure; warnings, such as missing Play promotion eligibility, don't fail the run. It checks **only the store(s) actually present**. If device-family detection is wrong (an iPad-only app, or `supportsTablet` computed at runtime), set `LK_SUPPORTS_IPHONE=0` / `LK_SUPPORTS_IPAD=0|1`. If a previous screenshot set exists (a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) for a per-screen regression report; it never blocks. Fix failures (back in Configure, Capture, or Assemble) and rerun until it passes, or report what's left.
-
-Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-review.html` at the app root — a single static page (copy buttons, screenshots per device class, the validator's results) for reviewing the listing and pasting copy into the store consoles. It is read-only and never writes into `fastlane/`.
-
-For store delivery, run the publish preview first. Complete any approved fastlane transfer, then build the hand-upload folder for the remaining fields, Play graphics, and console screenshot targets. Use its checklist in that order.
-
-#### Commit-time review refresh
-
-If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html`.
-
-The hook watches staged changes to `fastlane/**`, `store-assets/**`, files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and app-owned `*.pbxproj` or `Info.plist` files. Device discovery skips dependency, build, and framework directories. Path matching follows `core.ignorecase`. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable. A credential in the staged inputs blocks the commit before the page is written. Other validation failures appear on the staged page.
-
-The hook scans listing blobs from the Git index. Indexed `.listing-kit/**/local.json` and `*.local` settings under `.listing-kit` block listing commits. Keep the demo password out of the repo and supply it via the environment at upload. An empty or whitespace-only `demo_password.txt` is fine. Device declarations are scanned when changed and are always available for device detection. After reviewing a public key in a device declaration, record the exact staged blob in local Git config, for example `git config --local --add listingKit.reviewedDeviceBlob "$(git rev-parse :app.json) app.json"` from the repository root. Editing the declaration requires a fresh review.
-
-A credential or an incomplete staged scan blocks the commit. An amend checks the proposed index against the replaced commit’s first parent, or the empty tree for a root commit. A pathspec-only commit scans its temporary index and warns to refresh the page separately. A review-page failure after a clean scan prints a warning and allows the commit. Unrelated commits can proceed without Python or the kit. Manual validation and review include on-disk screenshots and metadata even when Git ignores them. They omit ignored key files and untracked private settings under `.listing-kit/`, and report other credential-bearing filenames as validation failures.
-
-Set `LISTING_KIT_HOME` to an absolute skill directory to select a kit explicitly. The runner otherwise uses its recorded installation. If a versioned plugin installation disappears, the runner checks version siblings in its original marketplace and install channel.
-
-After updating listing-kit, run `scripts/package/install-review-hook.sh` with `--status <app-root>` in each registered app. It prints `active`, `outdated`, or an inactive reason, and exits zero for an active, current registration. Run the newer kit’s installer for outdated hooks. The runner lives in the Git common directory. For an in-tree hooks path or symlinked pre-commit hook, the installer prints the line to add before existing hook commands.
-
-Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
-
-## Headless / CI mode
-
-When the user asks for a non-interactive or CI run (written `--non-interactive` in these docs; it is a mode you adopt, not a CLI flag), skip manual-assist and any prompt, reports missing assets instead of hanging, and depends on persisted Maestro flows from a prior interactive run.
-
-## Reference map
-
-| Need | Doc |
-|---|---|
-| Apple sizes, char limits, asset list | `references/stores/apple-app-store.md` |
-| Google Play sizes, char limits, asset list | `references/stores/google-play.md` |
-| Build/launch/capture per stack | `references/stacks/{ios-native,android-native,flutter,react-native-expo}.md` |
-| Driving the app (Maestro) | `references/driving/maestro.md` |
-| Where files go + secrets boundary | `references/metadata/fastlane-layout.md` |
-| Tool names across AI platforms | `references/platforms/tool-mapping.md` |
-
-## Scripts
-
-| Script | Purpose |
-|---|---|
-| `scripts/capture/sanitize-status-bar.sh` | iOS `simctl status_bar` + Android demo-mode clean status bar |
-| `scripts/capture/normalize-screenshot.sh` | Flatten a raw capture to 24-bit RGB PNG; `--play` also crops to 9:16 |
-| `scripts/capture/capture-ios.sh` | Capture an explicit simulator display; reject wrong dimensions or blank frames before replacing an asset |
-| `scripts/doctor/iphone-duo.py` | Read-only SDK/device/runtime preflight; JSON result, exit 3 means Duo capture is unavailable |
-| `scripts/capture/grant-permissions.sh` | Pre-grant permissions via `simctl privacy` / `adb pm grant` (with caveats) |
-| `scripts/generate/feature-graphic.sh` | Icon-on-gradient Play feature graphic (ImageMagick) |
-| `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
-| `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
-| `specs/stores.json` | Canonical store rules for planning, validation and the generated reference tables |
-| `scripts/lib/apple_assets.py` | Apple locales across metadata, screenshots, headers and plans; header/plan validation |
-| `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
-| `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |
-| `scripts/lib/listing.py` | Locale and image discovery within the fastlane tree |
-| `scripts/validate/validate-listing.sh` | Validate the listing tree against App Store + Play rules (Validate step) |
-| `scripts/validate/visual-diff.sh` | Per-screen regression report between a previous and current screenshot set (Validate step) |
-| `scripts/package/generate-manifests.sh` | Emit per-AI-platform install manifests from this canonical skill |
-| `scripts/package/build-review.sh` | Emit a static `listing-review.html` (copy buttons, screenshots, embedded validation) for human review |
-| `scripts/package/install-review-hook.sh` | Refresh `listing-review.html` when [staged listing inputs](#commit-time-review-refresh) change |
+1. Run `listing-kit doctor` to check tools and `listing-kit detect` to see platform support and its evidence. Detection decides defaults. The plan's `platforms` flags override detection. If a relevant fact is unknown, ask the user.
+2. Discover screens from routes, views, storyboards or navigation graphs. Have the user choose the order, caption, detail and populated state for each. Confirm stores, app IDs, locales, devices and scope before building or installing dependencies.
+3. Write `.listing-kit/listing.json` in [format 2](references/plan-file.md). Choose target slots, sizes and style together. Default to framed phones. For `framed`, choose background colors, ink and both headline and detail fonts. Use a band template on Play tablets and Chromebook. Set `style.mode` to `raw` where framing is forbidden. An omitted mode also selects raw. Raw captures must match the upload size.
+   Set screen IDs, captions, flow paths, graphics and platform overrides. Set `trees` for split fastlane folders. Give each deferral a reason. For Apple, save approved counts, headers and deferrals in `.listing-kit/asset-plan.json`. Follow the [Apple asset plan format](references/metadata/fastlane-layout.md#apple-asset-plan). Run `listing-kit plan check` before building.
+4. If importing an existing store listing, agree on the first pull before drafting text. Configure an external key path as described in [store management](references/metadata/fastlane-layout.md#store-management). For Apple, run `listing-kit fastlane setup --store apple`, then `listing-kit pull --store apple`. For Play, run `listing-kit fastlane setup --store play`, then `listing-kit pull --store play`. These commands use the app ID in the plan. Review conflicts with the user.
+5. Build and install the app on the chosen simulator or emulator. Follow the stack instructions for [iOS](references/stacks/ios-native.md), [Android](references/stacks/android-native.md), [Flutter](references/stacks/flutter.md) or [React Native and Expo](references/stacks/react-native-expo.md). Write one [Maestro flow](references/driving/maestro.md) per capture screen. Launch into the planned state and assert on visible content. A panel needs no flow. Run `listing-kit plan check --for capture` once the flows exist.
+6. If every screen is automated, run `listing-kit capture`. For mixed runs, select automated jobs with `listing-kit capture --target ID --screen ID`. Report any manual jobs left outstanding. In an attended session, use `listing-kit capture --manual --target ID --screen ID`. The selected flow file must exist. Navigate on the device and press Enter for each prompt. Capture saves checked PNGs under `.listing-kit/raw/`.
+7. Compare `listing-kit plan outputs` with existing filenames. Get approval to replace or retire old images. Inspect `listing-kit compose --preview`, then run `listing-kit compose`. Only use `listing-kit compose --adopt` with permission to replace the listed conflicts. A style-only change to existing images needs approval and `listing-kit compose --restyle`.
+8. Write approved UTF-8 copy in the [fastlane text files](references/metadata/fastlane-layout.md). For split roots, use the [staging procedure](references/metadata/fastlane-layout.md#standalone-tools-with-split-roots) before validation, review or handoff. Run `listing-kit validate`. For an Apple submission, supply the actual date and build SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`. Fix failures. Report warnings and missing inputs. Run `listing-kit review` and inspect `listing-review.html`. For a conventional listing in the app's Git worktree, run `listing-kit hook install` to refresh the page from staged inputs.
+9. For hand upload, run `listing-kit handoff --open` in the conventional layout. For store sync, run `listing-kit publish --store apple` or `listing-kit publish --store play` in the source app. Inspect the proposed changes. Both stores are gated pending live tests. Never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`. That variable is the maintainers' live-test switch and can enable real uploads.

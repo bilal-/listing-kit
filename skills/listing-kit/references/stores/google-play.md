@@ -1,4 +1,4 @@
-# Google Play — requirements reference
+# Google Play requirements
 
 The tables below are generated from `specs/stores.json`. Record app-specific differences and their source URLs in `.listing-kit/specs.override.json`.
 
@@ -37,24 +37,11 @@ Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay
 
 <!-- rules:end graphics -->
 
-Generate an icon-on-gradient feature graphic with `scripts/generate/feature-graphic.sh` or supply the finished artwork. Keep feature graphics separate from screenshots.
+Supply finished artwork or plan a feature graphic and an icon source under `graphics.play`. Run `listing-kit compose` to produce the planned graphics.
 
-## Detecting tablet support (decide whether to capture tablet sets)
+## Choosing tablet targets
 
-Tablet screenshots are **optional to publish**, but without them Play may label the
-app "not designed for tablets" and exclude it from tablet featuring. Capture 7"/10"
-sets when the app targets tablets. Signals that it does:
-- **Flutter / React Native / native** apps run on Android tablets by default unless
-  the manifest restricts it — treat tablet as supported unless told otherwise.
-- Check `AndroidManifest.xml` for `<supports-screens android:largeScreens="false"/>`
-  or `<compatible-screens>` that *excludes* large/xlarge → tablets NOT supported.
-- A `sw600dp`/`sw720dp` resource bucket (`res/values-sw600dp/…`) signals tablet layouts.
-
-To capture, you need a **tablet AVD** (e.g. `pixel_tablet` / `Nexus 9`); a phone AVD
-won't produce tablet-sized images. If none exists, create one
-(`avdmanager create avd -d pixel_tablet -k "<system-image>"`) — note this may require
-downloading a system image, so ask first; in a non-interactive run, don't create
-one: report the tablet set as missing instead.
+The 7-inch and 10-inch sets are optional. Inspect the app manifest for large-screen restrictions and look for tablet layouts such as `res/values-sw600dp/`. Confirm with the user which sizes to capture. Start a matching tablet AVD. If it needs a new system image, agree on the download before building.
 
 ## Metadata fields
 

@@ -53,6 +53,7 @@ SH
 cat > "$STUB_BIN/maestro" <<'SH'
 #!/usr/bin/env bash
 echo "maestro $*" >> "$CALLS"
+if [ "${MAESTRO_DOCS_FIXTURE:-}" = fixture ]; then echo "inherited fixture" >> "$CALLS"; fi
 if [ "${PROBE_STDIN:-}" ] && read -r line; then echo "maestro read: $line" >> "$CALLS"; fi
 [ -z "${SLOW_FLOW:-}" ] || sleep 1
 echo 'flow output'
@@ -122,8 +123,9 @@ run --target typo
 assert_eq 2 "$RC"
 
 it 'uses the booted simulator type, installed bundle, flow variables and ordered capture helpers'
-ios
+MAESTRO_DOCS_FIXTURE=fixture ios
 assert_eq 0 "$RC"
+assert_contains "$(cat "$CALLS")" "inherited fixture"
 assert_file "$ios_raw"
 assert_contains "$(cat "$CALLS")" 'get_app_container ON sh.bilal.shellbell'
 assert_contains "$(cat "$CALLS")" '-e LK_LOCALE=en-US -e LK_TARGET=iphone-medium -e LK_SCREEN=agents'

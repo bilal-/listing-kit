@@ -12,6 +12,7 @@ set -uo pipefail
 ROOT=; prepared=0; options=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help) echo "Usage: listing-kit review [app-root] [--verbose] [--as-of YYYY-MM-DD] [--ios-sdk X.Y]"; exit 0 ;;
     --prepared) prepared=1 ;;
     --verbose) options+=("$1") ;;
     --as-of|--ios-sdk)

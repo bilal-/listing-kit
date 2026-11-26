@@ -4,6 +4,13 @@
 set -euo pipefail
 status=0
 if [ "${1:-}" = --status ]; then status=1; shift; fi
+case "${1:-}" in
+  -h|--help)
+    operation=install
+    if [ "$status" = 1 ]; then operation=status; fi
+    echo "Usage: listing-kit hook $operation [app-root]"
+    exit 0 ;;
+esac
 [ "$#" -le 1 ] || { echo "Usage: install-review-hook.sh [--status] [app-root]" >&2; exit 2; }
 ROOT="${1:-.}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

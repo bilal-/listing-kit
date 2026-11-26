@@ -279,7 +279,11 @@ class Requirements:
 
 
 if __name__ == "__main__":
-    root = Path(sys.argv[1]).resolve()
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="listing-kit detect", description=__doc__)
+    parser.add_argument("app_root", nargs="?", type=Path, default=Path("."))
+    root = parser.parse_args().app_root.resolve()
     try:
         trees = plan.listing_trees(root)
     except plan.PlanError as exc:

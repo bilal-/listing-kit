@@ -244,6 +244,9 @@ assert_contains "$out" "publishing to apple is not enabled"
 assert_contains "$out" "--skip_screenshots"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+assert_file "$app/.listing-kit/publish.approved.json"
+[ ! -e "$app/.listing-kit/publish.receipt.json" ] && pass "gated preview has no upload receipt" || fail "gated preview wrote an upload receipt"
+
 it "A1 remote-only differences alongside a title edit never propose an overwrite"
 touch "$fixture/reencode"
 run_lk publish "${a[@]}" --yes

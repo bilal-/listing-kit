@@ -8,7 +8,7 @@ RN/Expo app on iOS **and** Android? Driving is shared (see `../driving/maestro.m
 - Expo: `app.json` / `app.config.{js,ts}` with an `expo` key; `expo` dependency
 - `metro.config.js`
 
-## Expo vs. bare RN — branch on this
+## Choose the Expo or bare React Native build
 The build/run path differs materially; detect which you're in:
 
 | | Signal | Run path |
@@ -16,7 +16,7 @@ The build/run path differs materially; detect which you're in:
 | **Expo (managed / prebuild)** | `expo` dependency, `app.json` with `expo` | `npx expo run:ios` / `npx expo run:android`, or `npx expo prebuild` then native build. EAS for cloud builds. |
 | **Bare RN** | `react-native` without Expo managed config | `npx react-native run-ios` / `run-android` (Metro bundler) |
 
-Install JS deps first (`npm ci` / `yarn` / `pnpm i` — match the lockfile present).
+Install the JS dependencies with the package manager that matches the app lockfile.
 
 ## Doctor checks
 - Node + package manager (match lockfile: `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`)
@@ -75,6 +75,4 @@ screen styling alone does not cover views outside the React tree. Verify the
 actual raw capture before attributing a margin to the app or editing its pixels.
 See [Expo SystemUI](https://docs.expo.dev/versions/latest/sdk/system-ui/).
 
-Same as the underlying platform — use the **platform** SDK tooling
-(`xcrun simctl` / `adb`) for status bar, permissions, and capture. See
-`ios-native.md` and `android-native.md`.
+Run `listing-kit capture` with the matching installed build and [saved flows](../driving/maestro.md). Capture handles the status bar and device screenshot.

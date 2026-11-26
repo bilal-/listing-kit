@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Private settings and temporary listing-kit files
+.listing-kit/local.json
+.listing-kit/upload/
+.listing-kit/logs/
+.listing-kit/compose.flock
+.listing-kit/*.local

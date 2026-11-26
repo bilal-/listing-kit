@@ -1,6 +1,5 @@
 {
   "name": "listing-kit",
   "version": "0.5.0",
-  "description": "Walk any mobile-app repo, run it, capture store-compliant screenshots, and assemble the full App Store + Google Play listing (copy, metadata, graphics) into the repo as the source of truth — fastlane-compatible, cross-stack, cross-AI.",
-  "contextFileName": "skills/listing-kit/SKILL.md"
+  "description": "Keep App Store and Google Play listings in git with the app. Plan and capture screenshots, compose store graphics, and review fastlane metadata for native iOS, Android, Flutter, React Native and Expo apps."
 }
