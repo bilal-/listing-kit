@@ -7,6 +7,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Rules and validation
 
+- Validation checks optional App Review contact details and Play video URLs. Validation and the Git review hook reject demo credential files, including empty ones. The hand-upload index lists the App Review fields and each store’s rating questionnaire.
+
 - Validation, review, handoff and publish previews use `listing.json` for Apple screenshot counts, headers and deferrals. Play validation warns when screenshot counts differ from the plan. Older listings can still use their Apple asset plan.
 - Store fields, locales, slot sizes, upload routes and dated requirements live in one rules file. It supplies validation and the generated reference tables and supports app-local overrides.
 - Validation reports platform evidence, supports submission-date and iOS SDK checks, and checks image structure and decoding when ImageMagick is available. A weekly drift check reports changed upstream facts or unreadable sources.

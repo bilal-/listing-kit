@@ -299,12 +299,26 @@ def selected(args, root, rules):
     return stores
 
 
+def raise_walk_error(error):
+    raise error
+
+
 def download(store, scratch):
-    scratch.mkdir()
+    scratch.mkdir(mode=0o700)
     metadata = scratch / "metadata"
     args = store.key_args()
     if store.name == "apple":
-        store.run(["deliver", "download_metadata", *args, "--metadata_path", str(metadata), "--force"], scratch)
+        try:
+            store.run(["deliver", "download_metadata", *args, "--metadata_path", str(metadata), "--force"], scratch)
+        finally:
+            # Deliver writes the review account even during a metadata-only pull.
+            # Inspect names only, before the screenshot download or inventory.
+            for directory, _, files in os.walk(scratch, onerror=raise_walk_error):
+                if Path(directory).name.lower() == "review_information":
+                    for name in files:
+                        path = Path(directory) / name
+                        if secret_scan.demo_credential(path):
+                            path.unlink()
         store.run(["deliver", "download_screenshots", *args, "--screenshots_path",
                    str(scratch / "screenshots")], scratch)
     else:
@@ -1103,8 +1117,16 @@ def main(argv):
                           stdout=subprocess.PIPE, check=True).stdout):
             raise ValueError(".listing-kit/local.json is tracked; remove it from the git index first")
         config = read_json(local_config, {})
-        with tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-") as tmp:
-            scratch = Path(tmp)
+        # Deliver can download review credentials before we apply the import allowlist.
+        boundary = repo or root
+        scratch_parent = Path(tempfile.gettempdir()).resolve()
+        if scratch_parent == boundary or boundary in scratch_parent.parents:
+            scratch_parent = Path("/tmp").resolve()
+            if scratch_parent == boundary or boundary in scratch_parent.parents:
+                raise ValueError("Set TMPDIR to a directory outside the repository for fastlane downloads")
+        tmp = tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-", dir=scratch_parent)
+        try:
+            scratch = Path(tmp.name)
             views = {}
             for store in stores:
                 report_version(store, scratch)
@@ -1114,6 +1136,8 @@ def main(argv):
                           % (description, env, field))
                 store.key = read_key(root, repo or root, store.name, args, config)
                 print(store.name, store.app, "credential", store.key.name, flush=True)
+            if args.command == "publish":
+                listing.check_metadata_links(root, {store.name: store.trees for store in stores})
             secret_scan.check_store_credentials(repo or root)
             if args.command == "publish":
                 histories = {store.name: operations(store) for store in stores}
@@ -1141,7 +1165,7 @@ def main(argv):
                 transfers = []
                 for store in stores:
                     dest = scratch / store.name
-                    dest.mkdir()
+                    dest.mkdir(mode=0o700)
                     if store.name in readbacks:
                         remote, pending = readbacks[store.name]
                     else:
@@ -1168,6 +1192,8 @@ def main(argv):
                     if not store.data:
                         print("Initialize listing targets and flows with the listing-kit planning step.")
             return int(conflicts)
+        finally:
+            tmp.cleanup()
     finally:
         os.close(fd)
 
@@ -1179,6 +1205,11 @@ def version_code(value):
 
 
 if __name__ == "__main__":
+    # These signals unwind the active child process group and TemporaryDirectory.
+    # A closed terminal (SIGHUP) or Ctrl-\ (SIGQUIT) would otherwise skip the cleanup
+    # while the detached fastlane child finished writing the store's demo credentials.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(sig, signal.default_int_handler)
     try:
         sys.exit(main(sys.argv[1:]))
     except KeyboardInterrupt:

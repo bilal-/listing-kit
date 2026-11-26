@@ -30,6 +30,16 @@ class SpecsReview(unittest.TestCase):
                 with self.assertRaises(specs.SpecsError):
                     specs.load(self.app)
 
+    def test_demo_credentials_cannot_become_upload_fields(self):
+        for store in ("apple", "play"):
+            for stem in ("demo_user", "demo_password"):
+                field = dict(stem=stem, label="Example", scope="locale", unit="chars",
+                             required={"rule": "never"})
+                (self.app / specs.OVERRIDE).write_text(json.dumps(
+                    {"stores": {store: {"fields": [field]}}}))
+                with self.subTest(store=store, stem=stem), self.assertRaises(specs.SpecsError):
+                    specs.load(self.app)
+
     def test_partial_override_keeps_sibling_limits(self):
         self.override({"id": "phone", "side": {"min": 500}})
         self.rules = specs.load(self.app)

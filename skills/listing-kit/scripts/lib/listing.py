@@ -15,6 +15,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import specs
+from secret_scan import demo_credential
 import plan
 from imginfo import is_image
 
@@ -36,6 +37,35 @@ def paths(root):
             for store, tree in plan.listing_trees(root).items()}
 
 
+def check_metadata_links(root, trees):
+    """Check links before any consumer reads or copies metadata."""
+    roots = {(root / tree[key]).resolve() for tree in trees.values()
+             for key in ("metadata", "screenshots", "storeAssets")}
+    review = None
+    if "apple" in trees:
+        review = (root / trees["apple"]["metadata"] / "review_information").resolve()
+    visited = set()
+
+    def visit(path, in_review=False):
+        if path.is_symlink():
+            target = path.resolve()
+            inside = [base for base in roots if base == target or base in target.parents]
+            private = (target == review or review in target.parents or any(
+                part.lower() == "review_information" for base in inside
+                for part in target.relative_to(base).parts))
+            if not inside or demo_credential(target) or (private and not in_review):
+                raise ValueError(f"Unsafe listing link: {path}")
+        if path.is_dir():
+            directory = (path.resolve(), in_review)
+            if directory not in visited:
+                visited.add(directory)
+                for child in path.iterdir():
+                    visit(child, in_review or child.name.lower() == "review_information")
+
+    for tree in trees.values():
+        visit(root / tree["metadata"])
+
+
 def localized_files(rules):
     return {f["stem"] + ".txt" for f in specs.fields(rules, "apple", "locale")} | {
         "apple_tv_privacy_policy.txt", "privacy_choices_url.txt",
@@ -44,7 +74,6 @@ def localized_files(rules):
 
 CONTACT_FILES = {"first_name.txt", "last_name.txt", "phone_number.txt", "email_address.txt"}
 SPECIAL_FILES = {
-    "review_information": CONTACT_FILES | {"demo_user.txt", "demo_password.txt", "notes.txt"},
     "trade_representative_contact_information": CONTACT_FILES | {
         "trade_name.txt", "address_line1.txt", "address_line2.txt", "address_line3.txt",
         "city_name.txt", "state.txt", "country.txt", "postal_code.txt",
@@ -101,6 +130,9 @@ def apple_default(meta, rules):
 def has_apple_app_metadata(meta, rules):
     """True if fastlane/metadata holds recognized deliver files at app level or in its special folders."""
     files = DELIVER_APP_FILES | {f["stem"] + ".txt" for f in specs.fields(rules, "apple", "app")}
+    review_files = [f["stem"] + ".txt" for f in specs.fields(rules, "apple", "review_information")]
+    if _has_files(os.path.join(meta, "review_information"), review_files):
+        return True
     return bool(apple_default(meta, rules)) or _has_files(meta, files) or any(
         _has_files(os.path.join(meta, folder), names) for folder, names in SPECIAL_FILES.items()
     )

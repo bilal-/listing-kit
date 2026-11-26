@@ -83,6 +83,7 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
             yield from rules_check.apple_shots(root, locale.name, rules, req, deferred, apple_tree,
                                               planned=modern, suffixes=entry.get("suffixes"))
         yield from copy("apple-app", apple_tree["metadata"])
+        yield from copy("apple-review", apple_tree["metadata"] / "review_information")
         key = "id" if modern else "label"
         required = {s[key] for s in specs.slots(rules, "apple") if req.evaluate(s["required"])[0] == "required"}
         yield from apple_assets.validate(root, required, rules, req, apple_tree, targets, modern)

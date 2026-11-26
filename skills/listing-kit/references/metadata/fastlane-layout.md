@@ -54,10 +54,11 @@ supply from a clean temporary directory with explicit paths.
 | Content | Resolved source path |
 | --- | --- |
 | Apple app-wide fields | `<apple.metadata>/copyright.txt`, `primary_category.txt` and `secondary_category.txt` in the same directory |
+| Apple review contact and notes | Optional `first_name.txt`, `last_name.txt`, `phone_number.txt`, `email_address.txt` and `notes.txt` under `<apple.metadata>/review_information/`. Enter demo credentials in App Store Connect or keep them outside the repo. |
 | Apple localized copy | `<apple.metadata>/<locale>/<field>.txt`, including `name.txt`, `subtitle.txt`, `description.txt`, `keywords.txt` and the URL fields |
 | Apple fastlane screenshots | `<apple.screenshots>/<locale>/`, with a slot subfolder where the rules specify one |
 | Apple headers | `<apple.storeAssets>/<locale>/` |
-| Play localized copy | `<play.metadata>/<locale>/title.txt`, `short_description.txt`, `full_description.txt` |
+| Play localized copy | `<play.metadata>/<locale>/title.txt`, `short_description.txt`, `full_description.txt`, and optional `video.txt` |
 | Play release notes | `<play.metadata>/<locale>/changelogs/<versionCode>.txt` or `default.txt` |
 | Play fastlane screenshots | `<play.metadata>/<locale>/images/<slot folder>/`, for example `phoneScreenshots/` |
 | Play graphics | `icon.png`, `featureGraphic.png` and any `tvBanner` file directly under the locale's `images/` |

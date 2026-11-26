@@ -60,6 +60,14 @@ Run `listing-kit detect` to inspect native device families and static Expo setti
 | Copyright | copyright | app | chars | Required |
 | Primary category | primary_category | app | enum | Required |
 | Secondary category | secondary_category | app | enum | Optional |
+| Review contact first name | first_name | review_information | chars | Optional |
+| Review contact last name | last_name | review_information | chars | Optional |
+| Review contact phone number | phone_number | review_information | phone | Optional |
+| Review contact email address | email_address | review_information | email | Optional |
+| Demo account username | demo_user | review_information | credential | Keep outside the repo |
+| Demo account password | demo_password | review_information | credential | Keep outside the repo |
+| Review notes | notes | review_information | chars | Optional |
+| Age rating | — | console | questionnaire | answer in the console |
 
 Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/) · [Store reference 2](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/)
 
@@ -69,7 +77,9 @@ Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-
 
 - Copyright (`copyright.txt`), e.g. `2026 Your Company`
 - Primary + optional secondary category
-- Content/age rating
+- Answer the age rating questionnaire in App Store Connect. The hand-upload index includes a reminder.
+
+Review contact details and notes are optional. The kit checks the email and phone formats when supplied. Enter the review information in App Store Connect. Keep demo credentials outside the repo. The hand-upload index lists the seven fields without copying their values.
 
 ## fastlane `deliver` mapping
 Run `listing-kit detect <app-root>`. Write each locale's text files under
