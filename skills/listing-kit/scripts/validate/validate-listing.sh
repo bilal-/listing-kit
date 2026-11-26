@@ -190,6 +190,7 @@ if [ "$apple_present" = 1 ]; then
         [ -n "$w" ] || continue
         base="${path##*/}"; check_ext "$path"
         s_dec=1; record_decode "$dec" "$base" || { s_dec=0; badfmt=1; }
+        [ "${dec#bad: }" = "$dec" ] || continue
         if [ "$cls" = "-" ]; then fail "$base: ${w}x${h} is not an App Store screenshot size (see scripts/lib/apple-screenshot-sizes.tsv)"
         elif [ "$s_dec" = 1 ]; then classes="$classes$cls"$'\n'; fi
         [ "$ct" = 2 ] || { fail "$base: must be RGB no-alpha (colortype=$ct)"; badfmt=1; }
@@ -241,6 +242,7 @@ play_shots(){ # dir label
     [ -n "$w" ] || continue
     n=$((n+1)); base="${path##*/}"; check_ext "$path"
     record_decode "$dec" "$base" || dec_ok=0
+    [ "${dec#bad: }" = "$dec" ] || continue
     lo=$w; hi=$h; [ "$w" -gt "$h" ] && { lo=$h; hi=$w; }
     { [ "$lo" -ge 320 ] && [ "$hi" -le 3840 ]; } || fail "$base: side out of 320–3840 (${w}x${h})"
     [ "$lo" -gt 0 ] && [ $((hi * 1000)) -gt $((lo * 2000)) ] && fail "$base: aspect ${hi}/${lo} exceeds 2:1"
@@ -278,10 +280,11 @@ play_graphics(){ # images-dir type
   while IFS=$'\t' read -r w h depth ct bytes cls dec path; do
     check_ext "$path"
     decoded=1; record_decode "$dec" "${path##*/}" || decoded=0
+    [ "${dec#bad: }" = "$dec" ] || continue
     case "$type" in
       featureGraphic)
         if [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
-          [ "$decoded" = 1 ] && pass "feature graphic 1024x500 24-bit no-alpha"
+          [ "$decoded" = 1 ] && [ "${#files[@]}" -eq 1 ] && pass "feature graphic 1024x500 24-bit no-alpha"
         else
           fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
         fi ;;
@@ -290,17 +293,17 @@ play_graphics(){ # images-dir type
           fail "icon must be a PNG (Play requires 32-bit PNG)"
         fi
         if [ "$w" = 512 ] && [ "$h" = 512 ]; then
-          [ "$decoded" = 1 ] && pass "icon 512x512"
+          [ "$decoded" = 1 ] && [ "${#files[@]}" -eq 1 ] && pass "icon 512x512"
         else
           fail "icon must be 512x512 (got ${w}x${h})"
         fi
         { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
         [ "$bytes" -le 1048576 ] || fail "icon over 1 MB ($bytes bytes)" ;;
       tvBanner)
-        if [ "$w" = 1280 ] && [ "$h" = 720 ]; then
-          [ "$decoded" = 1 ] && pass "TV banner 1280x720"
+        if [ "$w" = 1280 ] && [ "$h" = 720 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
+          [ "$decoded" = 1 ] && [ "${#files[@]}" -eq 1 ] && pass "TV banner 1280x720 24-bit no-alpha"
         else
-          fail "TV banner must be 1280x720 (got ${w}x${h})"
+          fail "TV banner must be 1280x720 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
         fi ;;
     esac
   done <<<"$imginfo_out"

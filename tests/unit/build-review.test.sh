@@ -173,7 +173,7 @@ for spec in '1|unexpected <exception>' '2|LISTING HAS FAILURES' '0|LISTING VALID
   assert_contains "$PAGE" "validator crashed"
   case "$spec" in *exception*) assert_contains "$PAGE" "unexpected &lt;exception&gt;";; esac
 done
-for spec in '1|LISTING HAS FAILURES' '0|LISTING VALID' '1|nothing to validate'; do
+for spec in '1|LISTING HAS FAILURES' '0|LISTING VALID' '1|nothing to validate' '1|  ✗ no App Store or Google Play listing was found under . — nothing to validate'; do
   printf 'echo "%s"\nexit %s\n' "${spec#*|}" "${spec%%|*}" > "$SHIM/validate/validate-listing.sh"
   OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
   assert_eq 0 "$RC" "accept matching terminal verdict $spec"

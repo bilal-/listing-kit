@@ -111,10 +111,10 @@ case "$platform" in
     esac
     # Only children of "requested permissions:" describe manifest requests.
     requested="$(awk '
-      { sub(/\r$/, ""); match($0, /^[[:space:]]*/); indent = RLENGTH }
-      /^[[:space:]]*requested permissions:[[:space:]]*$/ { active = 1; parent = indent; next }
+      { sub(/\r$/, ""); match($0, /^[ \t]*/); indent = RLENGTH }
+      /^[ \t]*requested permissions:[ \t]*$/ { active = 1; parent = indent; next }
       NF && indent <= parent { active = 0 }
-      active && NF { perm = $1; sub(/:$/, "", perm); print perm }
+      active && NF { perm = $1; sub(/:.*/, "", perm); print perm }
     ' <<<"$dump_out")"
     applicable=()
     for perm in \
@@ -125,9 +125,9 @@ case "$platform" in
       android.permission.READ_MEDIA_IMAGES \
       android.permission.POST_NOTIFICATIONS \
       android.permission.READ_CONTACTS ; do
-      if grep -Fxq "$perm" <<<"$requested"; then
-        applicable+=("$perm")
-      fi
+      case $'\n'"$requested"$'\n' in
+        *$'\n'"$perm"$'\n'*) applicable+=("$perm") ;;
+      esac
     done
     if [ "${#applicable[@]}" -eq 0 ]; then
       echo "NOTE: app '$app' declares none of the pre-grantable runtime permissions — nothing to grant."

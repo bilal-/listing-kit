@@ -20,7 +20,9 @@ jobs:
       - name: Install ImageMagick 6 for decoder compatibility tests
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get install -y imagemagick-6.q16
+          if ! command -v convert-im6.q16 >/dev/null 2>&1 || ! command -v identify-im6.q16 >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y imagemagick-6.q16
+          fi
           echo 'LK_TEST_IM6=1' >> "$GITHUB_ENV"
       - name: Run test suite
         run: bash tests/run.sh

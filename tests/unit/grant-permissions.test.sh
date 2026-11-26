@@ -137,6 +137,7 @@ Packages:
       android.permission.INTERNET
       android.permission.CAMERA
       android.permission.ACCESS_FINE_LOCATION: restricted=true
+      android.permission.POST_NOTIFICATIONS:restricted=true
     install permissions:
       android.permission.READ_CONTACTS: granted=true
 DUMP
@@ -152,6 +153,7 @@ assert_eq 0 "$RC" "android exits 0 when declared grants succeed"
 assert_eq 1 "$(printf '%s\n' "$LOG" | grep -c 'dumpsys package')" "one package inspection"
 assert_contains "$LOG" "shell pm grant com.example.app android.permission.CAMERA"
 assert_contains "$LOG" "shell pm grant com.example.app android.permission.ACCESS_FINE_LOCATION"
+assert_contains "$LOG" "shell pm grant com.example.app android.permission.POST_NOTIFICATIONS"
 assert_not_contains "$LOG" "pm grant com.example.app android.permission.READ_CONTACTS" "undeclared permission skipped"
 
 it "android: succeeds with a note when the installed app declares none of the permissions"

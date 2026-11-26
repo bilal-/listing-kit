@@ -87,29 +87,36 @@ def has_apple_listing(root):
     )
 
 
+def _valid_header(path, info):
+    w, h, depth, color = info
+    if (w, h) not in HEADER_SIZES or depth != 8 or color != 2:
+        return False
+    if (w, h) == (5244, 2950):
+        with open(path, "rb") as source:
+            return path.lower().endswith(".png") and source.read(8) == b"\x89PNG\r\n\x1a\n"
+    return True
+
+
 def validate(root, required_displays=()):
     results = []
     saw_unavailable = False
     header_items = [(locale, path) for locale in header_locales(root) for path in images(header_dir(root, locale))]
-    header_statuses = validate_many([path for _, path in header_items])
+    header_statuses = validate_many([path for _, path in header_items], accept=_valid_header)
     for (locale, path), (info, dec) in zip(header_items, header_statuses):
-        w, h, depth, color = info
-        struct_ok = (w, h) in HEADER_SIZES and depth == 8 and color == 2
-        if struct_ok and (w, h) == (5244, 2950):
-            with open(path, "rb") as source:
-                struct_ok = path.lower().endswith(".png") and source.read(8) == b"\x89PNG\r\n\x1a\n"
+        w, h, _, _ = info
+        struct_ok = _valid_header(path, info)
         if dec == "unavailable":
             saw_unavailable = True
         label = "{}/{}".format(locale, os.path.basename(path))
-        if dec.startswith("could not decode:"):
-            results.append(("WARN", "Apple header {}: {}".format(label, dec)))
         if dec.startswith("bad:"):
             results.append(("FAIL", "Apple header {}: {}".format(label, dec[5:])))
         elif not struct_ok:
             results.append(("FAIL", "Apple header {}: expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha".format(label)))
+        elif dec.startswith("could not decode:"):
+            results.append(("WARN", "Apple header {}: {}".format(label, dec)))
         elif dec == "bad":
             results.append(("FAIL", "Apple header {}: image failed full decode".format(label)))
-        elif not dec.startswith("could not decode:"):
+        else:
             results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
     try:

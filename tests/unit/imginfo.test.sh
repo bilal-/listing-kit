@@ -168,6 +168,7 @@ write_png("trns_over_plte.png", 2, 2, 1, 3, [chunk(b"PLTE", b"\x00\x00\x00"), ch
 # PLTE on ct=0, PLTE after IDAT, tRNS after IDAT, PLTE > 2^depth on ct=3, unknown critical chunk
 write_png("plte_ct0.png", 2, 2, 8, 0, [chunk(b"PLTE", b"\x00\x00\x00"), idat_gray])
 write_png("rgb_trns_before_plte.png", 2, 2, 8, 2, [chunk(b"tRNS", bytes(6)), chunk(b"PLTE", bytes(3)), idat_rgb])
+write_png("rgb_plte_before_trns.png", 2, 2, 8, 2, [chunk(b"PLTE", bytes(3)), chunk(b"tRNS", bytes(6)), idat_rgb])
 frame = struct.pack(">IIIIIHHBB", 0, 2, 2, 0, 0, 1, 10, 0, 0)
 write_png("animated.png", 2, 2, 8, 2, [chunk(b"acTL", struct.pack(">II", 1, 0)), chunk(b"fcTL", frame), idat_rgb])
 write_png("plte_after_idat.png", 2, 2, 8, 2, [idat_rgb, chunk(b"PLTE", b"\x00\x00\x00")])
@@ -179,6 +180,7 @@ for f in trns_ct6 trns_ct4 trns_ct0_len trns_ct2_len trns_before_plte trns_over_
          rgb_trns_before_plte plte_ct0 plte_after_idat trns_after_idat plte_over_depth unknown_crit; do
   assert_eq "$UNK" "$(info4 "$TMP/$f.png")" "reject $f"
 done
+assert_eq "$(printf '2\t2\t8\t2+tRNS')" "$(info4 "$TMP/rgb_plte_before_trns.png")" "accept optional PLTE before tRNS on truecolor PNG"
 
 it "reports animated PNGs as unsuitable for a static listing"
 assert_eq "$UNK" "$(info4 "$TMP/animated.png")"
@@ -376,6 +378,8 @@ cat > "$STUB_BIN/magick" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   *profile.png*) echo "iCCP: truncated color profile" >&2; exit 0;;
+  *extra.jpg*) echo "magick: Corrupt JPEG data: 12 extraneous bytes before marker 0xd9" >&2; exit 0;;
+  *prog_bad.jpg*) echo "magick: Inconsistent progression sequence for component 1 coefficient 0" >&2; exit 0;;
   *warn.png*) echo "Corrupt JPEG data: premature end of data segment" >&2; exit 0;;
   *bad.png*) exit 1;;
   *) exit 0;;
@@ -384,7 +388,10 @@ EOF
 chmod +x "$STUB_BIN/magick"
 cp "$TMP/good.png" "$TMP/warn.png"; cp "$TMP/good.png" "$TMP/bad.png"
 cp "$TMP/good.png" "$TMP/profile.png"
+fake_jpeg "$TMP/extra.jpg" 16 16; fake_jpeg "$TMP/prog_bad.jpg" 16 16
 assert_eq "ok" "$(PATH="$STUB_BIN:$PATH" dec1 "$TMP/profile.png")" "a truncated profile warning leaves decoded pixels usable"
+assert_eq "bad" "$(PATH="$STUB_BIN:$PATH" dec1 "$TMP/extra.jpg")" "corrupt JPEG extraneous-bytes warning treated as bad"
+assert_eq "bad" "$(PATH="$STUB_BIN:$PATH" dec1 "$TMP/prog_bad.jpg")" "inconsistent progressive JPEG warning treated as bad"
 DEC_MULTI="$(PATH="$STUB_BIN:/bin:/usr/bin" "$PY_BIN" "$SUT" --decode "$TMP/good.png" "$TMP/warn.png" "$TMP/bad.png")"
 assert_contains "$DEC_MULTI" "$(printf 'ok\t%s' "$TMP/good.png")" "magick stub ok"
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/warn.png")" "incomplete scan warning treated as bad"

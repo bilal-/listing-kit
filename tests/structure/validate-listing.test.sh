@@ -479,6 +479,7 @@ for cmd in bash sh python3 dirname basename grep sort uniq head od tr awk; do
 done
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$APP/app.json" "$T/"
 fake_png "$T/store-assets/apple/en-US/header-16x9.png" 5244 2950
+fake_png "$T/fastlane/metadata/android/en-US/images/tvBanner.png" 1280 720
 OUT="$(PATH="$NOIM_BIN" "$BASH_BIN" "$SUT" "$T" 2>&1)"; RC=$?
 assert_not_contains "$OUT" "command not found" "restricted PATH supplies every validator command"
 assert_eq 0 "$RC" "structural-only validation passes with a warning when IM is absent"
@@ -487,7 +488,7 @@ WARN_LINES="$(printf '%s\n' "$OUT" | grep -c 'structurally only' || true)"
 assert_eq 1 "$WARN_LINES" "prints exactly ONE structural-only warning across all images"
 
 # PATH stub reporting bad decode for each asset category
-for bad_target in "medium_01.png" "phoneScreenshots/01_recipes.png" "featureGraphic.png" "icon.png"; do
+for bad_target in "medium_01.png" "phoneScreenshots/01_recipes.png" "featureGraphic.png" "icon.png" "tvBanner.png"; do
   new_stubdir
   cat > "$STUB_BIN/magick" <<EOF
 #!/usr/bin/env bash
@@ -539,13 +540,43 @@ assert_contains "$OUT" "tvBanner.png"
 fake_png "$T/$IMG/tvBanner.png" 1280 720
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "valid TV banner passes"
-assert_contains "$OUT" "TV banner 1280x720"
+assert_contains "$OUT" "TV banner 1280x720 24-bit no-alpha"
+fake_png "$T/$IMG/tvBanner.png" 1280 720 8 6
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "RGBA TV banner fails Play 24-bit no-alpha rule"
+assert_contains "$OUT" "TV banner must be 1280x720 24-bit no-alpha"
+rm -f "$T/$IMG/tvBanner.png"
 fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
 printf broken > "$T/$IMG/featureGraphic.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" "duplicate featureGraphic"
 assert_contains "$OUT" "featureGraphic.png: image failed"
+assert_not_contains "$OUT" "✓ feature graphic" "ambiguous duplicate graphic does not report pass"
+rm -rf "$T"
+
+it "rejects a two-frame APNG screenshot with a damaged second frame with a clear acTL reason"
+apple_only
+python3 - "$T/fastlane/screenshots/en-US/05_apng.png" <<'PY'
+import struct, sys, zlib
+def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+w, h = 1206, 2622
+ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+comp = zlib.compressobj(1)
+row = b"\x00" * (1 + w * 3)
+z = bytearray()
+for _ in range(h): z.extend(comp.compress(row))
+z.extend(comp.flush())
+actl = chunk(b"acTL", struct.pack(">II", 2, 0))
+fctl0 = chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, w, h, 0, 0, 1, 10, 0, 0))
+fctl1 = chunk(b"fcTL", struct.pack(">IIIIIHHBB", 1, w, h, 0, 0, 1, 10, 0, 0))
+fdat_bad = chunk(b"fdAT", struct.pack(">I", 2) + b"damaged-second-frame-data")
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + ihdr + actl + fctl0 + chunk(b"IDAT", bytes(z)) + fctl1 + fdat_bad + chunk(b"IEND", b""))
+PY
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "APNG screenshot fails validation"
+assert_contains "$OUT" "05_apng.png: animated PNG (acTL)"
+assert_not_contains "$OUT" "05_apng.png: 0x0" "does not emit redundant 0x0 size error after acTL reason"
 rm -rf "$T"
 
 it "reports the decoder's resource limit as a warning on each blocked asset"

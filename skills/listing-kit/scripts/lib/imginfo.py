@@ -403,23 +403,31 @@ def _decode_batch(decoder, paths):
               "no space left on device", "cache allocation failed")
     incomplete = ("premature end of jpeg file", "premature end of data segment",
                   "insufficient image data", "not enough image data", "truncated image",
-                  "corrupt jpeg data: bad", "bogus huffman")
+                  "corrupt jpeg data:", "bogus huffman", "missing huffman",
+                  "inconsistent progression")
+    quoted_names = tuple("`" + p + "'" for p in paths) + tuple("`" + os.path.basename(p) + "'" for p in paths)
     damaged = bool(result.returncode)
     for line in message.splitlines():
         prefix, sep, rest = line.partition(": ")
-        if sep and prefix in ("magick", "convert", "identify", "convert-im6.q16", "identify-im6.q16"):
+        if sep and os.path.basename(prefix).startswith(("magick", "convert", "identify")):
             line = rest
         reason = line.partition("`")[0].lower()
         if any(limit in reason for limit in limits):
-            return "could not decode: " + " ".join(line.split())
-        if " @ error/" in line or any(part in reason for part in incomplete):
+            cleaned = line
+            for seg in (" @ warning/", " @ error/", " @ fatal/"):
+                if seg in cleaned:
+                    cleaned = cleaned.split(seg, 1)[0]
+            for qn in quoted_names:
+                cleaned = cleaned.replace(qn, "")
+            return "could not decode: " + " ".join(cleaned.split())
+        if " @ error/" in line or " @ fatal/" in line or any(part in reason for part in incomplete):
             damaged = True
     if damaged:
         return "bad"
     return "ok"
 
 
-def validate_many(paths):
+def validate_many(paths, accept=None):
     """Inspect each file once. Only structurally accepted images enter decode batches."""
     inspected = [_inspect(path) for path in paths]
     decoder = None
@@ -440,7 +448,7 @@ def validate_many(paths):
     batch = []
     pixels = 0
     for i, (info, status) in enumerate(inspected):
-        if status != "ok":
+        if status != "ok" or (accept is not None and not accept(paths[i], info)):
             continue
         if not decoder:
             inspected[i] = info, "unavailable"

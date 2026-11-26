@@ -200,6 +200,8 @@ fi
 
 it "checks Apple header dimensions before invoking ImageMagick, rejects acTL headers, and warns on policy limits"
 fake_jpeg "$HEADERS/overcap.jpg" 8001 8000
+fake_png "$HEADERS/wrongsize.png" 1024 500
+fake_png "$HEADERS/rgba-header.png" 5244 2950 8 6
 python3 - "$HEADERS/anim-header.png" <<'PY'
 import struct, sys, zlib
 def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
@@ -213,12 +215,14 @@ PY
 new_stubdir; stub magick 0
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
 LOG="$(stub_log)"
-assert_eq 1 "$RC" "over-cap and acTL headers fail"
+assert_eq 1 "$RC" "over-cap, wrong-size, RGBA, and acTL headers fail"
 assert_not_contains "$LOG" "overcap.jpg" "over-cap header never passed to ImageMagick"
+assert_not_contains "$LOG" "wrongsize.png" "wrong-size header never passed to ImageMagick"
+assert_not_contains "$LOG" "rgba-header.png" "RGBA header never passed to ImageMagick"
 assert_not_contains "$LOG" "anim-header.png" "acTL header never passed to ImageMagick"
 assert_contains "$OUT" "anim-header.png"
 assert_contains "$OUT" "acTL"
-rm -f "$HEADERS/overcap.jpg" "$HEADERS/anim-header.png"
+rm -f "$HEADERS/overcap.jpg" "$HEADERS/wrongsize.png" "$HEADERS/rgba-header.png" "$HEADERS/anim-header.png"
 
 new_stubdir
 cat > "$STUB_BIN/magick" <<'EOF'
