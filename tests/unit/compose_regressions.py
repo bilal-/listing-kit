@@ -1,6 +1,5 @@
 """Regression cases for the composer. All mutable inputs live in suite fixtures."""
 import contextlib
-import copy
 import hashlib
 import io
 import json
@@ -11,12 +10,13 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/listing-kit/scripts/compose"))
 import compose
+import ownership
 import cdp
 import render
 
@@ -56,7 +56,7 @@ class Composer(unittest.TestCase):
         return code
 
     def job(self):
-        return compose.Job(str(self.root), self.rec, {})
+        return compose.Job(str(self.root), self.rec)
 
     @unittest.skipUnless(compose.magick(), "ImageMagick required")
     def test_01_unowned_and_edited_require_listed_adoption(self):
@@ -118,6 +118,59 @@ class Composer(unittest.TestCase):
         with patch.object(compose, "build", side_effect=other_writer), patch.object(compose, "magick", return_value=True):
             self.assertEqual(self.run_cli(), 0)
 
+    def test_01_file_created_during_build_is_preserved(self):
+        def late_file(*unused):
+            self.out.write_bytes(b"other writer")
+            return png()
+        with patch.object(compose, "build", side_effect=late_file), patch.object(compose, "magick", return_value=True):
+            self.assertEqual(self.run_cli("--adopt"), 1)
+        self.assertEqual(self.out.read_bytes(), b"other writer")
+        self.assertIn(ownership.CONFLICT, self.log)
+
+    def test_03_interruption_between_publication_and_checkpoint(self):
+        with patch.object(compose, "build", return_value=png()), patch.object(compose, "magick", return_value=True):
+            with patch.object(ownership.State, "save", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    self.run_cli()
+            self.assertTrue(self.out.exists())
+            self.assertEqual(self.run_cli(), 0, self.log)
+            self.assertIn("1 unchanged", self.log)
+        self.assertIn("shots/a.png", json.loads((self.kit / "outputs.json").read_text())["files"])
+
+    def test_01_output_tree_can_resolve_inside_app(self):
+        actual = self.root / "actual"
+        self.out.parent.rename(actual)
+        self.out.parent.symlink_to(actual)
+        with patch.object(compose, "magick", return_value=True), patch.object(compose, "build", return_value=png()):
+            self.assertEqual(self.run_cli(), 0, self.log)
+        self.assertEqual(self.out.read_bytes(), png())
+
+    def test_09_mixed_browser_versions_only_emit_one_note(self):
+        self.rec.update(styleMode="framed", storeCode="en-US")
+        self.man["outputs"].append(dict(self.rec, targetId="b", outputPath="shots/b.png"))
+        browser = Mock()
+        browser.version_major.side_effect = ["100", "101", "101"]
+        with patch.object(render, "open_browser", return_value=(browser, Mock())) as launch, \
+             patch.object(cdp, "find_browser", return_value="browser"), \
+             patch.object(compose, "build", return_value=png()), patch.object(compose, "magick", return_value=True):
+            self.assertEqual(self.run_cli("--target", "a"), 0)
+            self.assertEqual(self.run_cli(), 0)
+            self.assertEqual(self.log.count("different browser versions"), 1)
+            self.assertEqual(self.run_cli(), 0)
+            self.assertIn("2 unchanged", self.log)
+            self.assertEqual(launch.call_count, 2)
+            self.assertEqual(self.run_cli("--restyle"), 0)
+            self.assertIn("1 written, 1 unchanged", self.log)
+            self.assertNotIn("different browser versions", self.log)
+
+    def test_15_invalid_inventory_preserved(self):
+        for invalid in ["[]", "{", '{"format":1,"files":{}}', '{"format":1,"files":["../bad"]}']:
+            path = self.kit / "outputs.json"
+            path.write_text(invalid)
+            self.assertNotEqual(self.run_cli(), 0)
+            self.assertIn("malformed .listing-kit/outputs.json", self.log)
+            self.assertEqual(path.read_text(), invalid)
+
     def test_04_template_registry_before_open(self):
         for fn in [compose.template_hash, lambda name: render._fill(name, {})]:
             with patch("builtins.open", side_effect=AssertionError("opened an unknown template")):
@@ -139,7 +192,8 @@ class Composer(unittest.TestCase):
             job.keys()
             self.raw.write_bytes(png(3, 2))
             self.assertIsNotNone(compose.build(job, None), job.problems)
-            flatten.assert_called_once_with(png())
+            self.assertEqual(flatten.call_count, 1)
+            self.assertEqual(flatten.call_args[0][0], png())
 
     def test_09_raw_key_uses_only_build_inputs(self):
         before = self.job().keys()
@@ -213,12 +267,64 @@ class Layout(unittest.TestCase):
         return render.render(self.renderer, template, kw.pop("size", (600, 300)), "en-US",
                              {"palette": palette}, dict(headline=[font], detail=[font]), text, **kw)[1]
 
+    def test_preview_frame_paints_inline_template(self):
+        font = str(next((ROOT / "skills/listing-kit").rglob("*.ttf")))
+        rec = dict(kind="graphic", size=[600, 300], outputPath="header.png", slotId="header-16x9",
+                   style=dict(fonts=dict(headline=[font], detail=[font]), palette=dict(background=["#000000"], ink="#ffffff")),
+                   text=dict(headline={"value": "Header"}))
+        page = compose.preview_page([compose.Job(".", rec)])
+        probe = """(()=>{const r=document.querySelector('iframe').getBoundingClientRect();
+                   return [r.left+3,r.top+3,r.left+5,r.top+5]})()"""
+        shot, rect = self.renderer.render({"/index.html": page}, 400, 300, csp=False, probe=probe)
+        ratio, = render.pixels.contrast_boxes(shot, (400, 300), [dict(rect=rect, rgba=[255,255,255,1], empty=False)])
+        self.assertGreater(ratio, 20)
+
     def test_07_required_asset_decode(self):
         with tempfile.TemporaryDirectory() as d:
             logo = Path(d) / "broken.png"
             logo.write_bytes(b"broken")
             with self.assertRaisesRegex(cdp.BrowserError, "broken.png|logo.png"):
                 self.draw("feature", dict(background=["#ffffff"], ink="#000000"), {}, logo=str(logo))
+
+    def test_07_browser_identifies_font_that_fails_to_decode(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "broken.ttf"
+            path.write_bytes(b"broken")
+            assets = {"/index.html": b'<style>@font-face{font-family:Broken;src:url(/broken.ttf)}</style>',
+                      "/broken.ttf": str(path)}
+            with self.assertRaisesRegex(cdp.BrowserError, "broken.ttf"):
+                self.renderer.render(assets, 100, 100)
+
+    def test_11_row_label_coverage_uses_headline_font(self):
+        seen = []
+        def missing(text, paths):
+            seen.append((text, paths))
+            return []
+        font = str(next((ROOT / "skills/listing-kit").rglob("*.ttf")))
+        with tempfile.TemporaryDirectory() as d:
+            other = Path(d) / "other.ttf"
+            other.write_bytes(Path(font).read_bytes())
+            with patch.object(render.fontcheck, "missing", side_effect=missing):
+                render.render(self.renderer, "panel", (300, 500), "en-US",
+                              {"palette": {"background": ["#ffffff"], "ink": "#000000"}},
+                              dict(headline=[font], detail=[str(other)]), {"rows": [("Label", "value")]})
+            self.assertTrue(any("LABEL" in text and paths == [font] for text, paths in seen))
+            self.assertTrue(any("value" in text and paths == [str(other)] for text, paths in seen))
+
+    def test_14_unrelated_events_cannot_extend_deadline(self):
+        with patch.dict(os.environ, LK_BROWSER_TIMEOUT="0.6"):
+            browser = cdp.Browser()
+        try:
+            start = time.monotonic()
+            # Keep generating protocol events while the evaluated promise is pending.
+            with self.assertRaisesRegex(cdp.BrowserError, "time|seconds"):
+                cdp.Renderer(browser).render({"/index.html": b"<body></body>"}, 50, 50,
+                    csp=False, probe="new Promise(()=>{let n=setInterval(()=>fetch('/noise').catch(()=>0),10);setTimeout(()=>clearInterval(n),1500)})")
+            self.assertLess(time.monotonic()-start, 1.5)
+        finally:
+            browser.close()
+        self.assertIsNotNone(browser.proc.poll())
+        self.assertFalse(Path(browser.profile).exists())
 
     def test_10_gradient_under_text(self):
         report = self.draw("feature", dict(background=["#000000", "#ffffff"], ink="#757575"), {"headline": "Middle"})

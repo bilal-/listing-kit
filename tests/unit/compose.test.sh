@@ -3,8 +3,7 @@
 
 COMPOSE="$SCRIPTS/compose/compose.py"
 PLAN="$SCRIPTS/lib/plan.py"
-T="$(mktemp -d)"; [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }
-trap 'rm -rf "$T"' EXIT
+new_tempdir T
 
 have_browser() { python3 -c "import sys; sys.path.insert(0, '$SCRIPTS/compose'); import cdp; sys.exit(0 if cdp.find_browser() else 1)"; }
 have_magick() { command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }
@@ -235,14 +234,22 @@ it "the browser serves nothing outside the allow-list: local files, loopback, th
 OUT="$(cd "$SCRIPTS/compose" && python3 - <<'PY'
 import cdp
 b = cdp.Browser(); r = cdp.Renderer(b)
-page = b'''<!doctype html><body><img src="file:///etc/hosts"><img src="http://127.0.0.1:9/x.png"><img src="https://example.com/a.png">
-<iframe src="file:///etc/passwd"></iframe><script>new Worker("/w.js");fetch("https://example.net/f").catch(()=>0)</script></body>'''
+page = b'''<!doctype html><body><style>body{background-image:url(file:///etc/hosts),url(http://127.0.0.1:9/x.png),url(https://example.com/a.png)}</style>
+<iframe src="file:///etc/passwd"></iframe><script>window.done=fetch("https://example.net/f").catch(()=>0)</script></body>'''
 try:
-    png, info = r.render({"/index.html": page, "/w.js": b"fetch('https://worker.example/w').catch(()=>0)"}, 320, 200,
-                         probe="{text: (()=>{try{return frames[0].document.body.innerText.length}catch(e){return -1}})()}", csp=False)
-    import time; time.sleep(0.4)
+    png, frame = r.render({"/index.html": page}, 320, 200,
+        probe="(async()=>{await done;try{return frames[0].document.body.innerText.length}catch(e){return -1}})()", csp=False)
     hosts = sorted({u.split('/')[2] for u in r.refused if '://' in u and 'listing-kit.invalid' not in u})
-    print("frame-text", info["text"], "refused", " ".join(hosts), "png", len(png) > 100)
+    print("frame-text", frame, "refused", " ".join(hosts), "png", len(png) > 100)
+    worker = b'<script>window.done=new Promise(resolve=>new Worker("/w.js").onmessage=resolve)</script>'
+    try:
+        r.render({"/index.html": worker, "/w.js": b"fetch('https://worker.example/w').catch(()=>0).then(()=>postMessage(1))"},
+                 320, 200, probe="done.then(()=>true)", csp=False)
+        assert "https://worker.example/w" in r.refused
+    except cdp.BrowserError as exc:
+        # Chromium versions without a worker Fetch domain must fail the render.
+        assert "Fetch.enable" in str(exc), exc
+    print("worker request blocked")
 finally:
     b.close()
 PY
@@ -250,7 +257,7 @@ PY
 assert_contains "$OUT" "127.0.0.1:9"
 assert_contains "$OUT" "example.com"
 assert_contains "$OUT" "example.net"
-assert_contains "$OUT" "worker.example"
+assert_contains "$OUT" "worker request blocked"
 assert_contains "$OUT" "png True"
 case "$OUT" in "frame-text 0 "*|"frame-text -1 "*) pass "the local file frame is empty";; *) fail "local file content reached the page: $OUT";; esac
 
@@ -261,4 +268,5 @@ fi
 
 it "composer regression cases"
 if python3 "$ROOT/tests/unit/compose_regressions.py"; then pass; else fail; fi
+remove_fixture "$T"
 summary
