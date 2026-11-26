@@ -147,3 +147,30 @@ The committed tree is the source of truth **for non-secrets only**.
 - **Assemble asserts the boundary:** before finishing, run
   `scripts/lib/secret-scan.sh` over the written `fastlane/` tree and **fail the
   run** if any credential/high-entropy token leaked into a committed file.
+
+## Store management
+
+An editable App Store Connect version is required. On Play, upload the first build in Play Console. Run the skill's `bin/listing-kit` executable from the app root, or pass `--app-root DIR`. Adding the skill's `bin` directory to PATH makes the following commands available.
+
+```sh
+listing-kit fastlane setup --store apple --apple-api-key-path /private/keys/asc.json
+listing-kit fastlane setup --store play --play-json-key-path /private/keys/play.json
+listing-kit pull --store apple
+listing-kit publish --store play --track production --version-code 42
+listing-kit handoff .
+```
+
+With a plan, app IDs and paths come from its manifest. Without a plan, supply `--app-identifier ID` or `--package-name ID`. Omitting `--store` selects active stores in the plan, or existing store trees on disk. Use an explicit store and ID to bootstrap an empty app. For first-time initialization, confirm the IDs before choosing targets or flows. After the initial download, run the skill's Init, Detect and Plan steps using the downloaded text. Subsequent pulls preserve that plan.
+
+**Setup.** Keep the App Store Connect API key JSON and Play service-account JSON outside the Git repository, including its ignored directories. Setup stores their paths in the ignored, mode-600 `.listing-kit/local.json`. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` override saved paths. Each check exercises the selected app's download actions. A Gemfile mentioning fastlane in the store's fastlane directory or app root selects Bundler. Use `scripts/lib/secret-scan.sh --store-credentials REPO_ROOT` to run the same repository-wide credential-file check separately.
+
+**Pull.** Apple reads the editable version selected by deliver. Play reads listing text and gallery files using supply, with release notes from the selected track. On tracks with multiple releases, supply 2.242.0 can return notes for the first release. Inspect the downloaded version codes before editing notes. Pull records SHA-256 hashes in `.listing-kit/remote.lock.json` and keeps screenshot references in `.listing-kit/remote/<store>/`. When both sides edit a field, pull exits 1 and saves the store's version under that reference directory. Copy it into the working field to accept the store value, or keep the local field for the publish comparison. An omitted download leaves the local file in place.
+
+**Publish and hand-upload checklist**
+
+1. Run `listing-kit publish`. Check the credential filename, app, editable-version selector or Play track, locale, field changes and replacement counts. With a plan, the validation copy uses active target outputs and locales. Resolve any validation failure first.
+2. Review the proposed command. Publish compares local screenshots with their last pull or publish baseline. A group without a local baseline is listed as “never published from this repo.” To include it, pass `--screenshots <store>:<locale>[:<group>]` using the group name in the preview. Matching galleries are skipped. Review the ordered filenames, content digests, and change markers before approving. Later store-only differences are reported for review with `pull`. Publish skips the `default/` metadata and screenshot directories. A changed Play slot replaces its images in filename order. Apple replaces **every set for each uploaded locale**, including hand uploads. The preview includes the sets it must restore. Uncomparable slots and protected console galleries are identified for hand upload.
+3. For an enabled store, type `yes` or pass `--yes` for noninteractive approval. Review `.listing-kit/publish.approved.json` for the approved hashes and `.listing-kit/publish.receipt.json` for pending and completed operations. If another editor changes the baseline, rerun for a fresh comparison. Downloads time out after 300 seconds and uploads after 900 seconds. Set `LK_FASTLANE_TIMEOUT` in seconds to override either limit. Before fastlane starts an upload, the receipt records its approved manifest. After an interruption or timeout, publish reads the store again. A match completes the receipt and advances the baseline. An ambiguous result holds screenshot uploads for the affected locale. Inspect the store, run `listing-kit publish --resolve <store>` with the same app and track, and confirm interactively to close the pending operation. Run publish again to approve any remaining changes. Supply sends release notes only when the download establishes the full locale set for the requested `--version-code`. Each version-specific file takes precedence over the locale's `default.txt`, including an empty version-specific file.
+4. After the automatic operation, run `listing-kit handoff .`. Open `.listing-kit/upload/INDEX.html` for the remaining console entries, Apple hand-upload slots, Play icon and feature graphic. For a disabled store the folder covers the whole manual transfer.
+
+**Maintainer live gate.** Both stores ship with writes disabled. On disposable app records, record the current version or track, builds, review state, listing text, all gallery slots and their image order, icon and feature graphic. Seed a hand-uploaded slot. Select a single store. Set `LK_PUBLISH_UNVERIFIED=apple:<app id>` or `LK_PUBLISH_UNVERIFIED=play:<package name>` for that command and publish one changed title. Read the listing back and compare all recorded values. Next change one screenshot, confirm the previewed replacement scope, publish and read back. Exercise the Apple console-slot refusal and verify the hand-uploaded slot survives. On Play run both tests on a draft app and a published app. Enable a store in `PUBLISH_ENABLED` only after its maintainer has recorded the successful checks. The credential-free gem contract runs separately in CI.

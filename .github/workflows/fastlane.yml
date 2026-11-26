@@ -1,0 +1,45 @@
+name: Fastlane contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 10 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['2.242.0', latest]
+    continue-on-error: ${{ matrix.version == 'latest' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Install fastlane
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          if [ "$VERSION" = latest ]; then
+            gem install fastlane --no-document
+          else
+            gem install fastlane --version "$VERSION" --no-document
+          fi
+      - run: ruby tests/contract/fastlane.rb
+        env:
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+          FASTLANE_OPT_OUT_USAGE: '1'
+      - if: failure() && matrix.version == 'latest'
+        run: touch "${RUNNER_TEMP}/fastlane-latest-failed"
+      - if: failure() && matrix.version == 'latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastlane-latest-failed
+          path: ${{ runner.temp }}/fastlane-latest-failed

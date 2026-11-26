@@ -243,7 +243,45 @@ def scan(path, base, ignored, roots):
         yield 2
 
 
+def check_store_credentials(repo):
+    """Fastlane keys must be external, including ignored files and extensionless JSON."""
+    def fail_walk(error):
+        raise error
+
+    for parent, dirs, files in os.walk(repo, onerror=fail_walk):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in files:
+            path = Path(parent, name)
+            if name.lower().endswith(".p8"):
+                raise ValueError("Found a .p8 credential; move it outside the repository")
+            if name == ".git" or not path.is_file():
+                continue
+            with path.open("rb") as stream:
+                head = stream.read(256)
+                while head and not head.strip():
+                    head = stream.read(256)
+                if not head.lstrip().startswith((b"{", b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")):
+                    continue
+                try:
+                    obj = json.loads(head + stream.read())
+                except (ValueError, UnicodeError):
+                    continue
+            if isinstance(obj, dict) and (obj.get("type") == "service_account"
+                                          or {"key_id", "key"} <= obj.keys()):
+                raise ValueError("Found a store credential; move it outside the repository")
+
+
 def main(paths):
+    if paths[:1] == ["--store-credentials"] and len(paths) == 2:
+        try:
+            check_store_credentials(Path(paths[1]))
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
+        except OSError:
+            print("Could not complete the repository credential scan", file=sys.stderr)
+            return 2
+        return 0
     results = set()
     roots = [Path(p).resolve() for p in paths if not Path(p).is_symlink()]
     for name in paths:

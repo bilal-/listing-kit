@@ -12,8 +12,7 @@ the layout fastlane's `deliver` and `supply` already read. Keeping it in the rep
 means store copy is reviewed like code, screenshots can be regenerated instead of
 hand-curated, and publishing tools get clean input with no translation.
 
-Publishing itself is out of scope. Anything that can run `fastlane deliver` /
-`supply` can publish what listing-kit writes.
+Store management runs fastlane's deliver and supply actions in scratch directories. Pull records a per-store baseline. Publish validates a filtered copy and records approvals and completed transfers. Each store has its own live-test gate.
 
 ## Layout
 

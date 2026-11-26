@@ -7,7 +7,7 @@ description: Use when a user wants App Store / Google Play listing assets for a 
 
 **App-store presence, in your repo.** This is *not* "a screenshot tool." It produces a complete, version-controlled source of truth for what appears on the App Store and Google Play — screenshots, copy, keywords, URLs, graphics — stored in the repo in a fastlane-compatible layout, kept in sync with the running app.
 
-Publishing to the stores is **out of scope** (v1). Everything is structured so a later step or existing fastlane actions can publish it.
+Use fastlane for automated store management. Run the bundled `bin/listing-kit` command for setup, pull, and publish. Publish previews each store until its live-test gate is enabled. [Store management and hand uploads](references/metadata/fastlane-layout.md#store-management)
 
 ## When to use this
 
@@ -30,6 +30,10 @@ detect → doctor → discover → plan → configure → run → drive → capt
 ```
 
 Run these in order. Each step has a reference doc; load it when you reach the step.
+
+### Init and first pull
+
+At initialization, ask for the Apple bundle identifier and/or Play package name for the selected stores first. Record them in the format-2 plan's `app.ios` and `app.android` fields during planning. For an existing store listing with an empty local tree, use these IDs with setup and pull, then run the Detect and Plan steps below against the downloaded copy. Keep an existing plan and its screen order.
 
 ### 1. Detect — classify the stack and locate the app root
 Identify the stack from manifest signals. See `references/stacks/` (each stack doc opens with its detection signatures). A repo may be cross-platform (RN/Flutter) or contain both a native iOS and native Android project. **Report what you found and ask the user to confirm targets.**
@@ -100,6 +104,8 @@ Write everything into the fastlane layout **at the app root from step 1** (`refe
 Validate what Assemble actually wrote, so generated metadata and graphics are covered. Run `scripts/validate/validate-listing.sh` (pass the app root). It checks the listing against the rules in `references/stores/*.md` (copy limits and required fields, screenshot sizes, formats and counts per locale, Play graphics, and the secret scan) and exits non-zero on any failure; warnings, such as missing Play promotion eligibility, don't fail the run. It checks **only the store(s) actually present**. If device-family detection is wrong (an iPad-only app, or `supportsTablet` computed at runtime), set `LK_SUPPORTS_IPHONE=0` / `LK_SUPPORTS_IPAD=0|1`. If a previous screenshot set exists (a prior commit or a backup dir), also run `scripts/validate/visual-diff.sh` (`<previous-dir> <current-dir>`) for a per-screen regression report; it never blocks. Fix failures (back in Configure, Capture, or Assemble) and rerun until it passes, or report what's left.
 
 Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-review.html` at the app root — a single static page (copy buttons, screenshots per device class, the validator's results) for reviewing the listing and pasting copy into the store consoles. It is read-only and never writes into `fastlane/`.
+
+For store delivery, run the publish preview first. Complete any approved fastlane transfer, then build the hand-upload folder for the remaining fields, Play graphics, and console screenshot targets. Use its checklist in that order.
 
 #### Commit-time review refresh
 
