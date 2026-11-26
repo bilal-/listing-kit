@@ -4,7 +4,7 @@
 SUT="$SCRIPTS/package/install-review-hook.sh"
 
 make_app() {
-  T="$(mktemp -d)"
+  new_tempdir T
   git -C "$T" init >/dev/null
   git -C "$T" config user.email "listing-kit@example.test"
   git -C "$T" config user.name "listing-kit test"
@@ -14,7 +14,7 @@ make_app() {
 }
 
 it "exits 2 outside a git worktree"
-T="$(mktemp -d)"
+new_tempdir T
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Not inside a git worktree"
@@ -41,7 +41,7 @@ assert_contains "$(git -C "$T" show HEAD:listing-review.html)" "Updated descript
 rm -rf "$T"
 
 it "supports app roots below the git worktree root"
-T="$(mktemp -d)"
+new_tempdir T
 git -C "$T" init >/dev/null
 git -C "$T" config user.email "listing-kit@example.test"
 git -C "$T" config user.name "listing-kit test"
@@ -57,7 +57,7 @@ rm -rf "$T"
 it "installs into the shared hooks dir from a linked worktree"
 make_app "Worktree description"
 git -C "$T" add fastlane && git -C "$T" commit -qm "initial listing"
-WT="$(mktemp -d)/wt"
+new_tempdir WT; WT="$WT/wt"
 git -C "$T" worktree add -q "$WT"
 bash "$SUT" "$WT" >/dev/null
 assert_exec "$T/.git/hooks/pre-commit"
@@ -173,7 +173,7 @@ assert_not_contains "$(git -C "$T" show HEAD:listing-review.html)" "Promo to del
 rm -rf "$T"
 
 it "registers several app roots in one repo"
-T="$(mktemp -d)"; git -C "$T" init -q
+new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 for a in apps/one apps/two; do
   mkdir -p "$T/$a/fastlane/metadata/en-US"
@@ -187,7 +187,7 @@ assert_contains "$(git -C "$T" show HEAD:apps/two/listing-review.html)" "Descrip
 rm -rf "$T"
 
 it "app dirs with glob characters are matched literally"
-T="$(mktemp -d)"; git -C "$T" init -q
+new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 for a in "apps/mobile[1]" "apps/mobile1"; do
   mkdir -p "$T/$a/fastlane/metadata/en-US"
@@ -201,7 +201,7 @@ assert_not_contains "$(git -C "$T" ls-files)" "apps/mobile1/listing-review.html"
 rm -rf "$T"
 
 it "header-only and plan-only commits refresh from staged assets"
-T="$(mktemp -d)"; git -C "$T" init -q
+new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
 fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
@@ -223,7 +223,7 @@ assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'iPhone Duo: 0 of
 rm -rf "$T"
 
 it "flow-only and app-config-only commits refresh validation from the index"
-T="$(mktemp -d)"; git -C "$T" init -q
+new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
 rm "$T"/fastlane/screenshots/en-US/ipad13_*.png

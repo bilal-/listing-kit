@@ -8,14 +8,14 @@ OUT="$(bash "$SUT" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 
 it "exits 2 when a directory is missing"
-TMP="$(mktemp -d)"
+new_tempdir TMP
 OUT="$(bash "$SUT" /no/such/dir "$TMP" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 rm -rf "$TMP"
 
 # --- byte-compare fallback (LK_NO_IMAGEMAGICK) — deterministic, CI-safe ---
 # Forces the fallback regardless of whether ImageMagick is installed on the runner.
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'AAAA' > "$P/01.png"; printf 'AAAA' > "$C/01.png"   # unchanged
 printf 'AAAA' > "$P/02.png"; printf 'BBBB' > "$C/02.png"   # changed (bytes differ)
 printf 'X'    > "$P/03.png"                                # removed (prev only)
@@ -56,14 +56,14 @@ rm -rf "$STUB_BIN"
 rm -rf "$P" "$C"
 
 it "JPEG screenshots are compared too"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'AAAA' > "$P/01.jpg"; printf 'BBBB' > "$C/01.jpg"
 OUT="$(LK_NO_IMAGEMAGICK=1 bash "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "01.jpg (bytes differ)"
 rm -rf "$P" "$C"
 
 it "an ImageMagick 6 install without identify falls back to byte-compare"
-P="$(mktemp -d)"; C="$(mktemp -d)"; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
+new_tempdir P; new_tempdir C; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
 new_stubdir; stub compare
 OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"

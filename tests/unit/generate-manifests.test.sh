@@ -4,7 +4,7 @@
 SUT="$SCRIPTS/package/generate-manifests.sh"
 
 # Run against an isolated root so the repo's committed manifests aren't touched.
-T="$(mktemp -d)"
+new_tempdir T
 mkdir -p "$T/.claude-plugin"
 cp "$ROOT/.claude-plugin/plugin.json" "$T/.claude-plugin/plugin.json"
 
@@ -35,7 +35,7 @@ assert_contains "$KI" "skills/listing-kit/SKILL.md"
 assert_contains "$KI" "inclusion: manual"
 
 it "a description containing quotes and backslashes still yields valid JSON"
-T3="$(mktemp -d)"; mkdir -p "$T3/.claude-plugin"
+new_tempdir T3; mkdir -p "$T3/.claude-plugin"
 printf '{"name":"listing-kit","version":"9.9.9","description":"Say \\"hi\\" \\\\ ok"}' > "$T3/.claude-plugin/plugin.json"
 bash "$SUT" "$T3" >/dev/null 2>&1
 if json_valid "$T3/gemini-extension.json"; then pass "valid JSON"; else fail "invalid JSON"; fi
@@ -43,7 +43,7 @@ assert_eq 'Say "hi" \ ok' "$(json_get "$T3/gemini-extension.json" description)"
 rm -rf "$T3"
 
 it "fails clearly when plugin.json is missing"
-T2="$(mktemp -d)"
+new_tempdir T2
 OUT="$(bash "$SUT" "$T2" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Missing"

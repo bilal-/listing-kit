@@ -12,8 +12,9 @@ OUT="$(bash "$SUT" /no/such/icon.png /tmp/out.png 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 
 # Real icon file for the remaining cases.
-ICON="$(mktemp).png"; printf 'icon' > "$ICON"
-OUTPNG="$(mktemp).png"; rm -f "$OUTPNG"
+new_tempdir T
+ICON="$T/icon.png"; printf 'icon' > "$ICON"
+OUTPNG="$T/out.png"
 
 it "exits 3 and prompts a fallback when ImageMagick is absent"
 new_stubdir   # empty stub dir → no magick/convert on PATH (absolute bash so it's still findable)
@@ -35,5 +36,5 @@ new_stubdir; stub magick
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" "#000000" "#ffffff" 2>&1)"; RC=$?
 assert_contains "$(stub_log)" "gradient:#000000-#ffffff"
 
-rm -f "$ICON" "$OUTPNG"
+rm -rf "$T"
 summary

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 SUT="$SCRIPTS/validate/validate-listing.sh"
-T="$(mktemp -d)"
+new_tempdir T
 trap 'rm -rf "$T"' EXIT
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$T/"
 SHOTS="$T/fastlane/screenshots/en-US"

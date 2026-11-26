@@ -4,7 +4,7 @@
 SUT="$SCRIPTS/lib/secret-scan.sh"
 
 # Build a throwaway listing tree per case.
-mktree() { TREE="$(mktemp -d)/fastlane"; mkdir -p "$TREE/en-US"; }
+mktree() { new_tempdir TREE; TREE="$TREE/fastlane"; mkdir -p "$TREE/en-US"; }
 
 it "exits 0 on a clean listing tree"
 mktree
@@ -47,7 +47,7 @@ OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "binary/screenshot files are not scanned for copy secrets"
 
 it "a scan error exits 2 instead of reporting clean"
-D="$(mktemp -d)"; echo "harmless copy" > "$D/description.txt"
+new_tempdir D; echo "harmless copy" > "$D/description.txt"
 new_stubdir
 printf '#!/usr/bin/env bash\nexit 2\n' > "$STUB_BIN/grep"; chmod +x "$STUB_BIN/grep"
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$D" 2>&1)"; RC=$?

@@ -5,7 +5,7 @@
 # produces from the current plugin.json. Catches "forgot to regenerate" drift.
 SUT="$SCRIPTS/package/generate-manifests.sh"
 
-T="$(mktemp -d)"
+new_tempdir T
 mkdir -p "$T/.claude-plugin"
 cp "$ROOT/.claude-plugin/plugin.json" "$T/.claude-plugin/plugin.json"
 bash "$SUT" "$T" >/dev/null 2>&1
