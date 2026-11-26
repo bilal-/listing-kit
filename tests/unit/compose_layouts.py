@@ -1,8 +1,10 @@
 """Pixel-level layout contracts for the bundled marketing templates."""
 from functools import partial
 import io
+import os
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,6 +38,7 @@ RIM = bytes.fromhex("1868ca")
 PALETTE = {"background": ["#ffedca", "#c8d8f6"], "ink": "#151670", "detail": "#982b19"}
 INTER = str(KIT / "assets/fonts/Inter.ttf")
 ARABIC = "كل أفكارك هنا"
+ARABIC_DETAIL = "أفكار كل يوم"
 
 
 def png_bytes(size, colour_type, scanlines):
@@ -94,19 +97,54 @@ def colour_spans(rows, colour, tolerance=0):
     return spans
 
 
+def system_fonts():
+    # Fontconfig also knows about distro- and user-configured directories.
+    try:
+        files = subprocess.check_output(["fc-list", "--format=%{file}\\n"])
+        yield from (Path(os.fsdecode(line)) for line in files.splitlines())
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    for root in ("/System/Library/Fonts", "/Library/Fonts", "~/Library/Fonts",
+                 "/usr/share/fonts", "/usr/local/share/fonts", "~/.local/share/fonts", "~/.fonts"):
+        yield from Path(root).expanduser().rglob("*")
+
+
 def arabic_font():
-    roots = [Path(p) for p in ("/System/Library/Fonts", "/Library/Fonts", "/usr/share/fonts",
-                               "/usr/local/share/fonts", "~/.local/share/fonts", "~/Library/Fonts")]
-    paths = [p for root in roots for p in root.expanduser().rglob("*")
-             if p.suffix.lower() in (".ttf", ".otf")]
+    paths = {p for p in system_fonts() if p.suffix.lower() in (".ttf", ".otf")
+             and "lastresort" not in str(p).casefold() and "symbol" not in p.name.casefold()}
     preferred = ("Arial.ttf", "DejaVuSans.ttf", "NotoSansArabic-Regular.ttf")
+    needed = {ord(c) for c in ARABIC + ARABIC_DETAIL if not c.isspace()}
     for path in sorted(paths, key=lambda p: (p.name not in preferred, str(p))):
         try:
-            if not fontcheck.missing(ARABIC + " كل يوم", [path]):
+            if needed <= fontcheck.codepoints(path, include_format13=False):
                 return str(path)
         except fontcheck.FontError:
             continue
     return None
+
+
+class ArabicFontFinder(unittest.TestCase):
+    def test_fontconfig_candidates_without_arial(self):
+        def font(cmap_format, platform=3, encoding=10):
+            # One group spanning Arabic. Format 12 maps successive glyph IDs,
+            # whereas format 13 maps every character to the same glyph.
+            group = struct.pack(">III", 0x0600, 0x06ff, 1)
+            sub = struct.pack(">HHIII", cmap_format, 0, 28, 0, 1) + group
+            cmap = struct.pack(">HHHHI", 0, 1, platform, encoding, 12) + sub
+            return struct.pack(">IHHHH4sIII", 65536, 1, 0, 0, 0, b"cmap", 0, 28, len(cmap)) + cmap
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name, data in (("LaStReSoRt.otf", font(12)), ("Fallback.otf", font(13)),
+                               ("Icons.ttf", font(12, 3, 0)), ("Symbols.ttf", font(12))):
+                (root / name).write_bytes(data)
+            with mock.patch.object(Path, "rglob", return_value=[]), mock.patch.object(
+                    subprocess, "check_output", side_effect=lambda args: b"\n".join(
+                        os.fsencode(p) for p in root.iterdir())):
+                self.assertIsNone(arabic_font())
+                face = root / "SFArabic.ttf"
+                face.write_bytes(font(12))
+                self.assertEqual(arabic_font(), str(face))
 
 
 class FontBrowser(render.cdp.Browser):
@@ -151,6 +189,7 @@ def bands(spans, max_gap=0):
     return result
 
 
+@unittest.skipUnless(compose.magick(), "no ImageMagick to flatten rendered PNGs")
 class Layouts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -167,7 +206,7 @@ class Layouts(unittest.TestCase):
                  "fonts": {"headline": fonts, "detail": fonts}, "logo": logo}
         rec = {"outputPath": "result.png", "template": template, "size": size, "style": style,
                "appName": app_name, "storeCode": locale, "kind": "screenshot", "slotId": template}
-        detail = "أفكار كل يوم" if locale == "ar" else "Notes"
+        detail = ARABIC_DETAIL if locale == "ar" else "Notes"
         if template in SHOTS:
             raw = self.root / "raw.png"
             raw.write_bytes(solid_capture(capture_size))
@@ -264,7 +303,7 @@ class Layouts(unittest.TestCase):
             value_top, value_bottom = headline.pop()
             self.assertGreater(value_top, secondary[-1][0], "row value overlaps label")
             value = job.text["rows"][0][1]
-            self.assert_line_height(value_top, value_bottom, self.renderer.boxes[value]["px"])
+            self.assert_line_height(value_top, value_bottom, self.renderer.boxes[value]["px"], cap_only=value == "Idea")
             if locale == "ar":
                 self.assertGreater(min(left for _, left, _ in secondary), w / 2, "expected RTL row")
 
@@ -276,7 +315,7 @@ class Layouts(unittest.TestCase):
         detail_px = self.renderer.boxes[detail]["px"]
         detail_bands = bands(secondary, round(.14 * detail_px) if locale == "ar" else 0)
         self.assertEqual(len(detail_bands), 1, "wrong number of detail or label lines")
-        self.assert_line_height(*detail_bands[0], detail_px)
+        self.assert_line_height(*detail_bands[0], detail_px, cap_only=detail == "Notes")
         if template in SHOTS:
             self.assertLess(secondary[-1][0], self.assert_capture(rows, size, template))
         else:
@@ -290,8 +329,10 @@ class Layouts(unittest.TestCase):
                                 "lastresort" not in f["familyName"].replace(" ", "").lower()
                                 for f in drawn), f"Arabic glyphs outside the supplied fonts: {drawn}")
 
-    def assert_line_height(self, top, bottom, px):
-        self.assertGreaterEqual(bottom - top + 1, round(.70 * px) - 2, f"sliced text line at y={top}")
+    def assert_line_height(self, top, bottom, px, *, cap_only=False):
+        # Small Inter labels without descenders can lose edge rows to antialiasing.
+        minimum = round((.60 if cap_only else .70) * px) - 2
+        self.assertGreaterEqual(bottom - top + 1, minimum, f"sliced text line at y={top}")
 
     def check_all(self, locale, fonts):
         for template, sizes in SIZES.items():
@@ -312,12 +353,15 @@ class Layouts(unittest.TestCase):
         self.assertAlmostEqual(top, self.renderer.band_bottom, delta=2,
                                msg="gap between caption band and wide capture")
 
-    def test_empty_header_brand(self):
-        self.build_rows(self.job("header", LANDSCAPE_PHONE))
-        boxes = self.renderer.boxes
-        centre = (boxes["Today"]["rect"][1] + boxes["Notes"]["rect"][3]) / 2
-        self.assertAlmostEqual(centre, LANDSCAPE_PHONE[1] / 2, delta=2,
-                               msg="empty brand displaces header text")
+    def test_empty_brand(self):
+        for template in ("header", "feature", "panel"):
+            with self.subTest(template=template):
+                size = SIZES[template][0]
+                self.build_rows(self.job(template, size))
+                boxes = self.renderer.boxes
+                last = "Idea" if template == "panel" else "Notes"
+                centre = (boxes["Today"]["rect"][1] + boxes[last]["rect"][3]) / 2
+                self.assertAlmostEqual(centre, size[1] / 2, delta=2, msg="empty brand displaces text")
 
     def test_header_brand(self):
         logo = self.root / "brand.png"
@@ -339,7 +383,6 @@ class Layouts(unittest.TestCase):
                 rows = self.build_rows(self.job(template, TABLET, fit=fit))
                 self.assert_capture(rows, TABLET, template, fit=fit)
 
-    @unittest.skipUnless(compose.magick(), "ImageMagick required to flatten RGBA")
     def test_build_flattens_rgba(self):
         # Exercise the browser RGBA path even on Chromium builds that always emit RGB.
         job = self.job("feature", (2, 1))
@@ -356,7 +399,7 @@ class Layouts(unittest.TestCase):
     def test_arabic(self):
         fallback = arabic_font()
         if not fallback:
-            self.skipTest("no system TTF/OTF covers the Arabic caption")
+            self.skipTest("no system TTF/OTF with Arabic glyphs for all layout text")
         self.check_all("ar", [INTER, fallback])
 
 
@@ -364,4 +407,5 @@ if __name__ == "__main__":
     result = unittest.main(exit=False).result
     for case, reason in result.skipped:
         print(f"  skipped: {reason} ({case.id()})")
-    sys.exit(0 if result.wasSuccessful() else 1)
+    required_skips = result.skipped and os.environ.get("LK_REQUIRE_RENDER") == "1"
+    sys.exit(0 if result.wasSuccessful() and not required_skips else 1)

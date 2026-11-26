@@ -315,7 +315,7 @@ fi
 it "renderer version matches the reviewed source hashes"
 if python3 "$ROOT/tests/unit/renderer_version.py"; then pass; else fail; fi
 
-if browser_case "bundled template PNG layouts"; then
+if framed_case "bundled template PNG layouts"; then
   if python3 "$ROOT/tests/unit/compose_layouts.py"; then pass; else fail; fi
 fi
 

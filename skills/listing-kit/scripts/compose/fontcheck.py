@@ -105,7 +105,7 @@ def _variations(sub):
     return variants
 
 
-def _coverage(path):
+def _coverage(path, *, include_format13=True):
     """The set of Unicode code points the font maps to a glyph."""
     try:
         with open(path, "rb") as f:
@@ -130,7 +130,7 @@ def _coverage(path):
             sub = cmap[sub_off:]
             if fmt == 14:
                 variants.update(_variations(sub))
-            if fmt in (4, 12, 13):
+            if fmt in (4, 12) or (fmt == 13 and include_format13):
                 understood = True
                 points.update(_format4(sub) if fmt == 4 else _groups(sub, fmt == 13))
         if understood:
@@ -140,8 +140,9 @@ def _coverage(path):
         raise FontError("truncated or damaged font: %s" % path)
 
 
-def codepoints(path):
-    return _coverage(path)[0]
+def codepoints(path, *, include_format13=True):
+    """Return mapped code points, optionally excluding many-to-one (format 13) cmaps."""
+    return _coverage(path, include_format13=include_format13)[0]
 
 
 def _needs_glyph(ch):

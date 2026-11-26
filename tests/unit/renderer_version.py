@@ -1,5 +1,7 @@
 """Check the pixel-affecting sources against the reviewed renderer version."""
 import argparse
+import hashlib
+import inspect
 import json
 from pathlib import Path
 import sys
@@ -10,20 +12,30 @@ COMPOSE = KIT / "scripts/compose"
 sys.path.insert(0, str(COMPOSE))
 
 import compose
+import imginfo
 
 RECORD = ROOT / "tests/fixtures/renderer-version.json"
 RECORD_COMMAND = "python3 tests/unit/renderer_version.py --record"
 
 
 def snapshot():
-    sources = [COMPOSE / name for name in ("compose.py", "render.py", "cdp.py", "pixels.py", "fontcheck.py")]
-    sources.extend(KIT / "scripts/lib" / name for name in ("imginfo.py", "template_values.py"))
+    sources = [COMPOSE / name for name in ("render.py", "cdp.py", "pixels.py", "fontcheck.py")]
+    sources.append(KIT / "scripts/lib/template_values.py")
     templates = KIT / "templates"
     sources.extend(sorted(templates.glob("*.html")))
     sources.append(templates / "base.css")
+    hashes = {p.relative_to(KIT).as_posix(): compose.sha_file(p) for p in sources}
+    for module, names in (
+        (compose, ("text_of", "flatten_rgb", "Job", "build", "verify_rgb")),
+        (imginfo, ("_png_passes", "_png", "_inspect", "image_info")),
+    ):
+        path = Path(module.__file__).relative_to(KIT).as_posix()
+        for name in names:
+            source = inspect.getsource(getattr(module, name))
+            hashes[f"{path}:{name}"] = hashlib.sha256(source.encode("utf-8")).hexdigest()
     return {
         "RENDERER_VERSION": list(compose.RENDERER_VERSION),
-        "sha256": {p.relative_to(KIT).as_posix(): compose.sha_file(p) for p in sources},
+        "sha256": hashes,
     }
 
 
