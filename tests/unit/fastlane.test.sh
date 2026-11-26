@@ -36,6 +36,9 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
         assert not dest.exists()
     assert base / "repo" not in dest.parents
     shutil.copytree(base / "remote" / store / kind, dest, dirs_exist_ok=True)
+    if "recheck" in dest.parts and (base / "tamper").exists():
+        extra = dest.parent.parent / "upload/metadata/en-US/subtitle.txt"
+        extra.write_text("outside approved set")
     if kind == "metadata" and (base / "race").exists():
         (base / "remote/apple/metadata/en-US/name.txt").write_text("Other editor")
 else:
@@ -112,6 +115,11 @@ cat > "$app/.listing-kit/listing.json" <<'JSON'
 {"format":2,"app":{"ios":"example.apple"},"locales":["en-US"],"targets":[{"id":"phone","store":"apple","state":"active","slot":"iphone-di-medium","size":[1206,2622]}],"screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"}]}
 JSON
 cp "$app/.listing-kit/listing.json" "$fixture/saved"
+cp "$meta/en-US/release_notes.txt" "$fixture/old-notes"
+echo 'Staged notes' > "$meta/en-US/release_notes.txt"
+cp "$meta/en-US/release_notes.txt" "$ra/en-US/release_notes.txt"
+git -C "$app" add fastlane/metadata/en-US/release_notes.txt
+cp "$fixture/old-notes" "$meta/en-US/release_notes.txt"
 echo Remote > "$ra/$name"
 echo 'local only' > "$meta/en-US/subtitle.txt"
 git -C "$app" add fastlane/metadata/en-US/subtitle.txt
@@ -126,6 +134,7 @@ assert_contains "$out" conflict
 assert_eq "$(cat "$meta/$name" 2>/dev/null)" Remote
 assert_eq "$(cat "$meta/en-US/subtitle.txt")" "local only"
 assert_eq "$(cat "$meta/en-US/keywords.txt")" "local conflict"
+cmp -s "$meta/en-US/release_notes.txt" "$fixture/old-notes" && pass "unstaged edit over staged change preserved" || fail "unstaged edit lost"
 cmp -s "$app/.listing-kit/listing.json" "$fixture/saved" && pass "plan untouched" || fail "plan changed"
 cmp -s "$meta/en-US/marketing_url.txt" "$fixture/url" && pass "missing download retained" || fail "missing download deleted"
 assert_eq "$(cat "$shots/en-US/01-hand.png")" keep
@@ -154,6 +163,13 @@ assert_eq "$rc" 1
 assert_contains "$out" "confirm"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 rm "$fixture/race"
+it "modified approval copy invalidates the transfer"
+touch "$fixture/tamper"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "approved files changed"
+assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+rm "$fixture/tamper"
 it "partial failure is resumable, text-only Apple upload contains only title"
 export SUPPLY_JSON_KEY="$fixture/play.json"
 echo 'New title' > "$meta/android/en-US/title.txt"

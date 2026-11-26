@@ -350,7 +350,7 @@ def pull(store, remote):
                 index = subprocess.run(["git", "show", ":./" + dest.relative_to(store.root).as_posix()],
                                        cwd=store.root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                 indexed = None if index.returncode else sha(comparable(store.name, index.stdout))
-                staged_change = indexed not in (base, fresh)
+                staged_change = indexed != base
             if current != base or staged_change:
                 print("conflict", key, "— local file retained")
                 atomic(store.state("remote/" + store.name + "/" + key), raw)
@@ -674,7 +674,15 @@ class Transfer:
             print("Remote baseline changed. Review the new summary and confirm again.")
             summary(store, self.local, latest)
             raise ValueError("Rerun publish for a new confirmation")
-        if store.data and plan.load(store.root) != store.data:
+        staged = {}
+        for path in self.folder.rglob("*"):
+            safe(self.folder, path)
+            if path.is_file():
+                staged[path.relative_to(self.folder).as_posix()] = file_hash(path)
+        if staged != self.approval["files"]:
+            raise ValueError("The approved files changed. Rerun publish for a new confirmation")
+        current_plan = plan.load(store.root) if (store.root / plan.LISTING).exists() else {}
+        if current_plan != store.data:
             raise ValueError("Listing plan changed. Rerun publish for a new confirmation")
         store.run(self.args, self.folder)
         receipt = store.state("publish.receipt.json")
@@ -693,9 +701,21 @@ def preview(store, local, scratch):
         print(store.name, "no comparable changes to publish")
         files = local.files()
         for operation in reversed(receipt.get("operations", [])):
-            if operation["identity"] == store.identity and all(
-                k in files and file_hash(files[k]) == h for k, h in operation["files"].items()
+            hashes = operation["files"]
+            if operation["identity"] != store.identity or not all(
+                k in files and file_hash(files[k]) == h for k, h in hashes.items()
             ):
+                continue
+            observed = {k: p for k, p in remote.text.items()
+                        if k in hashes and k in local.text and comparable(store.name, p.read_bytes())
+                        == comparable(store.name, local.text[k].read_bytes())}
+            live_groups = photo_groups(store, remote.shots, downloaded=True)
+            for group, keys in photo_groups(store, local.shots).items():
+                if all(k in hashes for k in keys) and [hashes[k] for k in keys] == [
+                    file_hash(remote.shots[k]) for k in live_groups.get(group, [])
+                ]:
+                    observed.update((k, local.shots[k]) for k in keys)
+            if hashes.keys() <= observed.keys():
                 print("Previously completed operation skipped after read-back.")
                 break
         return None

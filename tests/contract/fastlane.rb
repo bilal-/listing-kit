@@ -20,7 +20,8 @@ root = Pathname(__dir__).join("../../examples/expo-recipe-box/fastlane").realpat
 screens = root.join("screenshots")
 loaded = Deliver::Loader.load_app_screenshots(screens.to_s, false)
 actual = loaded.map do |shot|
-  [Pathname(shot.path).relative_path_from(screens).to_s, shot.display_type]
+  display = shot.respond_to?(:display_type) ? shot.display_type : shot.screen_size
+  [Pathname(shot.path).relative_path_from(screens).to_s, display]
 end
 expected = cases.fetch("apple").to_a
 abort "Deliver loader mismatch: #{actual.inspect}, expected #{expected.inspect}" unless actual.sort == expected.sort
