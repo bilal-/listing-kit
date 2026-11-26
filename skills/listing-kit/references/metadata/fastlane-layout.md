@@ -4,23 +4,43 @@ listing-kit writes to fastlane's `deliver` (iOS) and `supply` (Android) trees so
 existing publishing tooling works without translation. Keep a single internal
 notion of "the listing" and write **both** layouts from it.
 
-## Where the tree lives: the APP ROOT, not the repo root
+## Choosing the app and fastlane directories
 
-`fastlane/` (and `.listing-kit/`) live at the **mobile app's root directory** — the
-directory that holds the app manifest the Detect step found (`app.json`/`package.json`
-for RN/Expo, `pubspec.yaml` for Flutter, the `*.xcodeproj`/`*.xcworkspace` for native
-iOS, `build.gradle` for native Android). All paths below are **relative to that app
-root.**
+Run `listing-kit detect` in the mobile app directory to see its root, stack and
+stores. At a workspace root the command lists candidate folders under `apps/*` and
+`packages/*`. Run it again
+inside the selected app folder.
 
-- **Single-app repo:** the app root *is* the repo root → `./fastlane/`.
-- **Monorepo:** the app root is a subdirectory → e.g. `apps/mobile/fastlane/`,
-  `packages/app/fastlane/`. Do **not** write to the repo root.
-- **Multiple apps** in one repo: each app gets its own `fastlane/` under its own root;
-  confirm which app(s) to target during Detect/Plan.
+The fastlane directories below are relative to the selected app. A dash means
+the platform is absent or the app still needs to be selected.
 
-`fastlane`'s own `deliver`/`supply` also expect to be run from the app directory, so
-this keeps the output directly usable. (This repo's own example follows the rule:
-`examples/expo-recipe-box/fastlane/` is at the *app* root, not the repo root.)
+| Layout | App directory | Stores or candidates | Apple fastlane directory | Play fastlane directory |
+| --- | --- | --- | --- | --- |
+| expo-managed | . | apple play | fastlane | fastlane |
+| expo-prebuild | . | apple play | fastlane | fastlane |
+| react-native-bare | . | apple play | ios/fastlane | android/fastlane |
+| flutter | . | apple play | fastlane | fastlane |
+| native-ios | . | apple | fastlane | — |
+| native-android | . | play | — | fastlane |
+| monorepo-siblings | workspace root | choose apps/android apps/ios | — | — |
+| monorepo-siblings | apps/ios | apple | fastlane | — |
+| monorepo-siblings | apps/android | play | — | fastlane |
+| monorepo-js | workspace root | choose apps/mobile | — | — |
+| monorepo-js | apps/mobile | apple play | fastlane | fastlane |
+| existing-root-fastlane | . | apple play | fastlane | fastlane |
+
+The bare React Native fixture has platform Fastfiles. A root `fastlane/Fastfile`
+takes precedence. Otherwise, when both native folders exist and either has a
+fastlane directory, the kit uses split roots. With no existing fastlane
+directory, both stores use the app root's `fastlane/`. To select directories
+explicitly, set `trees.apple.fastlaneDir` and `trees.play.fastlaneDir` in the
+app's `.listing-kit/listing.json`.
+
+Run project fastlane lanes from the directory containing the selected
+`fastlane/`, such as `ios/` for a split Apple tree. The kit's setup, pull and
+publish commands look for a fastlane Gemfile in the selected fastlane
+directory, its parent and the app root, in that order. They invoke deliver and
+supply from a clean temporary directory with explicit paths.
 
 For hand upload, the builder copies listing files to `.listing-kit/upload/`. Open `INDEX.html` there for console instructions.
 
@@ -162,7 +182,7 @@ listing-kit handoff .
 
 With a plan, app IDs and paths come from its manifest. Without a plan, supply `--app-identifier ID` or `--package-name ID`. Omitting `--store` selects active stores in the plan, or existing store trees on disk. Use an explicit store and ID to bootstrap an empty app. For first-time initialization, confirm the IDs before choosing targets or flows. After the initial download, run the skill's Init, Detect and Plan steps using the downloaded text. Subsequent pulls preserve that plan.
 
-**Setup.** Keep the App Store Connect API key JSON and Play service-account JSON outside the Git repository, including its ignored directories. Setup stores their paths in the ignored, mode-600 `.listing-kit/local.json`. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` override saved paths. Each check exercises the selected app's download actions. A Gemfile mentioning fastlane in the store's fastlane directory or app root selects Bundler. Use `scripts/lib/secret-scan.sh --store-credentials REPO_ROOT` to run the same repository-wide credential-file check separately.
+**Setup.** Keep the App Store Connect API key JSON and Play service-account JSON outside the Git repository, including its ignored directories. Setup stores their paths in the ignored, mode-600 `.listing-kit/local.json`. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` override saved paths. Each check exercises the selected app's download actions. A Gemfile mentioning fastlane in the store's fastlane directory, its parent or the app root selects Bundler. Use `scripts/lib/secret-scan.sh --store-credentials REPO_ROOT` to run the same repository-wide credential-file check separately.
 
 **Pull.** Apple reads the editable version selected by deliver. Play reads listing text and gallery files using supply, with release notes from the selected track. On tracks with multiple releases, supply 2.242.0 can return notes for the first release. Inspect the downloaded version codes before editing notes. Pull records SHA-256 hashes in `.listing-kit/remote.lock.json` and keeps screenshot references in `.listing-kit/remote/<store>/`. When both sides edit a field, pull exits 1 and saves the store's version under that reference directory. Copy it into the working field to accept the store value, or keep the local field for the publish comparison. An omitted download leaves the local file in place.
 

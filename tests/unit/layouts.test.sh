@@ -3,6 +3,7 @@
 new_tempdir area
 new_stubdir
 export LK_NO_IMAGEMAGICK=1
+unset LK_PUBLISH_UNVERIFIED
 lk="$SKILL_DIR/bin/listing-kit"
 reference="$SKILL_DIR/references/metadata/fastlane-layout.md"
 example="$ROOT/examples/expo-recipe-box/fastlane"
@@ -16,7 +17,10 @@ assert args[:2] == ["exec", "fastlane"]
 with open(os.environ["layout_log"], "a") as log:
     print(os.environ["BUNDLE_GEMFILE"], Path.cwd(), args[2], sep="\t", file=log)
 if "--metadata_path" in args:
-    Path(args[args.index("--metadata_path") + 1]).mkdir()
+    directory = Path(args[args.index("--metadata_path") + 1]) / "en-US"
+    directory.mkdir(parents=True)
+    if "download_metadata" in args:
+        (directory / "name.txt").write_text("Downloaded name")
 PY
 chmod +x "$STUB_BIN/bundle"
 stub fastlane 1
@@ -31,16 +35,16 @@ copy_fixture() {
   git -C "$repo" init -q
 }
 
-# Copy the required text and one Apple / two Play screenshots from the validated example.
+# Reuse the example copy and Play assets. Generate one small-on-disk Apple screenshot.
 listing() {
   local app="$1" apple="$2" play="$3" meta
   if [ "$apple" != '—' ]; then
     meta="$app/$apple/metadata"
     mkdir -p "$meta/en-US" "$app/$apple/screenshots/en-US"
     cp "$example/metadata/"*.txt "$meta/"
-    cp "$example/metadata/en-US/"*.txt "$meta/en-US/"
+    cp "$example/metadata/en-US/"{description,keywords,support_url,privacy_url}.txt "$meta/en-US/"
     fake_png "$app/$apple/screenshots/en-US/01.png" 1206 2622
-    echo 'Layout Apple' > "$meta/en-US/name.txt"
+    [ -f "$meta/en-US/name.txt" ] || echo 'Layout Apple' > "$meta/en-US/name.txt"
   fi
   if [ "$play" != '—' ]; then
     meta="$app/$play/metadata/android/en-US"
@@ -56,13 +60,15 @@ listing() {
 layout() {
   local name="$1" folder="$2" stack="$3" stores="$4" apple="$5" play="$6"
   local app out manifest store directory gemfile action path roots
+  local title="Layout Apple"
+  [ "$name" != existing-root-fastlane ] || title="Existing title"
   copy_fixture "$name"
   app="$(cd "$repo/$folder" && pwd -P)"
   it "$name ($folder) detects its stack, stores and app root"
   out="$("$lk" detect "$app" 2>&1)"
-  assert_contains "$out" "$(printf 'stack\t%s\n' "$stack")"
-  assert_contains "$out" "$(printf 'stores\t%s\n' "$stores")"
-  assert_contains "$out" "$(printf 'appRoot\t%s\n' "$app")"
+  assert_eq "$stack" "$(printf '%s\n' "$out" | awk -F '\t' '$1=="stack" {print $2}')"
+  assert_eq "$stores" "$(printf '%s\n' "$out" | awk -F '\t' '$1=="stores" {print $2}')"
+  assert_eq "$app" "$(printf '%s\n' "$out" | awk -F '\t' '$1=="appRoot" {print $2}')"
   mkdir -p "$app/.listing-kit"
   echo '{"format":2,"app":"org.example.layout","platforms":{"supportsIphone":true,"supportsIpad":false},"locales":["en-US"],"targets":[],"screens":[]}' > "$app/.listing-kit/listing.json"
   manifest="$("$lk" plan manifest "$app")" || { fail "$manifest"; return; }
@@ -76,12 +82,14 @@ layout() {
   it "$name validates the listing at the expected locations"
   out="$("$lk" validate "$app" --as-of 2026-01-01 2>&1)" || fail "$out"
   assert_contains "$out" "LISTING VALID"
+  [ "$apple" = '—' ] || assert_contains "$out" "== Apple App Store =="
+  [ "$play" = '—' ] || assert_contains "$out" "== Google Play =="
   it "$name handoff reads each store's copy"
   out="$("$lk" handoff "$app" 2>&1)" || fail "$out"
   for store in $stores; do
     if [ "$store" = apple ]; then
       path="apple/en-US/text/name.txt"; directory="$apple"; action=deliver
-      assert_eq "Layout Apple" "$(cat "$app/.listing-kit/upload/$path")"
+      assert_eq "$title" "$(cat "$app/.listing-kit/upload/$path")"
     else
       path="play/en-US/text/title.txt"; directory="$play"; action=supply
       assert_eq "Layout Play" "$(cat "$app/.listing-kit/upload/$path")"
@@ -98,8 +106,7 @@ layout() {
   it "$name reuses the exact fastlane directories"
   roots="$(cd "$app" && find . -type d -name fastlane | sort)"
   assert_eq "$(printf '%s\n' "$apple" "$play" | sed '/^—$/d;s|^|./|' | sort -u)" "$roots"
-  it "$name reference row"
-  assert_contains "$(cat "$reference")" "| $name | $folder | $stores | $apple | $play |"
+  echo "| $name | $folder | $stores | $apple | $play |" >> "$area/rows.md"
 }
 
 ambiguous() {
@@ -113,7 +120,7 @@ ambiguous() {
   done
   it "$name leaves the workspace root untouched"
   if [ -e "$repo/fastlane" ] || [ -e "$repo/.listing-kit" ]; then fail "created listing at workspace root"; else pass; fi
-  assert_contains "$(cat "$reference")" "| $name | workspace root | choose $candidates | — | — |"
+  echo "| $name | workspace root | choose $candidates | — | — |" >> "$area/rows.md"
 }
 
 layout expo-managed . expo-managed 'apple play' fastlane fastlane
@@ -128,4 +135,63 @@ layout monorepo-siblings apps/android native-android play — fastlane
 ambiguous monorepo-js apps/mobile
 layout monorepo-js apps/mobile expo-managed 'apple play' fastlane fastlane
 layout existing-root-fastlane . expo-prebuild 'apple play' fastlane fastlane
+
+it "the complete reference table matches the tested layouts"
+table="$(awk '/^\| Layout \| App directory / { rows=1; next } rows && /^\| ---/ { next }
+             rows && /^\|/ { print; next } rows { exit }' "$reference")"
+assert_eq "$(cat "$area/rows.md")" "$table"
+
+# Exercise precedence before the test creates metadata. A Fastfile at the app
+# root wins even when both platform Fastfiles exist. A lone platform directory
+# is enough to select split roots even without a Fastfile.
+manifest_dirs() {
+  "$lk" plan manifest "$repo" | python3 -c 'import json,sys
+trees=json.load(sys.stdin)["trees"]
+print(trees["apple"]["fastlaneDir"], trees["play"]["fastlaneDir"])'
+}
+
+it "root Fastfile wins over platform Fastfiles"
+copy_fixture react-native-bare
+mkdir -p "$repo/fastlane" "$repo/.listing-kit"
+echo '# root lanes' > "$repo/fastlane/Fastfile"
+echo '{"format":2,"app":"org.example.layout","locales":["en-US"],"targets":[],"screens":[]}' > "$repo/.listing-kit/listing.json"
+assert_eq "fastlane fastlane" "$(manifest_dirs)"
+
+it "one native fastlane folder triggers split trees"
+copy_fixture flutter
+mkdir -p "$repo/ios/fastlane" "$repo/.listing-kit" "$repo/fastlane"
+echo '{"format":2,"app":"org.example.layout","locales":["en-US"],"targets":[],"screens":[]}' > "$repo/.listing-kit/listing.json"
+assert_eq "ios/fastlane android/fastlane" "$(manifest_dirs)"
+
+it "a planless pull creates its downloaded Apple field in the existing platform tree"
+copy_fixture react-native-bare
+echo 'gem "fastlane"' > "$repo/ios/Gemfile"
+out="$("$lk" pull "$repo" --store apple --app-identifier org.example.layout 2>&1)" || fail "$out"
+assert_eq 'Downloaded name' "$(cat "$repo/ios/fastlane/metadata/en-US/name.txt")"
+if [ -d "$repo/fastlane" ]; then fail "pull duplicated the native tree"; else pass; fi
+
+it "explicit trees take precedence and validate and handoff read custom metadata and screenshot paths"
+copy_fixture react-native-bare
+listing "$repo" apple-lanes play-lanes
+mv "$repo/apple-lanes/metadata" "$repo/apple-copy"
+mv "$repo/apple-lanes/screenshots" "$repo/apple-shots"
+mv "$repo/play-lanes/metadata/android" "$repo/play-copy"
+mkdir -p "$repo/.listing-kit"
+cat > "$repo/.listing-kit/listing.json" <<'JSON'
+{"format":2,"app":"org.example.layout","locales":["en-US"],"targets":[],"screens":[],
+ "platforms":{"supportsIphone":true,"supportsIpad":false},
+ "trees":{"apple":{"fastlaneDir":"apple-lanes","metadata":"apple-copy","screenshots":"apple-shots"},
+          "play":{"fastlaneDir":"play-lanes","metadata":"play-copy"}}}
+JSON
+assert_eq "apple-lanes play-lanes" "$(manifest_dirs)"
+# An ignored private file forces validation to prepare a filtered input directory.
+echo .listing-kit/local.json > "$repo/.gitignore"
+echo '{}' > "$repo/.listing-kit/local.json"
+out="$("$lk" validate "$repo" --as-of 2026-01-01 2>&1)" || fail "$out"
+assert_contains "$out" "== Apple App Store =="
+assert_contains "$out" "== Google Play =="
+out="$("$lk" handoff "$repo" 2>&1)" || fail "$out"
+assert_eq "Layout Apple" "$(cat "$repo/.listing-kit/upload/apple/en-US/text/name.txt")"
+assert_eq "Layout Play" "$(cat "$repo/.listing-kit/upload/play/en-US/text/title.txt")"
+
 summary
