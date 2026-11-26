@@ -18,6 +18,15 @@ assert_contains "$OUT" "iPad screenshots present"            # required since su
 assert_contains "$OUT" "feature graphic 1024x500 24-bit no-alpha"
 assert_contains "$OUT" "secret scan: clean"
 
+it "empty and whitespace-only demo_password.txt pass validation"
+demo="$APP/fastlane/metadata/review_information/demo_password.txt"
+mkdir -p "${demo%/*}"
+for whitespace in '' $' \t\r\n'; do
+  printf '%s' "$whitespace" > "$demo"
+  OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 0 "$?"
+done
+rm "$demo"
+
 # --- negative cases (text/file-ops only; no ImageMagick needed in CI) ---
 it "fails when an App Store copy field exceeds its limit"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"

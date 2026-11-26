@@ -29,9 +29,11 @@ def git_path(cwd, *args):
 app = Path.cwd()
 worktree = git_path(app, "--show-toplevel")
 common = git_path(app, "--git-common-dir")
-hooks = git_path(worktree, "--git-path", "hooks")
+raw = subprocess.check_output(["git", "rev-parse", "--git-path", "hooks"], cwd=worktree)
+configured = Path(os.path.abspath(worktree / os.fsdecode(raw[:-1])))
+hooks = configured.resolve()
 user_hooks = hooks.parent if hooks.name == "_" and (hooks / "h").is_file() else hooks
-for path in (hooks, user_hooks / "pre-commit", hooks / "listing-kit-review"):
+for path in (hooks, user_hooks):
     dest = path.resolve()
     if not any(root == dest or root in dest.parents for root in (worktree, common)):
         sys.exit(f"inactive (hooks path outside repository: {dest})")
@@ -41,17 +43,25 @@ for path in (hooks, user_hooks / "pre-commit", hooks / "listing-kit-review"):
     if git_path(parent, "--git-common-dir") != common:
         sys.exit(f"inactive (hooks path belongs to another repository: {dest})")
 # A sentinel protects a trailing newline from shell command substitution.
-print(str(hooks) + ".", end="")
+manual = worktree in configured.parents and common not in configured.parents
+print(("manual|" if manual else "auto|") + str(hooks) + ".", end="")
 PYHOOK
 )" || exit 2
+case "$hook_dir" in manual\|*) manual=1 ;; *) manual=0 ;; esac
+hook_dir="${hook_dir#*|}"
 hook_dir="${hook_dir%.}"
 hook="$hook_dir/pre-commit"
-runner="$hook_dir/listing-kit-review"
+common="$(cd "$ROOT" && dir="$(git rev-parse --git-common-dir && printf .)" && cd "${dir%??}" && pwd -P && printf .)"
+common="${common%??}"
+runner="$common/listing-kit-review"
 if [ "${hook_dir##*/}" = "_" ] && [ -f "$hook_dir/h" ]; then
   hook="${hook_dir%/*}/pre-commit"
 fi
+case "$hook_dir/" in "$common/"*) ;; *) manual=1 ;; esac
+if [ -L "$hook" ] || [ -L "$hook_dir/pre-commit" ]; then manual=1; fi
+kit="$(cd "$SELF_DIR/../.." && pwd -P)"
 CALL_MARK='# listing-kit review refresh'
-call='r="$(git rev-parse --git-path hooks && printf .)" || exit 1; r="${r%??}/listing-kit-review"; [ ! -x "$r" ] || "$r" || exit $?'
+call='r="$(git rev-parse --git-common-dir && printf .)" || exit 1; r="${r%??}/listing-kit-review"; [ ! -x "$r" ] || "$r" || exit $?'
 call="$call $CALL_MARK"
 app_rel="$(git -C "$ROOT" rev-parse --show-prefix && printf .)"
 app_rel="${app_rel%$'\n.'}"
@@ -72,7 +82,15 @@ if first.startswith(b"#!") and not re.search(rb"[/\s](?:ba|da|k|z)?sh(?:\s|$)", 
 PYSHELL
 }
 
+needs_line() {
+  echo "inactive: needs one line in $hook"
+  printf '%s\n' "$call"
+  return 1
+}
 check_status() {
+  if [ "$manual" = 1 ] && { [ ! -f "$hook" ] || ! grep -Fxq "$call" "$hook"; }; then
+    needs_line; return 1
+  fi
   if [ ! -f "$hook" ]; then echo "inactive (pre-commit missing)"; return 1; fi
   if [ ! -x "$hook_dir/pre-commit" ]; then echo "inactive (pre-commit is not executable)"; return 1; fi
   if ! shell_hook; then echo "inactive (foreign pre-commit; configure the hook manager to run $runner)"; return 1; fi
@@ -89,6 +107,22 @@ check_status() {
     echo outdated; return 1
   fi
   if ! grep -Fxq "apps+=($q)" "$runner"; then echo "inactive (app is not registered)"; return 1; fi
+  if ! python3 -I -B - "$kit" "$runner" <<'PYSTATUS'
+import json, sys
+from pathlib import Path
+kit, runner = map(Path, sys.argv[1:])
+sys.path.insert(0, str(kit / "scripts/lib"))
+from review_hook import newest, version
+with runner.open() as stream:
+    for line in stream:
+        if line.startswith("# installation "):
+            path, channel, release = json.loads(line[len("# installation "):])
+            latest = newest(Path(path), Path(channel) if channel else None)
+            sys.exit(0 if version(latest) and (latest / "VERSION").read_text().strip() == release
+                     and version(kit) <= version(latest) else 1)
+sys.exit(1)
+PYSTATUS
+  then echo outdated; return 1; fi
   echo active
 }
 if [ "$status" = 1 ]; then check_status; exit $?; fi
@@ -100,8 +134,10 @@ add_app() {
   for a in ${apps[@]+"${apps[@]}"}; do [ "$a" != "$1" ] || return 0; done
   apps+=("$1")
 }
-if [ -f "$runner" ]; then
-  while IFS= read -r a; do add_app "$a"; done < <(sed -n 's/^apps+=(\(.*\))$/\1/p' "$runner")
+previous="$runner"
+if [ ! -f "$previous" ] && [ "$manual" = 0 ]; then previous="$hook_dir/listing-kit-review"; fi
+if [ -f "$previous" ]; then
+  while IFS= read -r a; do add_app "$a"; done < <(sed -n 's/^apps+=(\(.*\))$/\1/p' "$previous")
 fi
 if [ -f "$hook" ] && grep -q '# BEGIN listing-kit review hook' "$hook"; then
   legacy="$(sed -n 's/^listing_kit_app_rel=//p' "$hook" | head -1)"
@@ -110,7 +146,7 @@ fi
 add_app "$q"
 
 # Replace directory entries atomically so hard links retain their original data.
-mkdir -p "$hook_dir"
+if [ "$manual" = 0 ]; then mkdir -p "$hook_dir"; fi
 tmp=
 trap '[ -z "$tmp" ] || rm -f -- "$tmp"' EXIT
 install_file() {
@@ -128,24 +164,57 @@ PYINSTALL
   tmp=
 }
 
-printf -v kit_q "%q" "$(cd "$SELF_DIR/../.." && pwd)"
-tmp="$(mktemp "$hook_dir/.listing-kit.XXXXXX")"
+printf -v kit_q "%q" "$kit"
+channel=
+case "$kit" in */listing-kit/*/skills/listing-kit)
+  channel="$(cd "$kit/../../.." && pwd -P)" ;;
+esac
+printf -v channel_q "%q" "$channel"
+tmp="$(mktemp "$common/.listing-kit.XXXXXX")"
 {
-  printf '#!/usr/bin/env bash\n# Generated by listing-kit install-review-hook.sh\nrecorded_kit=%s\napps=()\n' "$kit_q"
+  printf '#!/usr/bin/env bash\n# Generated by listing-kit install-review-hook.sh\nrecorded_kit=%s\nchannel=%s\napps=()\n' "$kit_q" "$channel_q"
+  python3 -I -B -c 'import json,sys; print("# installation " + json.dumps(sys.argv[1:]))' "$kit" "$channel" "$(cat "$kit/VERSION")"
   for a in "${apps[@]}"; do printf 'apps+=(%s)\n' "$a"; done
   cat <<'RUN'
-python3 -I -B - "$recorded_kit" "${apps[@]}" <<'PYREVIEW' || {
+# GUIs may lack Python. Determine scope with Git and shell before invoking it.
+# Drain the NUL stream so a match cannot mask a failed git diff.
+git diff --cached --name-only --no-renames -z | (
+  found=1
+  while IFS= read -r -d '' path; do
+    for app in "${apps[@]}"; do
+      prefix="${app:+$app/}"
+      case "$path" in "$prefix"*) rel="${path#"$prefix"}" ;; *) continue ;; esac
+      case "$rel" in
+        fastlane/*|store-assets/*|.listing-kit/*|app.json|*.pbxproj|Info.plist|*/Info.plist) found=0 ;;
+        app.config.*) case "$rel" in */*) ;; *) found=0 ;; esac ;;
+      esac
+    done
+  done
+  exit "$found"
+)
+scope=("${PIPESTATUS[@]}")
+if [ "${scope[0]}" != 0 ]; then echo "listing-kit: could not inspect staged paths" >&2; exit 1; fi
+if [ "${scope[1]}" != 0 ]; then exit 0; fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "listing-kit: Commit blocked. Staged listing inputs require python3 for the credential scan." >&2
+  exit 1
+fi
+python3 -I -B - "$recorded_kit" "$channel" "${apps[@]}" <<'PYREVIEW' || {
 # listing-kit isolated review runner
 RUN
   cat "$body"
   cat <<'RUN'
 PYREVIEW
-  echo "listing-kit: Commit blocked. Fix the cause, or knowingly commit with --no-verify." >&2
+  echo "listing-kit: Commit blocked. Check python3 and fix the cause, or knowingly commit with --no-verify." >&2
   exit 1
 }
 RUN
 } > "$tmp"
 install_file "$runner" runner
+if [ "$manual" = 1 ]; then
+  check_status || exit 2
+  exit 0
+fi
 
 if [ ! -f "$hook" ]; then
   tmp="$(mktemp "${hook%/*}/.listing-kit.XXXXXX")"

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
-# Fixture Git commands must never inherit a developer's hook manager.
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset LISTING_KIT_HOME CODEX_HOME
 
 SUT="$SCRIPTS/package/install-review-hook.sh"
@@ -74,7 +72,8 @@ it "honors core.hooksPath"
 make_app "Hooks path description"
 git -C "$T" config core.hooksPath .husky
 bash "$SUT" "$T" >/dev/null
-assert_exec "$T/.husky/pre-commit"
+assert_ne 0 "$?"
+[ ! -e "$T/.husky/pre-commit" ] && pass || fail "created an in-tree hook"
 remove_fixture "$T"
 
 it "rerunning does not duplicate the hook call or the app entry"
@@ -82,7 +81,7 @@ make_app "Idempotent"
 bash "$SUT" "$T" >/dev/null
 bash "$SUT" "$T" >/dev/null
 assert_eq 1 "$(grep -c 'listing-kit review refresh' "$T/.git/hooks/pre-commit")" "one call line"
-assert_eq 1 "$(grep -c '^apps+=' "$T/.git/hooks/listing-kit-review")" "one app entry"
+assert_eq 1 "$(grep -c '^apps+=' "$T/.git/listing-kit-review")" "one app entry"
 remove_fixture "$T"
 
 # Each fake kit writes its version into the page so we can observe which kit
@@ -101,7 +100,8 @@ BUILD
 it "uses LISTING_KIT_HOME before the recorded installation"
 make_app "Runtime discovery"
 new_tempdir installs
-recorded="$installs/recorded kit"
+channel="$installs/home/.codex/plugins/cache/bilal-/listing-kit"
+recorded="$channel/old/skills/listing-kit"
 override="$installs/override kit"
 test_home="$installs/home"
 make_kit "$recorded" 0.5.0
@@ -123,26 +123,16 @@ kit_commit recorded
 assert_eq 0.5.0 "$(git -C "$T" show HEAD:listing-review.html)"
 remove_fixture "$recorded"
 
-it "finds the highest version across installed kits after the recorded copy moves"
-kit_commit agents
-assert_eq 0.9.0 "$(git -C "$T" show HEAD:listing-review.html)"
-for entry in '.codex/skills:0.10.0' '.gemini/extensions/listing-kit/skills:0.11.0' \
-    '.cursor/skills:0.12.0' '.kiro/skills:0.13.0' \
-    '.claude/plugins/cache/vendor/listing-kit/first/skills:0.14.1' \
-    '.claude/plugins/cache/vendor/listing-kit/second/skills:0.14.2' \
-             '.codex/plugins/cache/market/listing-kit/0.15.0/skills:0.15.0'; do
-  make_kit "$test_home/${entry%:*}/listing-kit" "${entry#*:}"
-  kit_commit "$entry"
-  assert_eq "${entry#*:}" "$(git -C "$T" show HEAD:listing-review.html)"
-done
-
-it "discovers the listing-kit package in a configured Codex home"
-export CODEX_HOME="$installs/custom-codex"
-make_kit "$CODEX_HOME/plugins/cache/market/listing-kit/new/skills/listing-kit" 0.16.0
-make_kit "$test_home/.claude/plugins/cache/vendor/other/99/skills/listing-kit" 99.0.0
-kit_commit custom-codex
-assert_eq 0.16.0 "$(git -C "$T" show HEAD:listing-review.html)"
-unset CODEX_HOME
+it "reports a newer sibling even while the recorded version remains"
+make_kit "$channel/new/skills/listing-kit" 0.15.0
+OUT="$(bash "$SUT" --status "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" outdated
+it "after removal discovers only siblings in the installed channel"
+remove_fixture "$recorded"
+make_kit "$test_home/.claude/plugins/cache/other/listing-kit/new/skills/listing-kit" 99.0.0
+kit_commit upgraded || fail "could not run sibling"
+assert_eq 0.15.0 "$(git -C "$T" show HEAD:listing-review.html)"
 
 it "blocks a relative override and an override missing VERSION"
 make_kit "$T/relative" 99.0.0
@@ -155,7 +145,7 @@ for override in relative "$T/relative"; do
   assert_contains "$OUT" '--no-verify'
 done
 
-it "warns visibly and blocks only listing commits when the kit disappears"
+it "blocks only listing commits when the kit disappears"
 remove_fixture "$test_home"
 OUT="$(kit_commit missing 2>&1)"; RC=$?
 assert_ne 0 "$RC"
@@ -166,7 +156,7 @@ touch "$T/readme"
 git -C "$T" add readme
 OUT="$(HOME="$test_home" git -C "$T" commit -qm unrelated 2>&1)"; RC=$?
 assert_eq 0 "$RC"
-assert_contains "$OUT" "not refreshed"
+assert_eq "" "$OUT"
 remove_fixture "$T" "$installs"
 
 
@@ -199,18 +189,20 @@ assert_contains "$OUT" inactive
 assert_contains "$(bash "$SUT" --status "$T" 2>&1)" inactive
 assert_eq "$BEFORE" "$(cat "$T/.git/hooks/pre-commit")" "hook untouched"
 assert_contains "$OUT" "listing-kit-review"
-assert_exec "$T/.git/hooks/listing-kit-review"
+assert_exec "$T/.git/listing-kit-review"
 remove_fixture "$T"
 
-it "husky 9: wires .husky/pre-commit, not the regenerated .husky/_/pre-commit"
+it "Husky 9 gets instructions for its user hook"
 make_app "Husky"
 mkdir -p "$T/.husky/_"; printf '#!/usr/bin/env sh\n' > "$T/.husky/_/h"
 printf '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n' > "$T/.husky/_/pre-commit"; chmod +x "$T/.husky/_/pre-commit"
 git -C "$T" config core.hooksPath .husky/_
 bash "$SUT" "$T" >/dev/null
-assert_contains "$(cat "$T/.husky/pre-commit")" "listing-kit review refresh"
+assert_contains "$(bash "$SUT" --status "$T" 2>&1)" "inactive: needs one line in $T/.husky/pre-commit"
+[ ! -e "$T/.husky/pre-commit" ] && pass || fail "modified Husky hook"
 assert_not_contains "$(cat "$T/.husky/_/pre-commit")" "listing-kit"
-assert_exec "$T/.husky/_/listing-kit-review"
+assert_exec "$T/.git/listing-kit-review"
+[ ! -e "$T/.husky/_/listing-kit-review" ] && pass || fail "in-tree runner"
 remove_fixture "$T"
 
 it "preserves a foreign binary pre-commit"
@@ -306,7 +298,8 @@ fake_png "$T/store-assets/apple/en-US/header.png" 5244 2950
 git -C "$T" add store-assets
 # The unstaged working copy must not leak into the committed review.
 fake_png "$T/store-assets/apple/en-US/header.png" 1024 500 8 6
-git -C "$T" commit -qm "header" >/dev/null 2>&1
+OUT="$(git -C "$T" commit -qm header 2>&1)"; assert_eq 0 "$?"
+assert_eq "" "$OUT" "header commit refreshes without warnings"
 PAGE="$(git -C "$T" show HEAD:listing-review.html)"
 assert_contains "$PAGE" 'Header Asset (manual console upload)'
 assert_contains "$PAGE" '5244x2950 RGB/no-alpha'
@@ -480,26 +473,27 @@ OUT="$(git -C "$T" commit -qm filtered 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'description.txt'
 
-it "fails closed on symlinks, temp allocation and checkout errors"
+it "blocks escaping links and warns on temp allocation and checkout errors"
 make_app "scan failure"
 bash "$SUT" "$T" >/dev/null
-ln -s missing "$T/fastlane/link"
+ln -s ../outside "$T/fastlane/link"
 git -C "$T" add fastlane
 OUT="$(git -C "$T" commit -qm link 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" '--no-verify'
 git -C "$T" rm -qf fastlane/link
 OUT="$(TMPDIR="$T/nonexistent" git -C "$T" commit -qm temp 2>&1)"; RC=$?
-assert_ne 0 "$RC"
-assert_contains "$OUT" '--no-verify'
+assert_eq 0 "$RC"
+assert_contains "$OUT" 'Warning'
 git -C "$T" config filter.unavailable.clean cat
 git -C "$T" config filter.unavailable.smudge false
 git -C "$T" config filter.unavailable.required true
 echo 'description.txt filter=unavailable' > "$T/.gitattributes"
-git -C "$T" add .gitattributes
+echo clean >> "$T/fastlane/metadata/en-US/description.txt"
+git -C "$T" add .gitattributes fastlane
 OUT="$(git -C "$T" commit -qm checkout 2>&1)"; RC=$?
-assert_ne 0 "$RC"
-assert_contains "$OUT" '--no-verify'
+assert_eq 0 "$RC"
+assert_contains "$OUT" 'Warning'
 
 it "rejects indexed private files even when clean and permits their deletion"
 make_app "local policy"
@@ -547,5 +541,123 @@ bash "$SUT" "$T" >/dev/null
 git -C "$T" add fastlane app.config.js
 git -C "$T" commit -qm clean || fail "clean commit was blocked"
 assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'monkeytoken=springlaunch2026'
+
+it "scans symlink targets, permits an internal locale alias and skips gitlinks"
+make_app "linked locale"
+git -C "$T" add fastlane && git -C "$T" commit -qm seed
+ln -s en-US "$T/fastlane/metadata/en-GB"
+git -C "$T" add fastlane
+git -C "$T" update-index --add --cacheinfo 160000,"$(git -C "$T" rev-parse HEAD)",fastlane/vendor
+bash "$SUT" "$T" >/dev/null
+OUT="$(git -C "$T" commit -qm links 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" fastlane/vendor
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'en-GB'
+ln -s AKIAIOSFODNN7EXAMPLE "$T/fastlane/bad-target"
+git -C "$T" add fastlane/bad-target
+OUT="$(git -C "$T" commit -qm target 2>&1)"; assert_ne 0 "$?"
+assert_contains "$OUT" fastlane/bad-target
+assert_not_contains "$OUT" AKIAIOSFODNN7EXAMPLE
+
+it "gates changed device settings and honors an exactly reviewed device blob"
+make_app "device settings"
+printf '{"googleMapsApiKey": "AIza%035d"}' 0 > "$T/app.json"
+git -C "$T" add app.json && git -C "$T" commit -qm existing
+echo 'apiKey: Env.GOOGLE_API_KEY,' > "$T/app.config.ts"
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane app.config.ts
+OUT="$(git -C "$T" commit -qm listing 2>&1)"; assert_eq 0 "$?"
+echo ' ' >> "$T/app.json"
+git -C "$T" add app.json
+git -C "$T" config --add listingKit.reviewedDeviceBlob "$(git -C "$T" rev-parse :app.json) app.json"
+OUT="$(git -C "$T" commit -qm allow 2>&1)"; assert_eq 0 "$?"
+echo ' ' >> "$T/app.json"
+git -C "$T" add app.json
+OUT="$(git -C "$T" commit -qm changed 2>&1)"; assert_ne 0 "$?"
+assert_contains "$OUT" app.json
+
+it "keeps whitespace-only demo passwords and explains how to supply real ones"
+make_app demo
+d="$T/fastlane/metadata/review_information"
+mkdir -p "$d"
+printf '  \t\n' > "$d/demo_password.txt"
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane && git -C "$T" commit -qm empty || fail "blocked blank demo password"
+echo abc > "$d/demo_password.txt"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -qm demo 2>&1)"; assert_ne 0 "$?"
+assert_contains "$OUT" "environment at upload"
+
+it "checks the contents of an internal demo-password symlink"
+git -C "$T" reset -q HEAD
+echo private-demo > "$d/demo-account"
+rm "$d/demo_password.txt"
+ln -s demo-account "$d/demo_password.txt"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -qm link-demo 2>&1)"; assert_ne 0 "$?"
+assert_contains "$OUT" "environment at upload"
+OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"
+assert_contains "$OUT" "environment at upload"
+
+it "keeps the registered app directory above the staged path scan root"
+make_app "ancestor test"
+mkdir -p "$T/apps/xoxo-valentines-app"
+mv "$T/fastlane" "$T/apps/xoxo-valentines-app/"
+bash "$SUT" "$T/apps/xoxo-valentines-app" >/dev/null
+git -C "$T" add apps
+OUT="$(git -C "$T" commit -qm ancestor 2>&1)"; assert_eq 0 "$?"
+
+it "silently passes unrelated changes without Python and names it for staged inputs"
+make_app no-python
+bash "$SUT" "$T" >/dev/null
+new_stubdir
+for cmd in bash git; do ln -s "$(command -v "$cmd")" "$STUB_BIN/$cmd"; done
+touch "$T/readme"; git -C "$T" add readme
+run_without_python() { (cd "$T" && PATH="$STUB_BIN" .git/hooks/pre-commit); }
+OUT="$(run_without_python 2>&1)"; assert_eq 0 "$?"; assert_eq "" "$OUT"
+git -C "$T" add fastlane
+OUT="$(run_without_python 2>&1)"; assert_ne 0 "$?"; assert_contains "$OUT" python3
+
+it "warns after clean scan on an ignored page or builder failure"
+make_app warning
+bash "$SUT" "$T" >/dev/null
+echo listing-review.html > "$T/.gitignore"
+git -C "$T" add fastlane .gitignore
+OUT="$(git -C "$T" commit -qm ignored 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" Warning
+[ ! -e "$T/listing-review.html" ] && pass || fail "overwrote ignored page"
+new_tempdir broken; make_kit "$broken" 1.0.0
+echo 'exit 2' > "$broken/scripts/package/build-review.sh"
+rm "$T/.gitignore"
+echo updated > "$T/fastlane/metadata/en-US/name.txt"
+git -C "$T" add -u
+OUT="$(LISTING_KIT_HOME="$broken" git -C "$T" commit -qm failed 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" Warning
+
+it "warns when checkout leaves a Git LFS pointer unhydrated"
+mkdir -p "$T/fastlane/screenshots"
+printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%064d\nsize 12345\n' 0 > "$T/fastlane/screenshots/missing.png"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -qm lfs-pointer 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" "Warning"
+assert_contains "$OUT" "missing.png"
+
+it "still scans when the builder disappears"
+rm "$broken/scripts/package/build-review.sh"
+echo newer > "$T/fastlane/metadata/en-US/name.txt"
+git -C "$T" add fastlane
+OUT="$(LISTING_KIT_HOME="$broken" git -C "$T" commit -qm missing-builder 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" Warning
+
+it "leaves a symlinked hook and its target intact and prints a working wiring line"
+make_app managed
+mkdir "$T/scripts"; printf '#!/bin/sh\n' > "$T/scripts/pre-commit"; chmod +x "$T/scripts/pre-commit"
+ln -s ../../scripts/pre-commit "$T/.git/hooks/pre-commit"
+OUT="$(bash "$SUT" "$T" 2>&1)"; assert_ne 0 "$?"
+assert_contains "$OUT" "inactive: needs one line in"
+[ -L "$T/.git/hooks/pre-commit" ] && pass || fail "detached symlink"
+assert_eq '#!/bin/sh' "$(cat "$T/scripts/pre-commit")"
+printf '%s\n' "$OUT" | grep ' # listing-kit review refresh$' >> "$T/scripts/pre-commit"
+assert_eq active "$(bash "$SUT" --status "$T")"
+
 
 summary

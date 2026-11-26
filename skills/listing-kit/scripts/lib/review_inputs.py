@@ -20,6 +20,8 @@ def exclusions(root):
     unsafe = set()
     passwords = set()
     for tree in TREES:
+        if (root / tree).is_symlink():
+            continue
         for directory, dirs, files in os.walk(root / tree):
             rel = Path(directory).relative_to(root)
             if rel in ignored:
@@ -31,9 +33,12 @@ def exclusions(root):
                     continue
                 if sensitive_name(path) or credential_file(path):
                     unsafe.add(path)
-                elif (name == "demo_password.txt" and not (root / path).is_symlink()
-                      and (root / path).is_file() and file_secret(root / path)):
-                    passwords.add(path)
+                elif name == "demo_password.txt":
+                    source = root / path
+                    resolved = source.resolve()
+                    if (source.is_file() and root in resolved.parents
+                            and resolved.relative_to(root).parts[0] in TREES and file_secret(source)):
+                        passwords.add(path)
                 elif private_local(path):
                     if tracked(root / path):
                         unsafe.add(path)

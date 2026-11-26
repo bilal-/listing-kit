@@ -4,7 +4,8 @@
 set -uo pipefail
 
 # rev-parse emits Git's own list of repository-local variable names.
-for git_var in $(git rev-parse --local-env-vars); do unset "$git_var"; done
+git_vars="$(git rev-parse --local-env-vars)" || exit 1
+for git_var in $git_vars; do unset "$git_var"; done
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export PYTHONDONTWRITEBYTECODE=1
 

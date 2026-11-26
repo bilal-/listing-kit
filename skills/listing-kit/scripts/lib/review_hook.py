@@ -1,9 +1,12 @@
 """Embedded in each installed runner so path selection works even if the kit moves."""
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sqlite3
 import sys
 import tempfile
 
@@ -20,7 +23,7 @@ def git(*args, **kwargs):
 
 
 def version(kit):
-    if not kit.is_absolute() or not (kit / BUILDER).is_file() or not os.access(kit / BUILDER, os.X_OK):
+    if not kit.is_absolute() or not (kit / "scripts/lib/secret_scan.py").is_file():
         return ()
     try:
         value = (kit / "VERSION").read_text(encoding="ascii").strip()
@@ -34,28 +37,32 @@ def version(kit):
     return int(major), int(minor), int(patch), pre is None, parts
 
 
-def find_kit(recorded):
+def channel_for(kit):
+    # <market>/listing-kit/<version>/skills/listing-kit
+    if (kit.name == "listing-kit" and kit.parent.name == "skills"
+            and kit.parent.parent.parent.name == "listing-kit"):
+        return kit.parents[2]
+    return None
+
+
+def newest(recorded, channel):
+    candidates = [recorded]
+    if channel and channel == channel_for(recorded) and channel.is_dir():
+        candidates.extend(p for p in channel.glob("*/skills/listing-kit")
+                          if p.resolve() == p)
+    return max(candidates, key=version)
+
+
+def find_kit(recorded, channel):
     override = os.environ.get("LISTING_KIT_HOME")
     if override:
         path = Path(override)
         if version(path):
             return path
-        raise Blocked("LISTING_KIT_HOME must be an absolute skill directory with VERSION and build-review.sh")
-    if version(recorded):
-        return recorded
-    home = Path.home()
-    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
-    candidates = [home / folder / "listing-kit" for folder in
-                  (".agents/skills", ".gemini/extensions/listing-kit/skills", ".cursor/skills", ".kiro/skills")]
-    candidates.append(codex / "skills/listing-kit")
-    for cache in (home / ".claude/plugins/cache", codex / "plugins/cache"):
-        if cache.is_absolute():
-            candidates.extend(sorted(cache.glob("*/listing-kit/*/skills/listing-kit")))
-    matches = [(version(path), path) for path in candidates]
-    if matches:
-        best, path = max(matches)
-        if best:
-            return path
+        raise Blocked("LISTING_KIT_HOME must name an absolute installed kit")
+    path = recorded if version(recorded) else newest(recorded, channel)
+    if version(path):
+        return path
     raise Blocked("listing-kit installation not found; set LISTING_KIT_HOME or reinstall")
 
 
@@ -68,68 +75,229 @@ def listing_input(path, prefix):
             or rel.endswith(b".pbxproj") or rel.rsplit(b"/", 1)[-1] == b"Info.plist")
 
 
+def pathspecs(prefixes):
+    specs = []
+    for prefix in prefixes:
+        specs.extend(b":(literal)" + prefix + name for name in
+                     (b"fastlane", b"store-assets", b".listing-kit", b"app.json"))
+        escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
+        specs.extend(b":(glob)" + escaped + pattern for pattern in
+                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist"))
+    return specs
+
+
 def staged_entries(prefixes):
-    entries = []
-    for record in git("ls-files", "--stage", "-z").split(b"\0"):
-        if not record:
-            continue
-        meta, path = record.split(b"\t", 1)
-        if any(listing_input(path, prefix) for prefix in prefixes):
-            mode, oid, stage = meta.split()
-            entries.append((path, mode, oid, stage))
-    return entries
+    for record in git("ls-files", "--stage", "-z", "--", *pathspecs(prefixes)).split(b"\0"):
+        if record:
+            header, raw = record.split(b"\t", 1)
+            mode, oid, stage = header.split()
+            if any(listing_input(raw, prefix) for prefix in prefixes):
+                yield raw, mode, oid, stage
 
 
-def scan_index(entries, scanner):
-    # One request at a time keeps --batch pipes bounded even for large indexes.
-    with subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
-                          stdout=subprocess.PIPE) as batch:
+def reviewed_devices():
+    result = subprocess.run(["git", "config", "--local", "-z", "--get-all",
+                             "listingKit.reviewedDeviceBlob"], stdout=subprocess.PIPE)
+    if result.returncode != 1:
+        result.check_returncode()
+    return set(result.stdout.split(b"\0"))
+
+
+class ScanCache:
+    """Only clean results, partitioned by scanner implementation and path policy."""
+    def __init__(self, scanner):
+        digest = hashlib.sha256(Path(scanner.__file__).read_bytes()).hexdigest()
+        common = Path(os.fsdecode(git("rev-parse", "--git-common-dir")[:-1]))
+        self.db = None
         try:
-            for raw, mode, oid, stage in entries:
-                path = Path(os.fsdecode(raw))
-                if scanner.sensitive_name(path) or scanner.private_local(path) or scanner.credential_file(path, 0):
+            self.db = sqlite3.connect(str(common / "listing-kit-scan.sqlite3"), timeout=0.2)
+            self.db.execute("CREATE TABLE IF NOT EXISTS clean "
+                            "(scanner, oid, kind, media, PRIMARY KEY(scanner, oid, kind))")
+        except sqlite3.Error:
+            self.close()
+        self.digest = digest
+
+    def close(self):
+        if self.db:
+            try:
+                self.db.commit()
+            except sqlite3.Error:
+                pass
+            self.db.close()
+        self.db = None
+
+    def media(self, oid, path, scanner):
+        kind = b"demo" if path.name == "demo_password.txt" else os.fsencode(path.suffix.lower())
+        key = (self.digest, oid, kind)
+        if self.db:
+            try:
+                row = self.db.execute("SELECT media FROM clean WHERE scanner=? AND oid=? AND kind=?", key).fetchone()
+                if row:
+                    return bool(row[0])
+            except sqlite3.Error:
+                self.close()
+        with blob(oid) as proc:
+            head = proc.stdout.read(32)
+            media = scanner.binary_media(path, head)
+            if not media:
+                data = head + proc.stdout.read()
+                if proc.wait():
+                    raise OSError("could not read blob")
+                if scanner.secret_content(path, data):
                     scanner.report(path)
-                    raise Blocked("remove the credential or private file from staged listing inputs")
-                if stage != b"0" or mode not in (b"100644", b"100755"):
-                    raise Blocked("cannot scan a symlink, submodule or unmerged listing input")
-                batch.stdin.write(oid + b"\n")
-                batch.stdin.flush()
-                header = batch.stdout.readline().split()
-                if len(header) != 3 or header[:2] != [oid, b"blob"]:
-                    raise Blocked("could not read a staged listing blob")
-                size = int(header[2])
-                head = batch.stdout.read(min(size, 32))
-                remaining = size - len(head)
-                if scanner.binary_media(path, head):
-                    while remaining:
-                        chunk = batch.stdout.read(min(remaining, 1024 * 1024))
-                        if not chunk:
-                            raise Blocked("incomplete staged media blob")
-                        remaining -= len(chunk)
-                elif scanner.credential_file(path, size) or scanner.secret_content(path, head + batch.stdout.read(remaining)):
-                    scanner.report(path)
-                    raise Blocked("remove the credential from staged listing inputs")
-                if batch.stdout.read(1) != b"\n":
-                    raise Blocked("incomplete staged listing blob")
-        finally:
-            batch.stdin.close()
-            batch.stdout.close()
-        if batch.wait():
-            raise Blocked("git cat-file failed")
+                    raise Blocked(f"remove the credential from {path}")
+        if self.db:
+            try:
+                self.db.execute("INSERT OR IGNORE INTO clean VALUES (?,?,?,?)", (*key, int(media)))
+            except sqlite3.Error:
+                self.close()
+        return media
 
 
-def refresh(apps, entries, kit, snap):
-    paths = b"".join(entry[0] + b"\0" for entry in entries)
-    git("checkout-index", "-z", "--stdin", "--ignore-skip-worktree-bits",
-        "--prefix=" + str(snap) + "/", input=paths)
+def blob(oid):
+    # Request streaming even for screenshots below Git's usual large-file threshold.
+    # Closing the pipe after the signature releases this object without draining it.
+    return subprocess.Popen(["git", "-c", "core.bigFileThreshold=1", "cat-file", "blob", oid],
+                            stdout=subprocess.PIPE)
+
+
+def check_links(links):
+    for path, (app, target) in links.items():
+        current = path.parent
+        pending = list(reversed(target.parts))
+        hops = 0
+        while pending:
+            part = pending.pop()
+            if part == ".." and current == app:
+                raise Blocked(f"cannot scan link outside listing tree: {path}")
+            current = current.parent if part == ".." else current / part
+            if current in links:
+                hops += 1
+                if hops > 40:
+                    raise Blocked(f"cannot resolve listing link: {path}")
+                pending.extend(reversed(links[current][1].parts))
+                current = current.parent
+        relative = current.relative_to(app)
+        if not (relative.parts and (relative.parts[0] in ("fastlane", "store-assets", ".listing-kit")
+                or listing_input(os.fsencode(relative), b""))):
+            raise Blocked(f"cannot scan link outside listing tree: {path}")
+        yield path, current
+
+
+def scan_index(entries, prefixes, changed, scanner):
+    paths, media, links, blobs = [], {}, {}, {}
+    allowed = reviewed_devices()
+    cache = ScanCache(scanner)
+    try:
+        for raw, mode, oid, stage in entries:
+            path = Path(os.fsdecode(raw))
+            prefix = max(p for p in prefixes if listing_input(raw, p))
+            relative = Path(os.fsdecode(raw[len(prefix):]))
+            listing = relative.parts[0] in ("fastlane", "store-assets", ".listing-kit")
+            if scanner.sensitive_name(relative):
+                scanner.report(relative)
+                raise Blocked("remove the credential from [redacted path]")
+            if mode == b"160000":
+                print(f"listing-kit: skipping submodule {relative}", file=sys.stderr)
+                continue
+            if stage != b"0" or mode not in (b"100644", b"100755", b"120000"):
+                raise Blocked(f"cannot scan staged entry: {relative}")
+            if scanner.private_local(relative) or scanner.credential_file(relative):
+                scanner.report(relative)
+                raise Blocked(f"remove the credential or private file from {relative}")
+            if mode != b"120000":
+                blobs[path] = oid
+            try:
+                if mode == b"120000":
+                    data = git("cat-file", "blob", oid)
+                    target = Path(os.fsdecode(data))
+                    if scanner.secret_text(data) or target.is_absolute():
+                        raise Blocked(f"unsafe staged link target: {path}")
+                    links[path] = (Path(os.fsdecode(prefix)), target)
+                elif not listing and (raw not in changed or oid + b" " + raw in allowed):
+                    pass
+                elif cache.media(oid, relative, scanner):
+                    media[path] = oid
+                    continue
+            except (OSError, subprocess.SubprocessError, ValueError, RecursionError) as exc:
+                raise Blocked(f"could not scan staged blob: {relative}") from exc
+            paths.append(raw)
+        for path, target in check_links(links):
+            if target in blobs:
+                # The alias can impose a stronger content policy (e.g. a demo password).
+                cache.media(blobs[target], path.relative_to(links[path][0]), scanner)
+    finally:
+        cache.close()
+    return paths, media
+
+
+class ImageHeader:
+    """Forward-only seeks for reading PNG/JPEG metadata from a Git stream."""
+    def __init__(self, stream):
+        self.stream = stream
+        self.signature = b""
+
+    def read(self, length):
+        data = self.stream.read(length)
+        self.signature += data[:32 - len(self.signature)]
+        return data
+
+    def seek(self, distance, whence):
+        assert whence == os.SEEK_CUR and distance >= 0
+        while distance:
+            data = self.read(min(distance, 65536))
+            if not data:
+                break
+            distance -= len(data)
+
+
+def media_index(media, snap):
+    # The page links to media by relative path. Validation only needs image facts.
+    from imginfo import stream_info
+    facts = {}
+    sizes = git("cat-file", "--batch-check=%(objectsize)", input=b"".join(
+        oid + b"\n" for oid in media.values())).splitlines() if media else []
+    for (path, oid), size in zip(media.items(), sizes):
+        target = snap / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+        if path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+            with blob(oid) as proc:
+                reader = ImageHeader(proc.stdout)
+                info = stream_info(reader)
+            target.write_bytes(reader.signature)
+            facts[str(target)] = [info, int(size)]
+    manifest = snap / ".listing-kit-image-info.json"
+    manifest.write_text(json.dumps(facts), encoding="ascii")
+    return str(manifest)
+
+
+def refresh(apps, paths, media, kit, snap):
+    if paths:
+        git("checkout-index", "-z", "--stdin", "--ignore-skip-worktree-bits",
+            "--prefix=" + str(snap) + "/", input=b"\0".join(paths) + b"\0")
+    for raw in paths:
+        path = snap / os.fsdecode(raw)
+        if path.is_file() and not path.is_symlink():
+            with path.open("rb") as stream:
+                if stream.read(43).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                    print(f"listing-kit: Warning: missing Git LFS content for {os.fsdecode(raw)}",
+                          file=sys.stderr)
     build_env = os.environ.copy()
     for key in git("rev-parse", "--local-env-vars").decode("ascii").splitlines():
         build_env.pop(key, None)
     build_env["GIT_CEILING_DIRECTORIES"] = str(snap.parent)
+    build_env["LK_REVIEW_IMAGE_INFO"] = media_index(media, snap)
     pages = []
     for app in apps:
         root = snap / app
         page = Path(app) / "listing-review.html"
+        ignored = subprocess.run(["git", "check-ignore", "-q", "--", str(page)])
+        if ignored.returncode == 0:
+            print(f"listing-kit: Warning: {page} is git-ignored; skipping refresh.", file=sys.stderr)
+            continue
+        if ignored.returncode != 1:
+            ignored.check_returncode()
         if (root / "fastlane").is_dir():
             result = subprocess.run(["bash", kit / BUILDER, root], env=build_env,
                                     stdout=subprocess.DEVNULL)
@@ -139,41 +307,49 @@ def refresh(apps, entries, kit, snap):
     for page in pages:
         spec = ":(literal)" + str(page)
         if (snap / page).is_file():
-            shutil.copyfile(snap / page, page)
-            git("add", "--", spec)
+            # Stage the generated bytes first. A failed clean filter or index
+            # update leaves the caller's previous working-tree page intact.
+            with (snap / page).open("rb") as source:
+                oid = git("hash-object", "-w", "--path=" + str(page), "--stdin", stdin=source).strip()
+            with tempfile.NamedTemporaryFile(dir=page.parent, delete=False) as output:
+                tmp = Path(output.name)
+            try:
+                shutil.copy(snap / page, tmp)
+                git("update-index", "--add", "--cacheinfo", "100644", oid, os.fsencode(page))
+                os.replace(tmp, page)
+            finally:
+                tmp.unlink(missing_ok=True)
         else:
             git("rm", "-q", "--cached", "--ignore-unmatch", "--", spec)
             page.unlink(missing_ok=True)
 
 
-def main(recorded, apps):
-    # Strip only Git's terminating LF; filenames may themselves end in LF.
+def main(recorded, apps, channel=None):
     os.chdir(os.fsdecode(git("rev-parse", "--show-toplevel")[:-1]))
-    changed = git("diff", "--cached", "--name-only", "--no-renames", "-z").split(b"\0")
     prefixes = {app: os.fsencode(app + "/" if app else "") for app in apps}
+    changed = set(git("diff", "--cached", "--name-only", "--no-renames", "-z",
+                      "--", *pathspecs(prefixes.values())).split(b"\0"))
     affected = [app for app, prefix in prefixes.items() if any(listing_input(p, prefix) for p in changed)]
-    try:
-        kit = find_kit(Path(recorded))
-    except Blocked as exc:
-        if affected:
-            raise
-        print(f"listing-kit: Warning: {exc}; listing-review.html not refreshed.", file=sys.stderr)
+    if not affected:
         return
-    if affected:
-        sys.path.insert(0, str(kit / "scripts/lib"))
-        import secret_scan
-        entries = staged_entries([prefixes[app] for app in affected])
-        scan_index(entries, secret_scan)
+    kit = find_kit(Path(recorded), Path(channel) if channel else None)
+    sys.path.insert(0, str(kit / "scripts/lib"))
+    import secret_scan
+    selected = [prefixes[app] for app in affected]
+    paths, media = scan_index(staged_entries(selected), selected, changed, secret_scan)
+    try:
         with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as directory:
-            refresh(affected, entries, kit, Path(directory).resolve())
+            refresh(affected, paths, media, kit, Path(directory).resolve())
+    except Exception as exc:
+        print(f"listing-kit: Warning: scan completed; review refresh failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
     try:
-        main(sys.argv[1], sys.argv[2:])
+        main(sys.argv[1], sys.argv[3:], sys.argv[2])
     except Blocked as exc:
         print(f"listing-kit: {exc}; listing-review.html not refreshed.", file=sys.stderr)
         sys.exit(1)
-    except (OSError, subprocess.SubprocessError, ImportError, ValueError):
-        print("listing-kit: could not complete staged credential check or checkout.", file=sys.stderr)
+    except (OSError, subprocess.SubprocessError, ImportError, ValueError) as exc:
+        print(f"listing-kit: could not complete staged credential check: {exc}", file=sys.stderr)
         sys.exit(1)

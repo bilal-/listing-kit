@@ -21,8 +21,8 @@ EXTENSIONS = (".png", ".jpg", ".jpeg")  # deliver/supply upload these (lower-cas
 SIZES_TSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apple-screenshot-sizes.tsv")
 
 
-def _png(f):
-    d = f.read(33)
+def _png(f, signature):
+    d = signature + f.read(31)
     if len(d) < 33 or d[:8] != b"\x89PNG\r\n\x1a\n" or d[8:16] != b"\x00\x00\x00\x0dIHDR":
         return UNKNOWN
     w, h = struct.unpack(">II", d[16:24])
@@ -47,8 +47,6 @@ def _png(f):
 
 
 def _jpeg(f):
-    if f.read(2) != b"\xff\xd8":
-        return UNKNOWN
     while True:
         b = f.read(1)
         while b and b != b"\xff":
@@ -78,13 +76,31 @@ def _jpeg(f):
         f.seek(length - 2, os.SEEK_CUR)
 
 
+def stream_info(stream):
+    sig = stream.read(2)
+    return _jpeg(stream) if sig == b"\xff\xd8" else _png(stream, sig)
+
+
+def snapshot_facts():
+    manifest = os.environ.get("LK_REVIEW_IMAGE_INFO")
+    if not manifest:
+        return {}
+    import json
+    with open(manifest, encoding="ascii") as stream:
+        return json.load(stream)
+
+
+SNAPSHOT = snapshot_facts()
+
+
 def image_info(path):
-    """(width, height, bit_depth, color_type) for a PNG or JPEG; UNKNOWN otherwise."""
+    if SNAPSHOT:
+        entry = SNAPSHOT.get(os.path.realpath(path))
+        if entry:
+            return tuple(entry[0])
     try:
         with open(path, "rb") as f:
-            sig = f.read(2)
-            f.seek(0)
-            return _jpeg(f) if sig == b"\xff\xd8" else _png(f)
+            return stream_info(f)
     except (OSError, struct.error):
         return UNKNOWN
 
@@ -116,5 +132,6 @@ def apple_class(w, h):
 if __name__ == "__main__":
     for p in sys.argv[1:]:
         w, h, depth, ct = image_info(p)
-        size = os.path.getsize(p) if os.path.exists(p) else 0
+        entry = SNAPSHOT.get(os.path.realpath(p))
+        size = entry[1] if entry else (os.path.getsize(p) if os.path.exists(p) else 0)
         print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", p))))
