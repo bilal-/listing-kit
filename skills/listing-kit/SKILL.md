@@ -13,6 +13,7 @@ Identify the stack from the app manifest and work from the mobile app root. In a
 - Never fabricate metadata. Ask for missing URLs, copyright, category and other facts. If the user is unavailable, leave missing files unwritten and report the gaps.
 - Use the user's voice. Write short captions and concrete sentences about what the screen shows. Avoid promotional filler and dash clauses.
 - Use seeded demo data. If a flow needs a login, have the user export a `MAESTRO_` variable from their environment or git-ignored `.listing-kit/secrets.local`. Reference it in the flow as `${MAESTRO_DEMO_PASSWORD}`. Never type the value into YAML, read it or print it.
+- Enter the App Review demo username and password in App Store Connect, or keep them outside the repo. Never create or stage `demo_user.txt` or `demo_password.txt`.
 - For store credentials, only help the user configure a path to a private file outside the repo. Never ask for, read or print its contents.
 - Use the kit's [store rules](specs/stores.json) by default. When a live store page disagrees, record the difference and its source URL in `.listing-kit/specs.override.json` and tell the user.
 

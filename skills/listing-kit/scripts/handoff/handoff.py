@@ -16,6 +16,7 @@ import detect
 import imginfo
 import listing
 import rules_check
+from secret_scan import DEMO_GUIDANCE, demo_credential
 import screenshots as store_shots
 import specs
 
@@ -37,6 +38,7 @@ class Plan:
     def __init__(self, root):
         self.root = root
         self.trees = listing.paths(root)
+        self.checklist = []
         self.missing = []
         self.items = []
         self.omitted = []
@@ -61,10 +63,13 @@ class Plan:
 
 def check_inputs(root, trees):
     """Follow internal links once, including links reached through a locale alias."""
+    listing.check_metadata_links(root, trees)
     seen = set()
 
     def check(path):
         real = path.resolve()
+        if path.is_symlink() and demo_credential(real):
+            raise ValueError(DEMO_GUIDANCE)
         if root != real and root not in real.parents:
             raise ValueError("listing path points outside the app: %s" % path)
         if real in seen or not real.exists():
@@ -90,6 +95,8 @@ def child(directory, name):
 
 
 def read_text(path, apple=False):
+    if demo_credential(path):
+        return None
     try:
         raw = path.read_bytes()
     except FileNotFoundError:
@@ -120,9 +127,7 @@ def field_place(store, field, content):
 
 def text_fields(plan, data, store, directory, base):
     app_wide = base == Path("apple/app-wide")
-    for field in specs.fields(data, store):
-        if (field["scope"] == "app") != app_wide:
-            continue
+    for field in specs.fields(data, store, "app" if app_wide else "locale"):
         name = field["stem"] + ".txt"
         content = read_text(child(directory, name), apple=store == "apple")
         source = ""
@@ -190,6 +195,11 @@ def apple(root, data, plan, coverage):
     if listing.apple_default(meta, data) and not any((meta / loc).is_dir() for loc in locales):
         locales.add("default")
     if apple_assets.has_apple_listing(root, data, locales, tree):
+        review = specs.fields(data, "apple", "review_information")
+        if review:
+            names = ", ".join(field["stem"] + ".txt" for field in review)
+            plan.checklist.append(f"Review contact, demo account and notes ({names}) — enter in App Store Connect")
+        questionnaire(plan, data, "apple")
         text_fields(plan, data, "apple", meta, Path("apple/app-wide"))
     for locale in sorted(locales):
         base = Path("apple") / locale
@@ -232,9 +242,19 @@ def play_images(plan, directory):
     return [Path(p) for p in listing.images(directory) if plan.nonempty(p)]
 
 
+def questionnaire(plan, data, store):
+    label = data["stores"][store].get("questionnaire")
+    if label:
+        console = "App Store Connect" if store == "apple" else "Play Console"
+        plan.checklist.append(f"{console} — {label} — answer in the console")
+
+
 def play(root, data, plan, coverage):
     android = plan.trees["play"]["metadata"]
-    for locale in listing.play_asset_locales(plan.trees["play"], coverage):
+    locales = listing.play_asset_locales(plan.trees["play"], coverage)
+    if locales:
+        questionnaire(plan, data, "play")
+    for locale in locales:
         loc = android / locale
         base = Path("play") / locale
         text_fields(plan, data, "play", loc, base / "text")
@@ -279,7 +299,7 @@ def build(root):
             rules = "store rules override" if data.get("_override") else "store rules"
             raise ValueError("%s missing %s" % (rules, error))
         planned_assets = "play" in coverage and (coverage["apple"] or coverage["play"])
-        if not plan.items and not (planned_assets and plan.missing):
+        if not plan.items and not plan.checklist and not (planned_assets and plan.missing):
             raise ValueError("nothing to hand over from %s" % root)
         output.install(destination, plan)
     return str(destination), len(plan.items)

@@ -47,6 +47,49 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(rc, 0 if success else 1, log.getvalue())
         return log.getvalue()
 
+    def test_demo_files_cannot_be_packaged_as_other_fields(self):
+        self.put("fastlane/metadata/android/en-US/changelogs/demo_user.txt", b"private fixture value")
+        self.run_build()
+        self.assertEqual([p.name for p in self.out.rglob("*.txt")], ["name.txt"])
+        password = self.put("fastlane/metadata/review_information/demo_password.txt", b"private fixture value")
+        self.name.unlink()
+        self.name.symlink_to(password)
+        self.assertIn("fastlane/metadata/en-US/name.txt", self.run_build(success=False))
+        self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
+
+    def test_review_only_handoff(self):
+        self.name.unlink()
+        self.name.parent.rmdir()
+        self.put("fastlane/metadata/review_information/notes.txt", b"private fixture value")
+        self.run_build()
+        self.assertIn("enter in App Store Connect", (self.out / "INDEX.md").read_text())
+        self.assertFalse(list(self.out.rglob("*.txt")))
+
+    def test_store_questionnaires_and_review_group(self):
+        review = "fastlane/metadata/review_information/"
+        names = ("first_name", "last_name", "phone_number", "email_address",
+                 "demo_user", "demo_password", "notes")
+        for name in names:
+            self.put(review + name + ".txt", b"private fixture value")
+        self.run_build()
+        for index in ("INDEX.md", "INDEX.html"):
+            text = (self.out / index).read_text()
+            marker = "- [ ]" if index == "INDEX.md" else 'type="checkbox"'
+            self.assertTrue(any(marker in line and "Age rating" in line for line in text.splitlines()))
+            self.assertIn("Age rating", text)
+            self.assertIn("answer in the console", text)
+            self.assertNotIn("Content rating", text)
+            self.assertIn("enter in App Store Connect", text)
+            for name in names:
+                self.assertIn(name + ".txt", text)
+            self.assertNotIn("private fixture value", text)
+        self.assertEqual([p.name for p in self.out.rglob("*.txt")], ["name.txt"])
+        self.put("fastlane/metadata/android/en-US/title.txt", b"Example")
+        self.run_build()
+        for index in ("INDEX.md", "INDEX.html"):
+            self.assertIn("Content rating", (self.out / index).read_text())
+        self.assertEqual(sorted(p.name for p in self.out.rglob("*.txt")), ["name.txt", "title.txt"])
+
     def test_01_ownership(self):
         self.run_build()
         for name in ("untracked-recipe.txt", "empty-folder", "apple/en-US/text/name.txt", "INDEX.md"):
@@ -158,7 +201,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_internal_links(self):
         self.name.unlink()
-        self.name.symlink_to(self.put("shared/name", b"Shared"))
+        self.name.symlink_to(self.put("fastlane/metadata/shared/name", b"Shared"))
         (self.name.parent.parent / "en-GB").symlink_to("en-US")
         self.run_build()
         self.assertEqual((self.out / "apple/en-GB/text/name.txt").read_bytes(), b"Shared")
@@ -522,6 +565,8 @@ class HandoffTests(unittest.TestCase):
         for line in (self.out / "INDEX.md").read_text().splitlines():
             if not line or line.startswith("|---"):
                 continue
+            if line.startswith("- [ ] "):
+                line = line[len("- [ ] "):]
             for cell in line.strip("|").split("|"):
                 content = html.unescape(cell.strip().lstrip("#- ").replace(chr(96), ""))
                 self.assertIn(content, visible)

@@ -100,7 +100,10 @@ def fields(store, rules):
         limit = "{} {}".format(f["limit"], f["unit"]) if "limit" in f else f["unit"]
         if "min" in f:
             limit = "{}–{}".format(f["min"], limit)
-        rows.append((f["label"], f["stem"], f["scope"], limit, requirement(f["required"], rules)))
+        policy = ("Keep outside the repo" if f["unit"] == "credential" else requirement(f["required"], rules))
+        rows.append((f["label"], f["stem"], f["scope"], limit, policy))
+    if data.get("questionnaire"):
+        rows.append((data["questionnaire"], "—", "console", "questionnaire", "answer in the console"))
     if "changelogs" in data:
         log = data["changelogs"]
         rows.append(("Release notes", "changelogs/<name>", "locale", "{} {}".format(log["limit"], log["unit"]),

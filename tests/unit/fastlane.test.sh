@@ -155,10 +155,14 @@ it "relative credential paths may resolve outside the repository"
 run_lk fastlane setup "${a[@]}" "$setup_key" ../../apple.json
 assert_eq "$rc" 0
 it "pull bootstraps text and keeps downloaded images separate"
-run_lk pull "${a[@]}"
+mkdir -p "$ra/review_information"
+for stem in demo_user demo_password; do echo fixture-only > "$ra/review_information/$stem.txt"; done
+mkdir "$fixture/repo/tmp"
+TMPDIR="$fixture/repo/tmp" run_lk pull "${a[@]}"
 assert_eq "$rc" 0
 assert_file "$meta/$name"
 assert_file "$app/.listing-kit/remote.lock.json"
+[ -z "$(find "$app" \( -name demo_user.txt -o -name demo_password.txt \) -print)" ] && pass "pull excludes demo credentials" || fail "pull copied demo credentials"
 assert_eq "$(find "$app/.listing-kit/remote/apple" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')" 8
 assert_ne "$(test -d "$shots" && echo yes)" yes
 it "pull records raw bytes for a working field missing from the download"
@@ -237,10 +241,15 @@ cp -R "$example/metadata/android" "$remote/play/metadata"
 cp -R "$example/." "$app/fastlane/"
 cp -R "$example/metadata/en-US/." "$ra/en-US/"
 echo 'New name' > "$meta/$name"
+mkdir -p "$meta/review_information"
+for stem in demo_user demo_password; do echo fixture-only > "$meta/review_information/$stem.txt"; done
 it "disabled preview lists exact upload command without uploading"
 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 0
 assert_contains "$out" "publishing to apple is not enabled"
+assert_not_contains "$out" "demo_user.txt"
+assert_not_contains "$out" "demo_password.txt"
+rm "$meta/review_information/demo_user.txt" "$meta/review_information/demo_password.txt"
 assert_contains "$out" "--skip_screenshots"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes

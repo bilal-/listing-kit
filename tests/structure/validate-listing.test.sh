@@ -18,14 +18,53 @@ assert_contains "$OUT" 'iPad 13" screenshots present'            # required sinc
 assert_contains "$OUT" "Feature graphic 1024x500"
 assert_contains "$OUT" "secret scan: clean"
 
-it "empty and whitespace-only demo_password.txt pass validation"
-demo="$APP/fastlane/metadata/review_information/demo_password.txt"
-mkdir -p "${demo%/*}"
-for whitespace in '' $' \t\r\n'; do
-  printf '%s' "$whitespace" > "$demo"
+it "rejects demo account filenames anywhere in the listing, even when empty"
+for name in demo_user demo_password; do
+  demo="$APP/fastlane/metadata/review_information/$name.txt"
+  mkdir -p "${demo%/*}"
+  for content in '' $' \t\n' 'private-demo-value'; do
+    printf '%s' "$content" > "$demo"
+    OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 1 "$?"
+    assert_contains "$OUT" "$name.txt"
+    assert_contains "$OUT" "App Store Connect"
+    assert_contains "$OUT" "delete it, even if empty"
+    assert_not_contains "$OUT" "private-demo-value"
+  done
+  rm "$demo"
+done
+touch "$APP/fastlane/screenshots/en-US/demo_user.txt"
+OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$OUT" "demo_user.txt"
+rm "$APP/fastlane/screenshots/en-US/demo_user.txt"
+
+it "validates optional review information without printing its contents"
+review="$APP/fastlane/metadata/review_information"
+for field in first_name last_name notes; do printf 'private fixture' > "$review/$field.txt"; done
+printf 'test@example.org' > "$review/email_address.txt"
+printf '+1 (555) 010-1234' > "$review/phone_number.txt"
+OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 0 "$?"
+for field in first_name last_name notes email_address phone_number; do assert_contains "$OUT" "$field"; done
+assert_not_contains "$OUT" "private fixture"
+assert_not_contains "$OUT" "test@example.org"
+printf 'invalid-private-value' | tee "$review/email_address.txt" > "$review/phone_number.txt"
+OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$OUT" "email_address"
+assert_contains "$OUT" "phone_number"
+assert_not_contains "$OUT" "invalid-private-value"
+rm "$review"/*.txt
+
+it "checks the Play video URL scheme and host"
+video="$APP/fastlane/metadata/android/en-US/video.txt"
+for url in 'https://www.youtube.com/watch?v=example' 'https://youtu.be/example'; do
+  printf '%s' "$url" > "$video"
   OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 0 "$?"
 done
-rm "$demo"
+for url in 'http://youtu.be/example' 'https://youtube.com.example.org/watch' 'https://youtube.com@example.org/watch'; do
+  printf '%s' "$url" > "$video"
+  OUT="$(bash "$SUT" "$APP" 2>&1)"; assert_eq 1 "$?"
+  assert_contains "$OUT" "YouTube"
+done
+rm "$video"
 
 # --- negative cases (text/file-ops only; no ImageMagick needed in CI) ---
 it "fails when an App Store copy field exceeds its limit"

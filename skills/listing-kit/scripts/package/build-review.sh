@@ -316,6 +316,10 @@ page = (f'<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
         f'{"".join(panels)}'
         f'<script>{JS}</script></body></html>\n')
 
-open(out_path, "w", encoding="utf-8").write(page)
+from review_inputs import write_review_page
+try:
+    write_review_page(out_path, page.encode("utf-8"))
+except (OSError, ValueError) as exc:
+    sys.exit(str(exc))
 PY
 [ -z "$crash" ]

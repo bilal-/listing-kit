@@ -785,6 +785,69 @@
      "required": {
       "rule": "never"
      }
+    },
+    {
+     "stem": "first_name",
+     "label": "Review contact first name",
+     "scope": "review_information",
+     "unit": "chars",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "last_name",
+     "label": "Review contact last name",
+     "scope": "review_information",
+     "unit": "chars",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "phone_number",
+     "label": "Review contact phone number",
+     "scope": "review_information",
+     "unit": "phone",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "email_address",
+     "label": "Review contact email address",
+     "scope": "review_information",
+     "unit": "email",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "demo_user",
+     "label": "Demo account username",
+     "scope": "review_information",
+     "unit": "credential",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "demo_password",
+     "label": "Demo account password",
+     "scope": "review_information",
+     "unit": "credential",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "notes",
+     "label": "Review notes",
+     "scope": "review_information",
+     "unit": "chars",
+     "required": {
+      "rule": "never"
+     }
     }
    ],
    "graphics": [
@@ -826,6 +889,7 @@
      }
     }
    ],
+   "questionnaire": "Age rating",
    "nonLocaleFolders": [
     "review_information",
     "trade_representative_contact_information",
@@ -1193,12 +1257,13 @@
      "stem": "video",
      "label": "Promo video URL",
      "scope": "locale",
-     "unit": "url",
+     "unit": "YouTube URL",
      "required": {
       "rule": "never"
      }
     }
    ],
+   "questionnaire": "Content rating",
    "changelogs": {
     "limit": 500,
     "unit": "chars",

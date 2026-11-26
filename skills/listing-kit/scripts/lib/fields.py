@@ -2,7 +2,7 @@
 """Store copy fields (limits, units, required flags), shared by validate-listing.sh
 and build-review.sh so the two never disagree. Source: specs/stores.json.
 
-CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>] --app-root <app-dir>
+CLI:    fields.py {apple|play|apple-app|apple-review} <metadata-dir> [<fallback-dir>] --app-root <app-dir>
 Prints one "LEVEL<TAB>message" line per field, LEVEL in PASS / WARN / FAIL. A field
 missing from the locale is read from <fallback-dir> (fastlane's metadata/default/).
 """
@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 import sys
+import unicodedata
 from urllib.parse import urlparse
 
 if __name__ == "__main__":
@@ -38,16 +39,21 @@ def read(path, strip=True):
         return None
 
 
-def is_url(value):
-    if len(value.split()) != 1:
+def is_url(value, youtube=False):
+    if len(value.split()) != 1 or (youtube and "\\" in value):
         return False
     try:
         u = urlparse(value)
+        if youtube and (u.scheme != "https" or "@" in u.netloc):
+            return False
         # urllib validates malformed and out-of-range ports when accessed.
         u.port
     except ValueError:
         return False
-    return u.scheme in ("http", "https") and bool(u.hostname)
+    host = u.hostname or ""
+    if youtube:
+        return host in ("youtube.com", "youtu.be") or host.endswith(".youtube.com")
+    return u.scheme in ("http", "https") and bool(host)
 
 
 def measure(text, unit):
@@ -55,8 +61,10 @@ def measure(text, unit):
 
 
 def _fields(rules, store, directory):
-    yield from specs.fields(rules, "apple" if store == "apple-app" else store,
-                            "app" if store == "apple-app" else "locale")
+    scope = {"apple-app": "app", "apple-review": "review_information"}.get(store, "locale")
+    for field in specs.fields(rules, "play" if store == "play" else "apple", scope):
+        if field["unit"] != "credential":
+            yield field
     if store == "play" and "changelogs" in rules["stores"]["play"]:
         logs = rules["stores"]["play"]["changelogs"]
         for path in sorted((Path(directory) / "changelogs").glob("*.txt")):
@@ -100,6 +108,18 @@ def check(r):
         return "WARN", f"{stem}: " + (r["reason"] or "optional, absent")
     if not value.strip():
         return ("FAIL" if r["required"] else "WARN"), f"{stem}: file is empty ({r['path']})"
+    if r["unit"] == "email":
+        if not re.fullmatch(r"[^@.\s]+(?:\.[^@.\s]+)*@[^@.\s]+(?:\.[^@.\s]+)+", value):
+            return "FAIL", f"{stem}: invalid email address"
+    if r["unit"] == "phone":
+        number = "".join(" " if c == "\t" or unicodedata.category(c) == "Zs" else c for c in value)
+        if not re.fullmatch(r"\+?(?:[0-9]|\([0-9]+\))(?:[ ./-]*(?:[0-9]|\([0-9]+\)))*"
+                            r"(?: *(?:x|ext\.?) *[0-9]+)?", number, re.I):
+            return "WARN", f"{stem}: unrecognised phone format, confirm it in App Store Connect"
+    if r["unit"] == "YouTube URL":
+        if is_url(value.strip(), youtube=True):
+            return "PASS", f"{stem}: HTTPS YouTube URL"
+        return "FAIL", f"{stem}: expected an HTTPS YouTube URL"
     if r["unit"] == "url":
         if is_url(value):
             return "PASS", f"{stem}: {value}"
@@ -120,7 +140,7 @@ def check(r):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("store", choices=("apple", "apple-app", "play"))
+    parser.add_argument("store", choices=("apple", "apple-app", "apple-review", "play"))
     parser.add_argument("metadata")
     parser.add_argument("fallback", nargs="?")
     parser.add_argument("--app-root", type=Path, required=True)

@@ -110,12 +110,19 @@ def secret_text(data):
     return False
 
 
+DEMO_CREDENTIAL_FILES = {"demo_user.txt", "demo_password.txt"}
+# Also embedded in the installed Bash hook, so use POSIX extended regex syntax.
+DEMO_NAME = r"(" + "|".join(re.escape(n) for n in sorted(DEMO_CREDENTIAL_FILES)) + r")(\.(bak|backup|orig|old|save)|~)*"
+DEMO_GUIDANCE = "delete it, even if empty, and enter the values in App Store Connect"
+
+
+def demo_credential(path):
+    return re.fullmatch(DEMO_NAME, path.name.lower()) is not None
+
+
 def secret_content(path, data):
-    if path.name == "demo_password.txt":
-        try:
-            return bool(data.decode("utf-8").strip())
-        except UnicodeError:
-            return True
+    if demo_credential(path):
+        return True
     if secret_text(data):
         return True
     if b"\0" in data:
@@ -185,8 +192,8 @@ def ignored_private_files(directory, *pathspecs):
 def report(path):
     label = "[redacted path]" if sensitive_name(path) else str(path)
     message = f"POTENTIAL SECRET in committed listing: {label}"
-    if path.name == "demo_password.txt":
-        message += " (keep the demo password out of the repo; supply it via the environment at upload)"
+    if demo_credential(path):
+        message += f" ({DEMO_GUIDANCE})"
     print(message, file=sys.stderr)
 
 def file_secret(path):
@@ -205,7 +212,7 @@ def scan(path, base, ignored, roots, follow_root=False):
                 report(relative)
                 yield 1
             return
-        if sensitive_name(relative) or credential_file(relative):
+        if demo_credential(relative) or sensitive_name(relative) or credential_file(relative):
             report(relative)
             yield 1
         elif path.is_symlink():
@@ -317,7 +324,7 @@ def main(paths):
         paths = ["--listing", "."]
     if len(paths) == 2 and paths[0] in ("--listing", "--prepared-listing"):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from plan import listing_roots
+        from plan import listing_roots, listing_trees
         root = Path(paths[1])
         if not root.is_dir():
             print("ERROR: listing app directory does not exist", file=sys.stderr)
@@ -333,7 +340,10 @@ def main(paths):
                 except Blocked as exc:
                     print(exc, file=sys.stderr)
                     return 1
-            paths = [root / tree for tree in listing_roots(root)]
+            import listing
+            trees = listing_trees(root)
+            listing.check_metadata_links(root, trees)
+            paths = [root / tree for tree in listing_roots(root, trees)]
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             print(exc, file=sys.stderr)
             return 2
