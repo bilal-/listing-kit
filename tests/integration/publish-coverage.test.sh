@@ -137,4 +137,14 @@ cp "$app/fastlane/screenshots/en-US/01_one_tablet.png" "$app/fastlane/screenshot
 out="$("$lk" publish "$app" --store apple 2>&1)"; assert_eq 0 "$?"
 assert_contains "$out" 'en-US APP_IPAD_PRO_129 1 local images'
 assert_contains "$out" 'en-US APP_IPAD_PRO_3GEN_129 1 local images'
+
+it "screenshots present on disk in a locale the plan does not cover are still checked"
+fake_png "$app/fastlane/screenshots/fr-FR/old.png" 1000 1000
+out="$("$lk" validate "$app" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$out" 'screenshots fr-FR:'
+assert_contains "$out" 'old.png'
+remove_fixture "$app/fastlane/screenshots/fr-FR"
+out="$("$lk" validate "$app" 2>&1)"; assert_eq 0 "$?"
+assert_not_contains "$out" 'screenshots fr-FR:'
+
 summary

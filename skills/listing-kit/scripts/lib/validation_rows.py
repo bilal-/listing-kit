@@ -66,11 +66,12 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
         if not locales:
             yield "FAIL", f"no {apple_tree['metadata']}/<locale>/ directory"
         # Deliver can reuse the primary screenshots for a metadata-only localization.
-        capture_locales = apple_assets.planned_screenshot_locales(targets) if modern else set()
-        if not capture_locales:
-            capture_locales = {loc.name for loc in locales if any(Path(d).is_dir() for _, d in
-                               listing.apple_screenshot_dirs(apple_tree["screenshots"], loc.name, rules))
-                               or (apple_tree["storeAssets"] / loc.name / "screenshots").is_dir()}
+        on_disk = {loc.name for loc in locales if any(Path(d).is_dir() for _, d in
+                   listing.apple_screenshot_dirs(apple_tree["screenshots"], loc.name, rules))
+                   or (apple_tree["storeAssets"] / loc.name / "screenshots").is_dir()}
+        # Screenshots on disk are always checked, planned or not, as handoff packages them.
+        planned_locales = apple_assets.planned_screenshot_locales(targets) if modern else set()
+        capture_locales = on_disk | planned_locales
         for locale in locales:
             yield "NOTE", "  locale " + locale.name + ":"
             yield from copy("apple", locale, fallback)
