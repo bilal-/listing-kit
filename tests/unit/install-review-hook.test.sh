@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
+# Fixture Git commands must never inherit a developer's hook manager.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset LISTING_KIT_HOME
+
 SUT="$SCRIPTS/package/install-review-hook.sh"
 
 make_app() {
@@ -15,7 +19,7 @@ make_app() {
 
 it "exits 2 outside a git worktree"
 new_tempdir T
-OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+OUT="$(GIT_CEILING_DIRECTORIES="$(dirname "$T")" bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Not inside a git worktree"
 rm -rf "$T"
@@ -148,6 +152,7 @@ EOF
 bash "$SUT" "$T" >/dev/null
 assert_not_contains "$(cat "$T/.git/hooks/pre-commit")" "BEGIN listing-kit"
 assert_contains "$(cat "$T/.git/hooks/pre-commit")" "listing-kit review refresh"
+if [ -x "$T/.git/hooks/pre-commit" ]; then fail "enabled disabled legacy hook"; else pass; fi
 rm -rf "$T"
 
 # --- what the page is built from ---
@@ -278,6 +283,45 @@ OUT="$(git -C "$T" commit -qm "secret" 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'fastlane/metadata/en-US/name.txt'
 if [ ! -e "$T/listing-review.html" ]; then pass "no review created"; else fail "wrote review"; fi
+rm -rf "$T"
+
+it "refuses a globally configured hooks path outside the repository before creating it"
+make_app "External hooks"
+new_tempdir shared
+git config --file "$shared/global-config" core.hooksPath "$shared/missing/hooks"
+OUT="$(GIT_CONFIG_GLOBAL="$shared/global-config" bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" 'outside'
+if [ -e "$shared/missing" ]; then fail "created shared hooks directory"; else pass; fi
+rm -rf "$T" "$shared"
+
+it "refuses an in-repo hooks path or hook file symlinked outside"
+make_app "Linked hooks"
+new_tempdir shared
+ln -s "$shared" "$T/linked-hooks"
+git -C "$T" config core.hooksPath linked-hooks
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+if [ -e "$shared/pre-commit" ]; then fail "wrote external hook"; else pass; fi
+git -C "$T" config core.hooksPath .hooks
+mkdir "$T/.hooks"
+echo '#!/bin/sh' > "$shared/original"
+for target in pre-commit listing-kit-review; do
+  ln -s "$shared/original" "$T/.hooks/$target"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_ne 0 "$RC"
+  assert_eq '#!/bin/sh' "$(cat "$shared/original")" "preserves external $target"
+  rm -f "$T/.hooks/pre-commit" "$T/.hooks/listing-kit-review"
+done
+rm -rf "$T" "$shared"
+
+it "preserves a pre-existing shell hook's non-executable mode on install and reinstall"
+make_app "Disabled hook"
+echo '#!/bin/sh' > "$T/.git/hooks/pre-commit"
+chmod 640 "$T/.git/hooks/pre-commit"
+bash "$SUT" "$T" >/dev/null
+bash "$SUT" "$T" >/dev/null
+if [ -x "$T/.git/hooks/pre-commit" ]; then fail "enabled existing hook"; else pass; fi
 rm -rf "$T"
 
 summary

@@ -31,17 +31,27 @@ git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   exit 2
 }
 
-# --git-path is relative to $ROOT unless git returns an absolute path.
-hook_dir="$(git -C "$ROOT" rev-parse --git-path hooks)"
-case "$hook_dir" in
-  /*) ;;
-  *) hook_dir="$(cd "$ROOT" && pwd)/$hook_dir" ;;
-esac
+# Git paths are relative to the app unless absolute. Linked worktrees own
+# their common Git directory too. Check physical destinations before mkdir
+# or redirection, including a Husky user hook and any file-level symlinks.
+hook_dir="$(cd "$ROOT" && python3 - "$(git rev-parse --git-path hooks)" \
+    "$(git rev-parse --show-toplevel)" "$(git rev-parse --git-common-dir)" <<'PYHOOK'
+from pathlib import Path
+import sys
+
+hooks, worktree, common = (Path(arg).resolve() for arg in sys.argv[1:])
+user_hooks = hooks.parent if hooks.name == "_" and (hooks / "h").is_file() else hooks
+for path in (hooks, user_hooks / "pre-commit", hooks / "listing-kit-review"):
+    dest = path.resolve()
+    if not any(root == dest or root in dest.parents for root in (worktree, common)):
+        sys.exit(f"Refusing to install Git hook outside the repository: {dest}")
+print(hooks)
+PYHOOK
+)" || exit 2
 mkdir -p "$hook_dir"
-hook_dir="$(cd "$hook_dir" && pwd)"
 hook="$hook_dir/pre-commit"
 runner="$hook_dir/listing-kit-review"
-# Husky 9 regenerates .husky/_/*; user hooks live one level up and are sourced by it.
+# Husky 9 regenerates .husky/_/*; user hooks live one level up.
 if [ "$(basename "$hook_dir")" = "_" ] && [ -f "$hook_dir/h" ]; then
   hook="$(dirname "$hook_dir")/pre-commit"
 fi
@@ -113,7 +123,10 @@ for app in "${apps[@]}"; do
   # Disable rename detection so moving an input outside this set still refreshes.
   changed_bytes="$(git diff --cached --name-only --no-renames -z -- ":(literal)${app:-.}" | review_paths "$p" | wc -c)"
   [ "$changed_bytes" -gt 0 ] || continue
-  snap="$(mktemp -d)" || { warn "mktemp failed; listing-review.html not refreshed."; continue; }
+  if ! snap="$(mktemp -d)" || [ -z "$snap" ] || [ ! -d "$snap" ]; then
+    warn "mktemp failed; listing-review.html not refreshed."
+    continue
+  fi
   # Scan the complete staged snapshot, including device config and inputs left
   # behind when fastlane/ is deleted. Only file names go to the commit log.
   if git ls-files -z -- ":(literal)${app:-.}" | review_paths "$p" | git checkout-index -z --stdin --ignore-skip-worktree-bits --prefix="$snap/"; then
@@ -153,13 +166,12 @@ chmod +x "$runner"
 if [ -f "$hook" ] && grep -q '# BEGIN listing-kit review hook' "$hook"; then
   tmp="$(mktemp)"
   awk '/# BEGIN listing-kit review hook/{skip=1;next} /# END listing-kit review hook/{skip=0;next} !skip' "$hook" > "$tmp"
-  # Only our own old header left (shebang + set line)? Then start fresh.
-  if [ -z "$(grep -vE '^(#!.*|set -euo pipefail|[[:space:]]*)$' "$tmp")" ]; then rm -f "$hook" "$tmp"
-  else cat "$tmp" > "$hook"; rm -f "$tmp"; fi
+  cat "$tmp" > "$hook"; rm -f "$tmp"
 fi
 
 if [ ! -f "$hook" ]; then
   printf '#!/bin/sh\n%s\n' "$call" > "$hook"
+  chmod +x "$hook"
 elif grep -qF "$CALL_MARK" "$hook"; then
   # v0.5.0 swallowed the runner's exit status on its marked line.
   if grep -q "|| true[[:space:]]*$CALL_MARK$" "$hook"; then
@@ -182,6 +194,5 @@ else
   echo "Installed listing-kit review runner: $runner (apps: ${apps[*]})"
   exit 0
 fi
-chmod +x "$hook"
 
 echo "Installed listing-kit review hook: $hook (apps: ${apps[*]})"
