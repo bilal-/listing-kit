@@ -213,6 +213,17 @@ assert_not_contains "$(cat "$T/.husky/_/pre-commit")" "listing-kit"
 assert_exec "$T/.husky/_/listing-kit-review"
 remove_fixture "$T"
 
+it "preserves a foreign binary pre-commit"
+make_app "Binary hook"
+printf 'binary\0fixture\n' > "$T/original"
+cp "$T/original" "$T/.git/hooks/pre-commit"
+chmod +x "$T/.git/hooks/pre-commit"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" inactive
+if cmp -s "$T/original" "$T/.git/hooks/pre-commit"; then pass; else fail "rewrote binary hook"; fi
+remove_fixture "$T"
+
 it "migrates a listing-kit 0.2 inline hook block"
 make_app "Legacy"
 cat > "$T/.git/hooks/pre-commit" <<'EOF'

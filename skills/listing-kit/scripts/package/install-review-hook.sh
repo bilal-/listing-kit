@@ -59,12 +59,17 @@ app_rel="${app_rel%/}"
 printf -v q "%q" "$app_rel"
 
 shell_hook() {
-  local first
-  IFS= read -r first < "$hook" || :
-  case "$first" in
-    '#!'*) [[ "$first" =~ [/[:space:]](ba|da|k|z)?sh([[:space:]]|$) ]] ;;
-    *) return 0 ;;
-  esac
+  python3 -I -B - "$hook" <<'PYSHELL'
+import re
+import sys
+with open(sys.argv[1], "rb") as source:
+    data = source.read()
+if b"\0" in data:
+    sys.exit(1)
+first = data.partition(b"\n")[0]
+if first.startswith(b"#!") and not re.search(rb"[/\s](?:ba|da|k|z)?sh(?:\s|$)", first):
+    sys.exit(1)
+PYSHELL
 }
 
 check_status() {
