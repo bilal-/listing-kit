@@ -9,6 +9,7 @@ reads commands on file descriptor 3 and writes replies and events on 4.
 import base64
 import json
 import os
+import select
 import shutil
 import subprocess
 import tempfile
@@ -62,7 +63,10 @@ class Browser:
         args = [self.path, "--headless=new", "--remote-debugging-pipe",
                 "--user-data-dir=" + self.profile, "--no-first-run", "--no-default-browser-check",
                 "--disable-extensions", "--disable-background-networking", "--disable-sync",
-                "--disable-component-update", "--hide-scrollbars", "--force-color-profile=srgb",
+                "--disable-component-update", "--hide-scrollbars",
+                # No keychain or password store: with an unusual HOME (CI, sandboxes) the real
+                # ones can block the browser's start forever.
+                "--use-mock-keychain", "--password-store=basic", "--disable-features=DialMediaRouteProvider", "--force-color-profile=srgb",
                 "--font-render-hinting=none",
                 # Second barrier: nothing reaches a network, loopback included.
                 "--proxy-server=socks5://127.0.0.1:1", "--proxy-bypass-list=<-loopback>",
@@ -73,6 +77,7 @@ class Browser:
                                      stderr=subprocess.DEVNULL)
         os.close(to_browser_r); os.close(from_browser_w)
         self._buf = b""
+        self.timeout = int(os.environ.get("LK_BROWSER_TIMEOUT", "30"))
         self._id = 0
         self.events = []
 
@@ -99,6 +104,10 @@ class Browser:
 
     def _read(self):
         while b"\0" not in self._buf:
+            # A browser that never answers must not hang the caller forever.
+            ready, _, _ = select.select([self._r], [], [], self.timeout)
+            if not ready:
+                raise BrowserError("the browser did not answer within %d seconds (%s)" % (self.timeout, self.path))
             chunk = os.read(self._r, 1 << 20)
             if not chunk:
                 raise BrowserError("the browser closed the connection (exit %s)" % self.proc.poll())
@@ -140,7 +149,9 @@ class Renderer:
         self.b = browser
         self.refused = []
 
-    def render(self, assets, width, height, page="/index.html", probe=None):
+    def render(self, assets, width, height, page="/index.html", probe=None, csp=True):
+        """csp=False drops the Content-Security-Policy header so tests can prove the request
+        interception refuses everything off the allow-list by itself."""
         b = self.b
         self.refused = []
         target = b.call("Target.createTarget", {"url": "about:blank"})["targetId"]
@@ -172,9 +183,10 @@ class Renderer:
                     b.send("Fetch.fulfillRequest", {
                         "requestId": p["requestId"], "responseCode": 200,
                         "responseHeaders": [
-                            {"name": "Content-Type", "value": MIME.get(ext, "application/octet-stream")},
-                            {"name": "Content-Security-Policy",
-                             "value": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"}],
+                            {"name": "Content-Type", "value": MIME.get(ext, "application/octet-stream")}
+                        ] + ([{"name": "Content-Security-Policy",
+                               "value": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"}]
+                             if csp else []),
                         "body": base64.b64encode(body).decode()}, sid)
             elif m == "Page.loadEventFired" and sid == session:
                 state["loaded"] = True
