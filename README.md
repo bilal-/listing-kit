@@ -100,6 +100,10 @@ Regenerate the non-Claude manifests after editing the skill:
 bash skills/listing-kit/scripts/package/generate-manifests.sh
 ```
 
+### Command line
+
+From a checkout, run `skills/listing-kit/bin/listing-kit link` and follow its PATH hint. In your app directory, run `listing-kit doctor` to check dependencies or `listing-kit help` to see the commands. See [CI setup](docs/CI.md) and [store credentials](docs/CREDENTIALS.md) for automated validation and protected publishing.
+
 ## Requirements
 
 listing-kit gates heavy dependencies so you only install what a given run needs:
