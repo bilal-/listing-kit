@@ -11,59 +11,13 @@ import sys
 import tempfile
 
 
+from install_lookup import Blocked, find_kit
+
 BUILDER = Path("scripts/package/build-review.sh")
-
-
-class Blocked(Exception):
-    pass
 
 
 def git(*args, **kwargs):
     return subprocess.check_output(["git", *args], **kwargs)
-
-
-def version(kit):
-    if not kit.is_absolute() or not (kit / "scripts/lib/secret_scan.py").is_file():
-        return ()
-    try:
-        value = (kit / "VERSION").read_text(encoding="ascii").strip()
-    except (OSError, UnicodeError):
-        return ()
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?", value)
-    if not match:
-        return ()
-    major, minor, patch, pre = match.groups()
-    parts = [(0, int(p)) if p.isdigit() else (1, p) for p in (pre or "").split(".")]
-    return int(major), int(minor), int(patch), pre is None, parts
-
-
-def channel_for(kit):
-    # <market>/listing-kit/<version>/skills/listing-kit
-    if (kit.name == "listing-kit" and kit.parent.name == "skills"
-            and kit.parent.parent.parent.name == "listing-kit"):
-        return kit.parents[2]
-    return None
-
-
-def newest(recorded, channel):
-    candidates = [recorded]
-    if channel and channel == channel_for(recorded) and channel.is_dir():
-        candidates.extend(p for p in channel.glob("*/skills/listing-kit")
-                          if p.resolve() == p)
-    return max(candidates, key=version)
-
-
-def find_kit(recorded, channel):
-    override = os.environ.get("LISTING_KIT_HOME")
-    if override:
-        path = Path(override)
-        if version(path):
-            return path
-        raise Blocked("LISTING_KIT_HOME must name an absolute installed kit")
-    path = recorded if version(recorded) else newest(recorded, channel)
-    if version(path):
-        return path
-    raise Blocked("listing-kit installation not found; set LISTING_KIT_HOME or reinstall")
 
 
 LISTING_DIRS = (b"fastlane/", b"store-assets/", b".listing-kit/")
