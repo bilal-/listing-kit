@@ -6,9 +6,7 @@ against a real app and tells us what broke.
 
 ## Ways to help
 
-- **Keep store specs current.** Apple and Google change sizes and limits often. If
-  the table in `skills/listing-kit/references/stores/*.md` is stale, a one-line PR
-  is hugely valuable.
+- **Update a store rule.** Edit `skills/listing-kit/specs/stores.json`, including the source URL and verification date. Run `python3 -I skills/listing-kit/scripts/specs/render.py` to refresh the reference tables, then `bash tests/run.sh`. Commit the generated tables with the rules change.
 - **Deepen a stack module.** Add detection signals, build/launch commands, or
   discovery heuristics for frameworks and edge cases in
   `skills/listing-kit/references/stacks/*.md`.

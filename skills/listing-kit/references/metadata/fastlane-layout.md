@@ -59,8 +59,8 @@ Persist approved Apple coverage in `.listing-kit/asset-plan.json` at the app roo
 }
 ```
 
-Use the exact display-class labels in `specs/stores.json`.
-Counts are the approved number (1–10) in that class and locale; the validator
+Use the exact display-class labels in the [Apple screenshot table](../stores/apple-app-store.md#screenshots).
+Counts are the approved number within the slot’s limits in that class and locale; the validator
 requires a match. Header entries are lower-case PNG/JPEG basenames within that
 locale's creative-assets folder. Either `screenshots` or `headers` may be omitted
 when only the other is planned.
