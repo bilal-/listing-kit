@@ -81,7 +81,7 @@ elif sys.argv[2] == 'download_screenshots':
         self.assertEqual(list(self.tmpdir.iterdir()), [])
 
     def test_interrupted_download(self):
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
             with self.subTest(signal=sig):
                 self.env["INTERRUPT"] = str(int(sig))
                 result = self.command("pull", "--store", "apple", "--app-identifier", "example.app")

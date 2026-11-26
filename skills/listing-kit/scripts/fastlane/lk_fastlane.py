@@ -1205,8 +1205,10 @@ def version_code(value):
 
 
 if __name__ == "__main__":
-    # Both signals unwind the active child process group and TemporaryDirectory.
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    # These signals unwind the active child process group and TemporaryDirectory.
+    # A closed terminal (SIGHUP) or Ctrl-\ (SIGQUIT) would otherwise skip the cleanup
+    # while the detached fastlane child finished writing the store's demo credentials.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
         signal.signal(sig, signal.default_int_handler)
     try:
         sys.exit(main(sys.argv[1:]))
