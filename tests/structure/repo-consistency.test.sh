@@ -70,10 +70,8 @@ while read -r p; do
 done < <(grep -oE '`(references|scripts)/[^`]+`' "$SKILL_DIR/SKILL.md" | tr -d '`' | sort -u)
 [ "$missing" -eq 0 ] && pass "no broken in-skill references" || fail "SKILL.md references a missing file"
 
-# ---- gemini contextFileName points at a real file ----
-it "gemini-extension.json contextFileName resolves"
-ctx="$(json_get "$ROOT/gemini-extension.json" contextFileName)"
-assert_file "$ROOT/$ctx"
+it "Gemini loads the bundled skill on demand"
+assert_not_contains "$(cat "$ROOT/gemini-extension.json")" "contextFileName"
 
 # ---- relative markdown links resolve ----
 check_links() {
