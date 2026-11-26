@@ -5,13 +5,15 @@ Usage: plan.py {check [--for capture|publish]|manifest|outputs} <app-root>
 """
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import difflib
 from fractions import Fraction
+from functools import partial
 import json
 from pathlib import Path
 import re
 import sys
+import unicodedata
 
 if __package__:
     from . import json_input, specs
@@ -24,6 +26,7 @@ FORMAT = 2
 # Inter from google/fonts at 0b58fb370093f9a9f4ff785d94405710b79de67c, licensed in assets/fonts/OFL.txt.
 BUNDLED_FONTS = ["Inter"]
 LISTING = Path(".listing-kit/listing.json")
+RECORD = LISTING.with_name("outputs.json")
 LOCALE = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})*")
 
 
@@ -34,14 +37,9 @@ def targets(data, store=None, state="active"):
             and (state is None or t["state"] == state)]
 
 
-def _applies(screen, target_id):
-    if "only" in screen:
-        return target_id in screen["only"]
-    return target_id not in screen.get("except", [])
-
-
 def screens_for(data, target_id):
-    return [s for s in data["screens"] if _applies(s, target_id)]
+    return [s for s in data["screens"] if target_id in s.get("only", [target_id])
+            and target_id not in s.get("except", [])]
 
 
 def raw_path(target, screen, locale_id):
@@ -81,38 +79,67 @@ def _filename(index, target, screen, slot):
     return stem + ".png"
 
 
-def output_name(data, target, screen, rules):
-    """Name within the locale directory, numbered among this target's screens."""
+def _fold(value):
+    return unicodedata.normalize("NFC", str(value)).casefold()
+
+
+def _locale(item):
+    return dict(id=item, apple=item, play=item) if isinstance(item, str) else item
+
+
+def _target_locales(locales, target):
+    selected = target.get("locales")
+    return [loc for loc in locales if loc.get(target["store"]) and (selected is None or loc["id"] in selected)]
+
+
+def _allocation(data, rules, members):
+    counts = Counter()
+    locales = [_locale(item) for item in data["locales"]]
+    for target in members:
+        store = target["store"]
+        slot = specs.slot(rules, store, target["slot"])
+        if slot is None:
+            raise PlanError([("ERROR", "target.slot", "unknown screenshot slot")])
+        upload = target.get("upload", slot["upload"])
+        selected = _target_locales(locales, target)
+        for screen in screens_for(data, target["id"]):
+            for locale in selected:
+                key = store, slot["id"], upload, locale["id"]
+                counts[key] += 1
+                yield target, screen, slot, upload, locale, selected[0], counts[key]
+
+
+def output_name(data, target, screen, rules, locale_id=None):
+    """With no locale, use the target's primary locale. Preview inactive targets in isolation."""
     problems = specs.check(rules)
     if problems:
         raise PlanError(problems)
-    slot = specs.slot(rules, target["store"], target["slot"])
-    if slot is None:
-        raise PlanError([("ERROR", "target.slot", "unknown screenshot slot")])
-    for index, item in enumerate(screens_for(data, target["id"]), 1):
-        if item["id"] == screen["id"]:
+    members = targets(data) if target["state"] == "active" else [target]
+    for t, s, slot, _, loc, _, index in _allocation(data, rules, members):
+        if t["id"] == target["id"] and s["id"] == screen["id"] and locale_id in (None, loc["id"]):
             return _filename(index, target, screen, slot)
-    raise ValueError("screen %s does not apply to %s" % (screen["id"], target["id"]))
+    raise ValueError("no applicable screenshot for %s/%s" % (target["id"], screen["id"]))
+
+
+def _style(base, *layers):
+    result = dict(base)
+    for layer in layers:
+        for key, value in layer.items():
+            result[key] = _style(result.get(key, {}), value) if isinstance(value, dict) else value
+    return result
 
 
 def _trees(data):
-    configured = data.get("trees", {})
-    apple = configured.get("apple", {})
-    play = configured.get("play", {})
-    ios = Path(apple.get("fastlaneDir", "fastlane"))
-    android = Path(play.get("fastlaneDir", "fastlane"))
-    return {"apple": {"fastlaneDir": ios, "screenshots": Path(apple.get("screenshots", ios / "screenshots")),
-                      "metadata": Path(apple.get("metadata", ios / "metadata"))},
-            "play": {"fastlaneDir": android, "metadata": Path(play.get("metadata", android / "metadata/android"))},
-            "storeAssets": Path(configured.get("storeAssets", "store-assets"))}
-
-
-def _output_dir(trees, target, code, slot):
-    if target.get("upload", slot["upload"]) == "console":
-        return trees["storeAssets"] / target["store"] / code / "screenshots" / slot["id"]
-    if target["store"] == "play":
-        return trees["play"]["metadata"] / code / "images" / slot["folder"]
-    return trees["apple"]["screenshots"] / code / slot.get("folder", "")
+    trees = data.get("trees", {})
+    result = {}
+    for store in ("apple", "play"):
+        config = trees.get(store, {})
+        fastlane = Path(config.get("fastlaneDir", "fastlane"))
+        metadata = Path(config.get("metadata", fastlane / ("metadata" if store == "apple" else "metadata/android")))
+        result[store] = dict(fastlaneDir=fastlane, metadata=metadata,
+                             storeAssets=Path(trees.get("storeAssets", "store-assets")) / store,
+                             screenshots=Path(config.get("screenshots", fastlane / "screenshots")) if store == "apple" else metadata)
+    return result
 
 
 def _repo_root(app_root):
@@ -179,19 +206,36 @@ class _Checker:
         self.app_root = Path(app_root).resolve()
         self.repo_root = _repo_root(self.app_root)
         self.purpose = purpose
-        self.inputs = {self.app_root / LISTING, self.app_root / specs.OVERRIDE}
-        self.sources = {}
-        self.stale = []
+        self.files = {str(p): (self.app_root / p, self.app_root / p) for p in (LISTING, specs.OVERRIDE)}
+        self.captures = {}
+        self.tree_errors = []
         self.rules = rules
         self.problems = []
-        self.rows = []
         self.locales = {}
         self.target_ids = set()
         self.screen_ids = set()
         self.mode = "raw"
+        tree = dict(metadata=self.tree_path, fastlaneDir=self.tree_path)
+        self.trees = dict(apple=dict(tree, screenshots=self.tree_path), play=tree, storeAssets=self.tree_path)
+        self.nonempty = partial(self.expect, specs._string, "expected a non-empty string")
+        self.filename_id = partial(self.expect, specs.identifier, "expected a portable id matching " + specs.ID.pattern)
+        self.locale_id = partial(self.expect, specs.component, "expected a portable locale id")
+        self.size = partial(self.expect, specs._size, "expected two positive integers")
+        self.flow = partial(self.file_ref, flow=True)
+        font = partial(self.file_ref, font=True)
+        self.font_roles = dict(headline=[font], detail=[font])
+        self.palette = dict(background=[str], ink=str, detail=str)
+        self.style = dict(mode=("raw", "framed"), template=self.nonempty, fit=self.nonempty, palette=self.palette,
+                          bezel=dict(color=str, bleed=bool), fonts=self.fonts, logo=self.file_ref)
+        self.capture = dict(deviceType=self.nonempty, display=self.nonempty, orientation=("portrait", "landscape"),
+                            nativeSize=self.size, runtime=self.nonempty, appId=self.nonempty)
 
     def error(self, path, message):
         self.problems.append(("ERROR", path or "$", message))
+
+    def expect(self, test, message, value, path):
+        if not test(value):
+            self.error(path, message)
 
     def visit(self, value, path, field):
         if isinstance(field, list):
@@ -200,6 +244,8 @@ class _Checker:
                 return
             for i, item in enumerate(value):
                 self.visit(item, "%s[%d]" % (path, i), field[0])
+        elif isinstance(field, dict):
+            self.obj(value, path, field)
         elif isinstance(field, tuple):
             if value not in field:
                 self.error(path, "expected one of " + ", ".join(field))
@@ -211,7 +257,7 @@ class _Checker:
         else:
             field(value, path)
 
-    def obj(self, value, path, required=(), **fields):
+    def obj(self, value, path, fields, required=()):
         if not isinstance(value, dict):
             self.error(path, "expected an object")
             return False
@@ -229,18 +275,15 @@ class _Checker:
     def app(self, value, path):
         if isinstance(value, str):
             self.nonempty(value, path)
-        elif self.obj(value, path, id=self.nonempty, ios=self.nonempty,
-                      android=self.nonempty, demoEntry=self.file_ref):
+            value = {"id": value}
+        elif self.obj(value, path, dict(id=self.nonempty, ios=self.nonempty,
+                                        android=self.nonempty, demoEntry=self.file_ref)):
             if ("id" in value) == ("ios" in value or "android" in value):
                 self.error(path, "supply a shared id or platform ids (ios, android)")
-
-    def nonempty(self, value, path):
-        if not isinstance(value, str) or not value.strip():
-            self.error(path, "expected a non-empty string")
-
-    def filename_id(self, value, path):
-        if not specs.identifier(value):
-            self.error(path, "expected a portable id matching " + specs.ID.pattern)
+        else:
+            return
+        self.ids = {store: value.get(platform, value.get("id")) for store, platform in (("apple", "ios"), ("play", "android"))}
+        self.demo = value.get("demoEntry")
 
     def warn(self, path, message):
         self.problems.append(("WARN", path, message))
@@ -249,43 +292,34 @@ class _Checker:
         if not isinstance(value, str):
             self.error(path, "expected a path string")
             return
-        if font and value.startswith("bundled:"):
-            name = value[len("bundled:"):]
-            if name not in BUNDLED_FONTS:
-                self.error(path, f"unknown bundled font {name!r}")
-            else:
-                bundled = Path(__file__).resolve().parents[2] / "assets/fonts" / (name + ".ttf")
-                self.inputs.add(bundled)
-                if not bundled.is_file():
-                    self.error(path, f"missing bundled font {name!r}")
-            return
-        base, relative = self.app_root, value
         try:
-            if value.startswith("repo:"):
-                base, relative = self.repo_root, value[len("repo:"):]
+            if font and value.startswith("bundled:"):
+                name = value[len("bundled:"):]
+                if name not in BUNDLED_FONTS:
+                    self.error(path, f"unknown bundled font {name!r}")
+                    return
+                source = resolved = Path(__file__).resolve().parents[2] / "assets/fonts" / (name + ".ttf")
+                if not resolved.is_file():
+                    self.error(path, f"missing bundled font {name!r}")
+                    return
+            else:
+                base, relative = (self.repo_root, value[5:]) if value.startswith("repo:") else (self.app_root, value)
                 if base is None:
                     raise ValueError("repo: requires a .git ancestor")
-            parts = Path(relative).parts
-            if not parts or not all(specs.component(part) for part in parts):
-                raise ValueError("expected a relative path without parent components")
-            resolved = _inside(base, base.joinpath(*parts))
+                parts = Path(relative).parts
+                if not parts or not all(specs.component(part) for part in parts):
+                    raise ValueError("expected a relative path without parent components")
+                source = base.joinpath(*parts)
+                resolved = _inside(base, source)
         except (ValueError, OSError, RuntimeError) as exc:
             self.error(path, "invalid file reference: %s" % exc)
             return
-        self.inputs.add(resolved)
-        if path.endswith(".from"):
-            self.sources[path] = resolved
+        self.files[value] = source, resolved
         if flow and self.app_root / ".listing-kit/flows" not in resolved.parents:
             self.warn(path, "flow is outside .listing-kit/flows")
         if not resolved.is_file():
             report = self.error if self.purpose == "capture" else self.warn
             report(path, "missing input file: " + value)
-
-    def flow(self, value, path):
-        self.file_ref(value, path, flow=True)
-
-    def font(self, value, path):
-        self.file_ref(value, path, font=True)
 
     def store_code(self, value, path):
         if value is None:
@@ -302,28 +336,25 @@ class _Checker:
         seen = {k: set() for k in ("id", "apple", "play")}
         for i, item in enumerate(value):
             child = f"{path}[{i}]"
-            entry = dict(id=item, apple=item, play=item) if isinstance(item, str) else item
-            if not self.obj(entry, child, ("id",), id=self.locale_id, apple=self.store_code, play=self.store_code):
+            entry = _locale(item)
+            if not self.obj(entry, child, dict(id=self.locale_id, apple=self.store_code, play=self.store_code), ("id",)):
                 continue
             if entry.get("apple") is None and entry.get("play") is None:
                 self.error(child, "expected at least one store code")
             for key in seen:
                 code = entry.get(key)
                 if isinstance(code, str):
-                    if code.casefold() in seen[key]:
+                    code = _fold(code)
+                    if code in seen[key]:
                         self.error(child + "." + key, "duplicate locale " + key)
-                    seen[key].add(code.casefold())
+                    seen[key].add(code)
             if isinstance(entry.get("id"), str):
-                self.locales[entry["id"]] = {k: v for k, v in entry.items() if v is not None}
-
-    def locale_id(self, value, path):
-        if not specs.component(value):
-            self.error(path, "expected a portable locale id")
+                self.locales[entry["id"]] = entry
 
     def locale_list(self, value, path):
         self.visit(value, path, [self.locale_id])
         if isinstance(value, list):
-            names = [name for name in value if isinstance(name, str)]
+            names = [_fold(name) for name in value if isinstance(name, str)]
             if not value or len(names) != len(set(names)):
                 self.error(path, "expected a non-empty list of distinct locales")
             for i, name in enumerate(value):
@@ -347,26 +378,7 @@ class _Checker:
         for name, profile in value.items():
             if name != "default" and name not in self.locales:
                 self.error(_key(path, name), f"unknown locale {name!r}")
-            self.obj(profile, _key(path, name), headline=[self.font], detail=[self.font])
-
-    def palette(self, value, path):
-        self.obj(value, path, background=[str], ink=str, detail=str)
-
-    def bezel(self, value, path):
-        self.obj(value, path, color=str, bleed=bool)
-
-    def style(self, value, path):
-        self.obj(value, path, mode=("raw", "framed"), template=self.nonempty, fit=self.nonempty,
-                 palette=self.palette, bezel=self.bezel, fonts=self.fonts, logo=self.file_ref)
-
-    def capture(self, value, path):
-        self.obj(value, path, deviceType=self.nonempty, display=self.nonempty,
-                 orientation=("portrait", "landscape"), nativeSize=self.size,
-                 runtime=self.nonempty, appId=self.nonempty)
-
-    def size(self, value, path):
-        if not specs._size(value):
-            self.error(path, "expected two positive integers")
+            self.obj(profile, _key(path, name), self.font_roles)
 
     def identifier(self, value, path, seen):
         if not specs.identifier(value):
@@ -377,12 +389,12 @@ class _Checker:
             seen.add(value)
 
     def target(self, t, path):
-        if not self.obj(t, path, ("id", "store", "slot", "size", "state"),
-                        id=str, store=("apple", "play"), slot=self.nonempty, size=[int],
+        if not self.obj(t, path,
+                        dict(id=str, store=("apple", "play"), slot=self.nonempty, size=[int],
                         state=("active", "deferred", "retired"), reason=str,
                         suffix=self.filename_id, upload=("fastlane", "console"),
                         locales=self.locale_list, style=self.style, capture=self.capture, captureLocales=("primary", "all"),
-                        status=self.nonempty, draft=bool):
+                        status=self.nonempty, draft=bool), ("id", "store", "slot", "size", "state")):
             return
         if "id" in t:
             self.identifier(t["id"], path + ".id", self.target_ids)
@@ -401,7 +413,7 @@ class _Checker:
 
         size = t.get("size")
         if isinstance(size, list):
-            if len(size) != 2 or not all(type(n) is int and n > 0 for n in size):
+            if not specs._size(size):
                 self.error(path + ".size", "expected two positive integer dimensions")
             elif not _size_accepted(self.rules, store, slot, size):
                 self.error(path + ".size", f"{size[0]}x{size[1]} is not accepted by {slot['id']}")
@@ -431,16 +443,16 @@ class _Checker:
             self.flow(flow, child)
 
     def row(self, value, path):
-        self.obj(value, path, ("label", "text"), label=self.localized, text=self.localized)
+        self.obj(value, path, dict(label=self.localized, text=self.localized), ("label", "text"))
 
     def panel(self, value, path):
-        self.obj(value, path, ("headline", "rows"), headline=self.localized, rows=[self.row])
+        self.obj(value, path, dict(headline=self.localized, rows=[self.row]), ("headline", "rows"))
 
     def screen(self, s, path):
-        if not self.obj(s, path, ("id",), id=str, flow=self.flow, flows=self.flows,
-                        panel=self.panel, route=str, state=str, caption=self.localized,
+        if not self.obj(s, path, dict(id=str, flow=self.flow, flows=self.flows,
+                        panel=self.panel, style=self.style, route=str, state=str, caption=self.localized,
                         detail=self.localized, altText=self.localized, draft=bool,
-                        only=[self.target_ref], **{"except": [self.target_ref]}):
+                        only=[self.target_ref], **{"except": [self.target_ref]}), ("id",)):
             return
         if "id" in s:
             self.identifier(s["id"], path + ".id", self.screen_ids)
@@ -453,18 +465,14 @@ class _Checker:
 
     def graphic(self, value, path):
         is_icon = path == "graphics.play.icon"
-        self.obj(value, path, ("from",) if is_icon else ("headline",),
-                 template=self.nonempty, headline=self.localized, detail=self.localized,
+        self.obj(value, path,
+                 dict(template=self.nonempty, headline=self.localized, detail=self.localized,
                  altText=self.localized, draft=bool, status=self.nonempty, palette=self.palette,
-                 logo=self.file_ref, **({"from": self.file_ref} if is_icon else {}))
+                 logo=self.file_ref, **({"from": self.file_ref} if is_icon else {})), ("from",) if is_icon else ("headline",))
 
     def store_graphics(self, value, path):
-        store = path.split(".")[-1]
-        rules = self.rules["stores"][store]["graphics"]
-        self.obj(value, path, **{g["id"]: self.graphic for g in rules})
-
-    def graphics(self, value, path):
-        self.obj(value, path, apple=self.store_graphics, play=self.store_graphics)
+        rules = self.rules["stores"][path.split(".")[-1]]["graphics"]
+        self.obj(value, path, {g["id"]: self.graphic for g in rules})
 
     def tree_path(self, value, path):
         try:
@@ -472,17 +480,9 @@ class _Checker:
                 raise ValueError("expected a relative directory")
             resolved = _destination(self.app_root, Path(value))
             if resolved.exists() and not resolved.is_dir():
-                raise ValueError("expected a directory")
+                self.tree_errors.append(("ERROR", path, "expected directory: " + value))
         except (ValueError, OSError, RuntimeError) as exc:
             self.error(path, "invalid tree: %s" % exc)
-
-    def trees(self, value, path):
-        def store(obj, key):
-            fields = {"fastlaneDir": self.tree_path, "metadata": self.tree_path}
-            if key == "trees.apple":
-                fields["screenshots"] = self.tree_path
-            self.obj(obj, key, **fields)
-        self.obj(value, path, apple=store, play=store, storeAssets=self.tree_path)
 
     def platforms(self, value, path):
         if not isinstance(value, dict):
@@ -493,19 +493,12 @@ class _Checker:
                 self.error(_key(path, name), f"unknown condition {name!r}")
             self.visit(flag, _key(path, name), bool)
 
-    def approved(self, value, path):
-        self.obj(value, path, metadata=bool, screens=bool)
-
     def console(self, value, path):
         def nullable_string(v, p):
             if v is not None:
                 self.visit(v, p, str)
-        self.obj(value, path, playCategory=nullable_string, contactEmail=nullable_string,
-                 playPrivacyUrl=nullable_string)
-
-    def target_locales(self, target):
-        return [self.locales[name] for name in target.get("locales", self.locales)
-                if target["store"] in self.locales[name]]
+        self.obj(value, path, dict(playCategory=nullable_string, contactEmail=nullable_string,
+                 playPrivacyUrl=nullable_string))
 
     def active_targets(self, data):
         groups = {}
@@ -517,12 +510,11 @@ class _Checker:
             path = f"targets[{i}]"
             store = target["store"]
             platform = "ios" if store == "apple" else "android"
-            app = data["app"]
-            if isinstance(app, dict) and "id" not in app and platform not in app:
+            if not self.ids[store]:
                 self.error("app." + platform, "required for active target " + target["id"])
             slot = specs.slot(self.rules, store, target["slot"])
             applicable = screens_for(data, target["id"])
-            locales = self.target_locales(target)
+            locales = _target_locales(self.locales.values(), target)
             if not applicable or not locales:
                 self.warn(path, "active target produces no screenshots")
             if locales:
@@ -573,7 +565,7 @@ class _Checker:
                 self.warn(f"screens[{i}]", "screen applies to no active target")
 
     def requirements(self, data):
-        active = {(t["store"], t["slot"]) for t in targets(data) if self.target_locales(t)}
+        active = {(t["store"], t["slot"]) for t in targets(data) if _target_locales(self.locales.values(), t)}
         facts = specs.conditions_from_plan(data, rules=self.rules)
         for store in ("apple", "play"):
             for slot in specs.slots(self.rules, store):
@@ -585,125 +577,178 @@ class _Checker:
                 elif required == "upcoming" and slot["required"].get("condition") in facts:
                     self.warn("targets", f"{slot['id']}: {why}")
 
-    def fallback(self, item, path, locale):
-        missing = False
+    def render_fields(self, item, path, loc, style, rule):
         primary = next(iter(self.locales))
-        for field in ("caption", "detail", "altText", "headline", "label", "text"):
-            if field in item and text(item[field], locale, [primary])[1]:
-                message = f"missing translation; using {primary}" if primary in item[field] else "missing translation; using empty text"
-                diagnostic = ("WARN", f"{path}.{field}.{locale}", message)
-                if diagnostic not in self.problems:
-                    self.problems.append(diagnostic)
-                missing = True
+        missing = []
+        def copy(obj, prefix):
+            strings = {}
+            for key in ("caption", "detail", "altText", "headline", "label", "text"):
+                if key in obj:
+                    value, fallback = text(obj[key], loc, [primary])
+                    strings[key] = dict(value=value, fallback=fallback)
+                    if fallback:
+                        default = primary if primary in obj[key] else "empty text"
+                        diagnostic = ("WARN", f"{prefix}.{key}.{loc}", "missing translation; using " + default)
+                        if diagnostic not in self.problems:
+                            self.problems.append(diagnostic)
+                        missing.append(key)
+            return strings
+        strings = copy(item, path)
         if "panel" in item:
-            missing |= self.fallback(item["panel"], path + ".panel", locale)
-        for i, row in enumerate(item.get("rows", [])):
-            missing |= self.fallback(row, f"{path}.rows[{i}]", locale)
-        return missing
+            panel = item["panel"]
+            strings["panel"] = dict(copy(panel, path + ".panel"), rows=[
+                copy(row, f"{path}.panel.rows[{i}]") for i, row in enumerate(panel["rows"])])
+        profiles = style.get("fonts", {})
+        roles = {**profiles.get("default", {}), **profiles.get(loc, {})}
+        style = dict(style, logo=self.resolved(style.get("logo")), fonts={
+            role: [self.resolved(ref) for ref in roles.get(role, [])] for role in ("headline", "detail")})
+        return dict(text=strings, textFallback=bool(missing), style=style, styleMode=style["mode"],
+                    template=style["template"], label=rule["label"])
+
+    def resolved(self, ref):
+        return str(self.files[ref][1]) if ref is not None else None
 
     def output_records(self, data, trees):
-        screen_paths = {s["id"]: f"screens[{i}]" for i, s in enumerate(data["screens"])}
-        for target in targets(data):
-            store = target["store"]
-            slot = specs.slot(self.rules, store, target["slot"])
-            style = {**data.get("style", {}), **target.get("style", {})}
-            locales = self.target_locales(target)
-            for index, screen in enumerate(screens_for(data, target["id"]), 1):
-                name = _filename(index, target, screen, slot)
-                for locale in locales:
-                    code, loc = locale[store], locale["id"]
-                    capture = loc if target.get("captureLocales") == "all" else locales[0]["id"]
-                    output = _output_dir(trees, target, code, slot) / name
-                    upload = target.get("upload", slot["upload"])
-                    if store == "apple" and upload == "fastlane":
-                        matches = specs.apple_slots_for_size(self.rules, *target["size"])
-                        if any(candidate["id"] == "vision-pro" for candidate in matches):
-                            selected = specs.apple_slot_for_file(self.rules, *target["size"], output.as_posix())
-                            if selected["id"] != slot["id"]:
-                                self.error(f"{target['id']}/{screen['id']}",
-                                           f"Apple upload path selects {selected['id']} instead of {slot['id']}")
-                    flow = flow_for(screen, target)
-                    yield dict(kind="screenshot", store=store, localeId=loc, storeCode=code,
-                               targetId=target["id"], slotId=slot["id"], screenId=screen["id"],
-                               index=index, size=target["size"], styleMode=style.get("mode", "raw"),
-                               template=style.get("template", slot.get("defaultTemplate")),
-                               flowPath=flow, rawPath=raw_path(target, screen, capture) if flow else None,
-                               outputPath=output.as_posix(), upload=upload,
-                               draft=target.get("draft", False) or screen.get("draft", False),
-                               textFallback=self.fallback(screen, screen_paths[screen["id"]], loc))
-        for store, graphics in data.get("graphics", {}).items():
+        paths = {s["id"]: f"screens[{i}]" for i, s in enumerate(data["screens"])}
+        base = dict(mode="raw", template=None, fit=None, palette={}, bezel={})
+        for t, s, slot, upload, locale, primary, index in _allocation(data, self.rules, targets(data)):
+            store, loc, tid, sid = t["store"], locale["id"], t["id"], s["id"]
+            code, tree = locale[store], trees[store]
+            if upload == "console":
+                folder = tree["storeAssets"] / code / "screenshots" / slot["id"]
+            elif store == "play":
+                folder = tree["screenshots"] / code / "images" / slot["folder"]
+            else:
+                folder = tree["screenshots"] / code / slot.get("folder", "")
+            output = str(folder / _filename(index, t, s, slot))
+            if store == "apple" and upload == "fastlane" and any(candidate["id"] == "vision-pro"
+                    for candidate in specs.apple_slots_for_size(self.rules, *t["size"])):
+                selected = specs.apple_slot_for_file(self.rules, *t["size"], output)
+                if selected["id"] != slot["id"]:
+                    self.error(f"{tid}/{sid}", f"Apple upload path selects {selected['id']} instead of {slot['id']}")
+            capture = locale if t.get("captureLocales") == "all" else primary
+            flow = flow_for(s, t)
+            raw = raw_path(t, s, capture["id"]) if flow else None
+            if flow and raw not in self.captures:
+                settings = dict.fromkeys(self.capture)
+                settings.update(slot.get("capture", {}), appId=self.ids[store])
+                settings.update(t.get("capture", {}))
+                self.captures[raw] = dict(targetId=tid, screenId=sid, localeId=capture["id"], deviceLocale=capture[store],
+                                          flowPath=self.resolved(flow), demoEntry=self.resolved(self.demo), rawPath=raw, **settings)
+            style = _style(dict(base, template=slot.get("defaultTemplate")), data.get("style", {}),
+                           t.get("style", {}), s.get("style", {}))
+            if locale is primary and "style" in s and style["mode"] != "raw" and slot["framing"] == "forbidden":
+                self.error(paths[sid] + ".style.mode", "%s requires raw style" % slot["id"])
+            yield dict(kind="screenshot", targetId=tid, screenId=sid, store=store, slotId=slot["id"], index=index,
+                       localeId=loc, storeCode=code, captureLocaleId=capture["id"] if flow else None, size=t["size"],
+                       rawPath=raw, flowPath=flow, outputPath=output, upload=upload, draft=t.get("draft", False) or s.get("draft", False),
+                       **self.render_fields(s, paths[sid], loc, style, slot))
+        for store, entries in data.get("graphics", {}).items():
             rules = {g["id"]: g for g in self.rules["stores"][store]["graphics"]}
-            for name, graphic in graphics.items():
+            for name, graphic in entries.items():
                 rule = rules[name]
-                for loc, locale in self.locales.items():
-                    if store not in locale:
-                        continue
-                    code = locale[store]
-                    if rule["upload"] == "console":
-                        folder = trees["storeAssets"] / store / code
-                    elif store == "apple":
-                        folder = trees[store]["metadata"] / code
-                    else:
-                        folder = trees[store]["metadata"] / code / "images"
-                    yield dict(kind="graphic", store=store, localeId=loc, storeCode=code,
-                               targetId=None, slotId=name, screenId=None, index=None, size=rule["size"],
-                               styleMode="graphic", template=graphic.get("template"), flowPath=None,
-                               rawPath=None, outputPath=(folder / (rule["file"] + ".png")).as_posix(),
-                               upload=rule["upload"], draft=graphic.get("draft", False),
-                               textFallback=self.fallback(graphic, f"graphics.{store}.{name}", loc))
+                style = _style(base, data.get("style", {}), {k: graphic[k] for k in ("palette", "logo", "template") if k in graphic})
+                style["mode"] = "graphic"
+                for locale in _target_locales(self.locales.values(), {"store": store}):
+                    code, loc = locale[store], locale["id"]
+                    tree = trees[store]
+                    folder = tree["storeAssets"] / code if rule["upload"] == "console" else tree["metadata"] / code
+                    if store == "play" and rule["upload"] != "console":
+                        folder /= "images"
+                    yield dict(kind="graphic", targetId=None, screenId=None, slotId=name, index=None, size=rule["size"],
+                               store=store, storeCode=code, localeId=loc, rawPath=None, flowPath=None, draft=graphic.get("draft", False),
+                               outputPath=str(folder / (rule["file"] + ".png")), upload=rule["upload"],
+                               **{"from": self.resolved(graphic.get("from"))},
+                               **self.render_fields(graphic, f"graphics.{store}.{name}", loc, style, rule))
 
     def destinations(self, data):
         trees = _trees(data)
-        owners, raw_seen, planned = {}, set(), set()
-
-        def claim(path, owner):
-            try:
-                resolved = _destination(self.app_root, Path(path))
-            except (OSError, RuntimeError, ValueError) as exc:
-                self.error(owner, "invalid output %s: %s" % (path, exc))
-                return
-            keys = {str(self.app_root / path).casefold(), str(resolved).casefold()}
-            for key in sorted(keys):
-                if key in owners:
-                    self.error(owner, "%s and %s both claim %s" % (owners[key], owner, path))
-                    return
+        rows = list(self.output_records(data, trees))
+        planned = [(j["rawPath"], j["targetId"] + "/" + j["screenId"]) for j in self.captures.values()]
+        for r in rows:
+            owner = r["targetId"] + "/" + r["screenId"] if r["targetId"] else f"graphics.{r['store']}.{r['slotId']}"
+            planned.append((r["outputPath"], owner))
+        stale = self.recorded(trees, [self.app_root / path for path, _ in planned])
+        files, children = defaultdict(list), defaultdict(list)
+        def register(path, name, owner=None):
+            keys = {Path(_fold(path)), Path(_fold(path.resolve()))}
+            parents = {parent for key in keys for parent in key.parents}
+            if owner:
+                overlaps = [claim for k in sorted(keys) for claim in files[k] + children[k]]
+                overlaps.extend(claim for p in sorted(parents) for claim in files.get(p, ()))
+                for other, label in dict.fromkeys(overlaps):
+                    if other and name == label:
+                        self.error(owner, f"{other} and {owner} both claim {name}")
+                    else:
+                        source = other + " output" if other else "input"
+                        self.error(owner, f"{name} conflicts with {source} {label}")
             for key in keys:
-                owners[key] = owner
-            return resolved
+                files[key].append((owner, name))
+            for parent in parents:
+                children[parent].append((owner, name))
+        for ref, (path, _) in self.files.items():
+            register(path, ref)
+        for name, owner in planned:
+            leaf = self.app_root / name
+            try:
+                _destination(self.app_root, Path(name))
+                for relative in Path(name).parents:
+                    parent = self.app_root / relative
+                    if (parent.exists() or parent.is_symlink()) and not parent.is_dir():
+                        self.error(owner, f"{name} requires directory {relative}")
+                if leaf.is_symlink() or (leaf.exists() and not leaf.is_file()):
+                    kind = "symlink" if leaf.is_symlink() else "non-regular file"
+                    self.error(owner, f"{name} must be a regular file, found {kind}")
+                register(leaf, name, owner)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.error(owner, f"invalid output {name}: {exc}")
+        for path in stale:
+            (self.error if self.purpose == "publish" else self.warn)(path, "stale output")
+        self.result = dict(app=self.ids, trees={s: {k: str(p) for k, p in tree.items()} for s, tree in trees.items()},
+                           captures=list(self.captures.values()), outputs=rows, stale=stale)
 
-        for row in self.output_records(data, trees):
-            owner = (f"{row['targetId']}/{row['screenId']}" if row["kind"] == "screenshot"
-                     else f"graphics.{row['store']}.{row['slotId']}")
-            raw = row["rawPath"]
-            if raw and raw not in raw_seen:
-                claim(raw, owner)
-                raw_seen.add(raw)
-            dest = claim(row["outputPath"], owner)
-            if dest:
-                output = Path(row["outputPath"])
-                planned.add((self.app_root / output.parent).resolve() / output.name)
-            self.rows.append(row)
-        # Compare sources after claiming all outputs, including aliases through symlinks.
-        for path, resolved in self.sources.items():
-            if str(resolved).casefold() in owners:
-                self.error(path, "source is a planned output: " + str(resolved.relative_to(self.app_root)))
-        if not any(level == "ERROR" for level, _, _ in self.problems):
-            for relative in _existing_outputs(self.app_root, trees):
-                if (self.app_root / relative.parent).resolve() / relative.name not in planned:
-                    self.stale.append(relative.as_posix())
-            self.stale = sorted(set(self.stale))
-            report = self.error if self.purpose == "publish" else self.warn
-            for path in self.stale:
-                report(path, "stale output")
+    def recorded(self, trees, planned):
+        """outputs.json is a UTF-8 JSON array of portable, app-relative POSIX file paths
+        successfully written by compose, e.g. ["fastlane/screenshots/en-US/01_home.png"].
+        Only existing files beneath current metadata, screenshot and store asset roots count.
+        Duplicate entries are harmless. No inventory means no ownership. This reader never deletes.
+        """
+        stale = set()
+        try:
+            record = _destination(self.app_root, RECORD)
+            if not record.exists():
+                return []
+            if not record.is_file():
+                raise ValueError("expected a regular file")
+            self.files[str(RECORD)] = self.app_root / RECORD, record
+            with record.open(encoding="utf-8") as stream:
+                names = json_input.read(stream)
+            if not isinstance(names, list):
+                raise ValueError("expected an array")
+            current = {_fold(p.parent.resolve() / p.name) for p in planned}
+            roots = [self.app_root / p for tree in trees.values() for k, p in tree.items() if k != "fastlaneDir"]
+            for i, name in enumerate(names):
+                if not isinstance(name, str) or not all(specs.component(p) for p in name.split("/")):
+                    self.error(f"{RECORD}[{i}]", "expected an app-relative file path")
+                    continue
+                path = self.app_root / name
+                if not any(root in path.parents for root in roots) or _fold(path.parent.resolve() / path.name) in current:
+                    continue
+                parents = path.resolve().parents
+                if self.app_root in parents and any(root.resolve() in parents for root in roots) and path.is_file():
+                    stale.add(name)
+        except (ValueError, OSError, RuntimeError) as exc:
+            self.error(str(RECORD), str(exc))
+        return sorted(stale)
 
     def plan(self, data):
         if isinstance(data, dict) and isinstance(data.get("style"), dict):
             self.mode = data["style"].get("mode", "raw")
-        if self.obj(data, "", ("format", "app", "locales", "targets", "screens"),
-                    format=int, app=self.app, locales=self.locales_field, trees=self.trees,
-                    platforms=self.platforms, approved=self.approved, style=self.style,
-                    targets=[self.target], screens=[self.screen], graphics=self.graphics,
-                    console=self.console, notes=dict):
+        if self.obj(data, "",
+                    dict(format=int, app=self.app, locales=self.locales_field, trees=self.trees,
+                    platforms=self.platforms, approved=dict(metadata=bool, screens=bool), style=self.style,
+                    targets=[self.target], screens=[self.screen], graphics=dict(apple=self.store_graphics, play=self.store_graphics),
+                    console=self.console, notes=dict), ("format", "app", "locales", "targets", "screens")):
             if type(data.get("format")) is int and data["format"] != FORMAT:
                 self.error("format", "newer plan format; update listing-kit" if data["format"] > FORMAT
                            else f"expected plan format {FORMAT}")
@@ -723,45 +768,7 @@ class _Checker:
                         self.error(f"graphics.{store}.{name}.draft", "draft cannot be published")
 
 
-def _existing_outputs(root, trees):
-    """Visit managed output directories, including locales and targets removed from the plan."""
-    def children(folder):
-        directory = _inside(root, root / folder)
-        if directory.is_dir():
-            for child in sorted(directory.iterdir()):
-                yield folder / child.name
-
-    def files(folder, ancestors=()):
-        resolved = _inside(root, root / folder)
-        if resolved in ancestors:
-            raise ValueError(f"output directory symlink cycle: {folder}")
-        for path in children(folder):
-            entry = _inside(root, root / path)
-            if entry.is_dir():
-                yield from files(path, ancestors + (resolved,))
-            else:
-                yield path
-
-    def locale_dirs(folder):
-        for loc in children(folder):
-            if LOCALE.fullmatch(loc.name) and _inside(root, root / loc).is_dir():
-                yield loc
-
-    for loc in locale_dirs(trees["apple"]["screenshots"]):
-        yield from files(loc)
-    for loc in locale_dirs(trees["play"]["metadata"]):
-        yield from files(loc / "images")
-    for store in ("apple", "play"):
-        for loc in locale_dirs(trees["storeAssets"] / store):
-            yield from files(loc)
-    # Apple metadata shares its locale directory with unrelated text fields.
-    for loc in locale_dirs(trees["apple"]["metadata"]):
-        for path in children(loc):
-            if path.suffix.lower() in (".png", ".jpg", ".jpeg") and _inside(root, root / path).is_file():
-                yield path
-
-
-def _inspect(data, rules, app_root, purpose=None):
+def _inspect(data, rules, app_root, purpose=None, strict=True):
     if purpose not in (None, "capture", "publish"):
         raise ValueError("expected capture or publish")
     checker = _Checker(rules, app_root, purpose)
@@ -770,30 +777,22 @@ def _inspect(data, rules, app_root, purpose=None):
         try:
             json_input.validate(data)
             checker.plan(data)
+            checker.problems.extend(checker.tree_errors)
         except (OSError, ValueError, RuntimeError) as exc:
             checker.error("$", str(exc))
+    if strict and any(level == "ERROR" for level, _, _ in checker.problems):
+        raise PlanError(checker.problems)
     return checker
 
 
 def check(data, specs_data, app_root, purpose=None):
     """Check a plan against effective rules and the supplied filesystem."""
-    return _inspect(data, specs_data, app_root, purpose).problems
-
-
-def _validated(data, rules, app_root, purpose=None):
-    checker = _inspect(data, rules, app_root, purpose)
-    if any(level == "ERROR" for level, _, _ in checker.problems):
-        raise PlanError(checker.problems)
-    return checker
-
-
-def _manifest(checker):
-    return {"outputs": checker.rows, "stale": checker.stale}
+    return _inspect(data, specs_data, app_root, purpose, strict=False).problems
 
 
 def manifest(data, rules, app_root):
     """Return every planned screenshot and graphic, and stale app-relative paths."""
-    return _manifest(_validated(data, rules, app_root))
+    return _inspect(data, rules, app_root).result
 
 
 def outputs(data, rules, app_root):
@@ -803,7 +802,7 @@ def outputs(data, rules, app_root):
 
 def input_files(data, rules, app_root):
     """Return resolved input paths for scanning, including the plan and optional override."""
-    return sorted(_validated(data, rules, app_root).inputs)
+    return sorted({resolved for _, resolved in _inspect(data, rules, app_root).files.values()})
 
 
 def _tsv_rows(records):
@@ -837,7 +836,7 @@ def _read(app_root, purpose=None):
         raise
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as exc:
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
-    return data, _validated(data, rules, root, purpose)
+    return data, _inspect(data, rules, root, purpose)
 
 
 def load(app_root):
@@ -863,9 +862,9 @@ def main(args):
         _print(exc, sys.stdout if args.command == "check" else sys.stderr)
         return 1
     if args.command == "manifest":
-        print(json.dumps(_manifest(checker)))
+        print(json.dumps(checker.result))
     else:
-        rows = checker.problems if args.command == "check" else _tsv_rows(checker.rows)
+        rows = checker.problems if args.command == "check" else _tsv_rows(checker.result["outputs"])
         for row in rows:
             _print(_line(row), sys.stdout)
     return 0

@@ -29,6 +29,7 @@
   "targets": [
     {
       "id": "iphone",
+      "locales": ["zh", "en-US"],
       "store": "apple",
       "slot": "iphone-di-medium",
       "size": [

@@ -88,7 +88,7 @@ class PlanReview(unittest.TestCase):
     def test_destination_collisions(self):
         other = dict(self.target, id="other")
         self.data["targets"].append(other)
-        self.assertTrue(any("phone" in m and "other" in m and "01_a.png" in m for m in self.errors()))
+        self.assertEqual(self.problems(), [])
         self.data["locales"].append({"id": "de", "apple": "de-DE", "play": "de"})
         self.target["locales"], other["locales"] = ["de"], ["en-US"]
         self.assertEqual(self.problems(), [])
@@ -97,7 +97,7 @@ class PlanReview(unittest.TestCase):
         self.assertEqual(self.problems(), [])
         for target in self.data["targets"]:
             target.update(store="apple", slot="ipad-13", size=[2064, 2752], state="active")
-        self.assertTrue(self.errors())
+        self.assertEqual(self.problems(), [])
         other["upload"] = "console"
         self.assertEqual(self.problems(), [])
         rules = self.rules["stores"]["apple"]["graphics"]
