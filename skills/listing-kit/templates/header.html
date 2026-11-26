@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/fonts.css">
+<style>
+body{justify-content:center;padding:10vh 12vw}
+.header{width:100%;display:flex;flex-direction:column;align-items:start;gap:4vh}
+.brand:empty,.name:empty{display:none}
+.brand img{display:block;max-height:14vh;max-width:45vw}
+.name{font-family:var(--font-headline);font-size:6vh;font-weight:700}
+.headline,.detail{text-align:start}
+.headline{font-size:9vh}
+.detail{font-size:5vh}
+</style>
+<body><main class="header">
+<div class="brand">{{brand}}</div>
+<h1 class="headline" data-check="text">{{headline}}</h1>
+<p class="detail" data-check="text">{{detail}}</p>
+</main></body>
+</html>

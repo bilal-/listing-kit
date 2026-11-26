@@ -6,7 +6,11 @@ every request is answered here from an allow-list (see Renderer.render), anythin
 else is refused. Protocol: JSON messages terminated by a NUL byte; the browser
 reads commands on file descriptor 3 and writes replies and events on 4.
 """
+from contextlib import ExitStack
 import base64
+import math
+import signal
+import time
 import json
 import os
 import select
@@ -27,7 +31,7 @@ CANDIDATES = [
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "text/javascript; charset=utf-8", ".json": "application/json",
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".svg": "image/svg+xml", ".ttf": "font/ttf", ".otf": "font/otf"}
 
 
@@ -44,15 +48,40 @@ def find_browser():
     return None
 
 
+def timeout_seconds():
+    try:
+        timeout = float(os.environ.get("LK_BROWSER_TIMEOUT", "60"))
+        if math.isfinite(timeout) and 0 < timeout <= 86400:
+            return timeout
+    except ValueError:
+        pass
+    raise BrowserError("LK_BROWSER_TIMEOUT must be a positive number of seconds (up to 86400)")
+
+
 class Browser:
     def __init__(self, path=None, extra_args=None):
         self.path = path or find_browser()
         if not self.path:
             raise BrowserError("Framed screenshots need Chrome, Chromium, Edge or Brave. Found none.")
-        self.profile = tempfile.mkdtemp(prefix="lk-browser-")
-        to_browser_r, self._w = os.pipe()
-        self._r, from_browser_w = os.pipe()
+        self.timeout = timeout_seconds()
+        self.start_deadline()
+        with ExitStack() as resources, ExitStack() as child_ends:
+            self.profile = tempfile.mkdtemp(prefix="lk-browser-")
+            resources.callback(shutil.rmtree, self.profile, ignore_errors=True)
+            to_browser_r, self._w = os.pipe()
+            resources.callback(os.close, self._w)
+            child_ends.callback(os.close, to_browser_r)
+            self._r, from_browser_w = os.pipe()
+            resources.callback(os.close, self._r)
+            child_ends.callback(os.close, from_browser_w)
+            os.set_blocking(self._w, False)
+            self._spawn(to_browser_r, from_browser_w, extra_args)
+            resources.callback(self._stop)
+            self._resources = resources.pop_all()
+        self._buf = b""
+        self._id = 0
 
+    def _spawn(self, to_browser_r, from_browser_w, extra_args):
         def wire():  # the browser expects exactly fds 3 (in) and 4 (out)
             a, b = os.dup(to_browser_r), os.dup(from_browser_w)
             os.dup2(a, 3); os.dup2(b, 4)
@@ -72,42 +101,43 @@ class Browser:
                 "--proxy-server=socks5://127.0.0.1:1", "--proxy-bypass-list=<-loopback>",
                 "about:blank"]
         args[1:1] = (extra_args or []) + os.environ.get("LK_BROWSER_ARGS", "").split()
-        self.proc = subprocess.Popen(args, preexec_fn=wire, pass_fds=(3, 4), close_fds=True,
+        self.proc = subprocess.Popen(args, preexec_fn=wire, pass_fds=(3, 4), close_fds=True, start_new_session=True,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
-        os.close(to_browser_r); os.close(from_browser_w)
-        self._buf = b""
-        self.timeout = int(os.environ.get("LK_BROWSER_TIMEOUT", "30"))
-        self._id = 0
-        self.events = []
+    def start_deadline(self):
+        self.deadline = time.monotonic() + self.timeout
+
+    def remaining(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise BrowserError("browser render timed out after %g seconds" % self.timeout)
+        return remaining
 
     def version_major(self):
-        """The browser's major version, for the compose lock's renderer fingerprint."""
+        product = self.call("Browser.getVersion").get("product", "")
+        return product.partition("/")[2].partition(".")[0] or "unknown"
+
+    def _stop(self):
         try:
-            product = self.call("Browser.getVersion").get("product", "")
-            return product.split("/", 1)[1].split(".", 1)[0]
-        except (BrowserError, IndexError):
-            return "unknown"
+            os.killpg(self.proc.pid, signal.SIGTERM)
+            self.proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            os.killpg(self.proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            self.proc.wait()
 
     def close(self):
-        try:
-            self.proc.terminate()
-            self.proc.wait(timeout=5)
-        except Exception:
-            self.proc.kill()
-        for fd in (self._r, self._w):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        shutil.rmtree(self.profile, ignore_errors=True)
+        self._resources.close()
 
     def _read(self):
+        self.remaining()
         while b"\0" not in self._buf:
             # A browser that never answers must not hang the caller forever.
-            ready, _, _ = select.select([self._r], [], [], self.timeout)
+            ready, _, _ = select.select([self._r], [], [], self.remaining())
             if not ready:
-                raise BrowserError("the browser did not answer within %d seconds (%s)" % (self.timeout, self.path))
+                raise BrowserError("the browser did not answer within %g seconds (%s)" % (self.timeout, self.path))
             chunk = os.read(self._r, 1 << 20)
             if not chunk:
                 raise BrowserError("the browser closed the connection (exit %s)" % self.proc.poll())
@@ -120,7 +150,14 @@ class Browser:
         msg = {"id": self._id, "method": method, "params": params or {}}
         if session:
             msg["sessionId"] = session
-        os.write(self._w, json.dumps(msg).encode() + b"\0")
+        data = memoryview(json.dumps(msg).encode() + b"\0")
+        while data:
+            _, ready, _ = select.select([], [self._w], [], self.remaining())
+            if ready:
+                try:
+                    data = data[os.write(self._w, data):]
+                except BlockingIOError:
+                    continue
         return self._id
 
     def call(self, method, params=None, session=None, on_event=None):
@@ -132,14 +169,13 @@ class Browser:
                 if "error" in msg:
                     raise BrowserError("%s: %s" % (method, msg["error"].get("message")))
                 return msg.get("result", {})
-            if "method" in msg and on_event:
+            if on_event:
                 on_event(msg)
 
     def pump(self, on_event, until):
         while not until():
             msg = self._read()
-            if "method" in msg:
-                on_event(msg)
+            on_event(msg)
 
 
 class Renderer:
@@ -149,21 +185,46 @@ class Renderer:
         self.b = browser
         self.refused = []
 
-    def render(self, assets, width, height, page="/index.html", probe=None, csp=True):
+    def render(self, assets, width, height, page="/index.html", probe=None, csp=True, background=False):
         """csp=False drops the Content-Security-Policy header so tests can prove the request
         interception refuses everything off the allow-list by itself."""
         b = self.b
         self.refused = []
+        b.start_deadline()
         target = b.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+        try:
+            return self._page(target, assets, width, height, page, probe, csp, background)
+        finally:
+            # A timed-out connection is cleaned up by Browser.close().
+            if time.monotonic() < b.deadline:
+                b.call("Target.closeTarget", {"targetId": target})
+
+    def _page(self, target, assets, width, height, page, probe, csp, background):
+        b = self.b
         session = b.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
         state = {"loaded": False}
 
+        auto = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True}
+        intercept = {"patterns": [{"urlPattern": "*"}]}
+        pending = {}
+
         def serve(msg):
-            m, p, sid = msg["method"], msg.get("params", {}), msg.get("sessionId")
-            if m == "Target.attachedToTarget":  # workers and frames: intercept there too
+            m, p, sid = msg.get("method"), msg.get("params", {}), msg.get("sessionId")
+            command = pending.pop((sid, msg.get("id")), None)
+            if command:
+                method, child_target = command
+                if "error" in msg:
+                    b.send("Target.closeTarget", {"targetId": child_target})
+                    raise BrowserError("%s: %s" % (method, msg["error"]["message"]))
+                if method == "Fetch.enable":
+                    ident = b.send("Target.setAutoAttach", auto, sid)
+                    pending[sid, ident] = ("Target.setAutoAttach", child_target)
+                else:
+                    b.send("Runtime.runIfWaitingForDebugger", {}, sid)
+            elif m == "Target.attachedToTarget":
                 child = p["sessionId"]
-                b.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]}, child)
-                b.send("Runtime.runIfWaitingForDebugger", {}, child)
+                ident = b.send("Fetch.enable", intercept, child)
+                pending[child, ident] = ("Fetch.enable", p["targetInfo"]["targetId"])
             elif m == "Fetch.requestPaused":
                 url = p["request"]["url"]
                 body = None
@@ -185,13 +246,13 @@ class Renderer:
                         "responseHeaders": [
                             {"name": "Content-Type", "value": MIME.get(ext, "application/octet-stream")}
                         ] + ([{"name": "Content-Security-Policy",
-                               "value": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"}]
+                               "value": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; script-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; connect-src 'none'; base-uri 'none' "}]
                              if csp else []),
                         "body": base64.b64encode(body).decode()}, sid)
             elif m == "Page.loadEventFired" and sid == session:
                 state["loaded"] = True
 
-        b.call("Fetch.enable", {"patterns": [{"urlPattern": "*"}]}, session, serve)
+        b.call("Fetch.enable", intercept, session, serve)
         b.call("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True},
                session, serve)
         b.call("Page.enable", {}, session, serve)
@@ -199,17 +260,40 @@ class Renderer:
                {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False}, session, serve)
         b.call("Page.navigate", {"url": ORIGIN + page}, session, serve)
         b.pump(serve, lambda: state["loaded"])
-        ready = ("(async()=>{await document.fonts.ready;"
-                 "await Promise.all([...document.images].map(i=>i.decode().catch(()=>0)));"
-                 "return JSON.stringify(%s)})()" % (probe or "null"))
-        res = b.call("Runtime.evaluate", {"expression": ready, "awaitPromise": True, "returnByValue": True},
-                     session, serve)
-        if "exceptionDetails" in res:
-            raise BrowserError("template script failed: %s" % res["exceptionDetails"].get("text"))
-        info = json.loads(res["result"].get("value") or "null")
-        shot = b.call("Page.captureScreenshot",
-                      {"format": "png", "captureBeyondViewport": False,
-                       "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}},
-                      session, serve)
-        b.call("Target.closeTarget", {"targetId": target}, None, serve)
-        return base64.b64decode(shot["data"]), info
+        def evaluate(expression):
+            response = b.call("Runtime.evaluate", {"expression": expression, "awaitPromise": True,
+                                                    "returnByValue": True}, session, serve)
+            if "exceptionDetails" in response:
+                exc = response["exceptionDetails"]
+                reason = exc.get("exception", {}).get("description", exc.get("text"))
+                raise BrowserError("template asset or probe failed: %s" % reason)
+            return response["result"].get("value")
+
+        ready = """(async()=>{
+            await Promise.all(Array.from(document.images, async img => {
+                try { await img.decode(); if (img.naturalWidth && img.naturalHeight) return; } catch {}
+                throw Error('image failed to decode: ' + img.getAttribute('src'));
+            }));
+            await Promise.all(Array.from(document.fonts, async face => {
+                try { await face.load(); } catch { throw Error('font failed to decode: ' + face.family); }
+            }));
+            await document.fonts.ready;
+            return (%s);
+        })()"""
+        info = evaluate(ready % (probe or "null"))
+
+        def capture():
+            shot = b.call("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": False,
+                          "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}}, session, serve)
+            return base64.b64decode(shot["data"])
+
+        png = capture()
+        if background:
+            evaluate("""document.querySelectorAll('[data-check=text]').forEach(
+                        el => el.style.setProperty('visibility','hidden','important'))""")
+            info["background"] = capture()
+        if background:
+            evaluate("""document.querySelectorAll('[data-check="text"]').forEach(el =>
+                el.style.setProperty('visibility', 'hidden', 'important'))""")
+            info["background"] = capture()
+        return png, info

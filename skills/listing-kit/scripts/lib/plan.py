@@ -16,10 +16,11 @@ import sys
 import unicodedata
 
 if __package__:
-    from . import json_input, specs
+    from . import json_input, specs, template_values
 else:
     import json_input
     import specs
+    import template_values
 
 
 FORMAT = 2
@@ -210,11 +211,20 @@ class _Checker:
         self.flow = partial(self.file_ref, flow=True)
         font = partial(self.file_ref, font=True)
         self.font_roles = dict(headline=[font], detail=[font])
-        self.palette = dict(background=[str], ink=str, detail=str)
-        self.style = dict(mode=("raw", "framed"), template=self.nonempty, fit=self.nonempty, palette=self.palette,
-                          bezel=dict(color=str, bleed=bool), fonts=self.fonts, logo=self.file_ref)
+        colour = partial(self.expect, template_values.colour, "expected #RRGGBB or #RRGGBBAA")
+        self.palette = dict(background=self.background, ink=colour, detail=colour)
+        def measure(limit):
+            return partial(self.expect, lambda v: template_values.measurement(v, limit), "expected number in [0, %d]" % limit)
+        self.style = dict(mode=("raw", "framed"), template=template_values.TEMPLATES, fit=("contain", "cover", "bleed"), palette=self.palette,
+                          bezel=dict(color=colour, shadow=colour, width=measure(10), radius=measure(50), bleed=bool), fonts=self.fonts, logo=self.file_ref)
         self.capture = dict(deviceType=self.nonempty, display=self.nonempty, orientation=("portrait", "landscape"),
                             nativeSize=self.size, runtime=self.nonempty, appId=self.nonempty)
+
+    def background(self, value, path):
+        if not isinstance(value, list) or not value:
+            self.error(path, "expected non-empty array of colours")
+        else:
+            self.visit(value, path, [self.palette["ink"]])
 
     def error(self, path, message):
         self.problems.append(("ERROR", path or "$", message))
@@ -451,7 +461,7 @@ class _Checker:
     def graphic(self, value, path):
         is_icon = path == "graphics.play.icon"
         self.obj(value, path,
-                 dict(template=self.nonempty, headline=self.localized, detail=self.localized,
+                 dict(template=template_values.TEMPLATES, headline=self.localized, detail=self.localized,
                  altText=self.localized, draft=bool, status=self.nonempty, palette=self.palette,
                  logo=self.file_ref, **({"from": self.file_ref} if is_icon else {})), ("from",) if is_icon else ("headline",))
 

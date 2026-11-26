@@ -2,8 +2,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/compose/fontcheck.py"
-T="$(mktemp -d)"; [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }
-trap 'rm -rf "$T"' EXIT
+new_tempdir T
 
 # A minimal font holding only a character map: format 4 (A-Z, a-z, digits) or
 # format 12 (adds one character outside the basic plane).
@@ -80,4 +79,5 @@ OUT="$(python3 "$SUT" $'A\xEF\xB8\x8FB' "$T/many.ttf" 2>&1)"; assert_eq 0 "$?" "
 OUT="$(python3 "$SUT" $'B\xEF\xB8\x8FCD' "$T/many.ttf" 2>&1)"; assert_eq 1 "$?" "unsupported sequence and zero glyph range"
 assert_contains "$OUT" "U+FE0F"
 assert_contains "$OUT" "U+0044"
+remove_fixture "$T"
 summary

@@ -168,13 +168,13 @@
         "altText": {
           "en-US": "..."
         },
-        "template": "header-16x9"
+        "template": "header"
       },
       "header-21x9": {
         "headline": {
           "en-US": "..."
         },
-        "template": "header-21x9"
+        "template": "header"
       }
     },
     "play": {

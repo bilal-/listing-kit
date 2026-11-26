@@ -65,18 +65,47 @@ def _format4(sub):
     return found
 
 
-def _format12(sub):
+def _groups(sub, constant):
     n = struct.unpack(">I", sub[12:16])[0]
     found = set()
     for i in range(n):
         start, end, gid = struct.unpack(">III", sub[16 + 12 * i:28 + 12 * i])
-        if end - start > 0x110000:
+        if not start <= end <= 0x10ffff:
             raise FontError("implausible character range")
-        found.update(c for c in range(start, end + 1) if gid + (c - start))
+        if constant:
+            if gid:
+                found.update(range(start, end + 1))
+        else:
+            found.update(range(start + (gid == 0), end + 1))
     return found
 
 
-def codepoints(path):
+def _variations(sub):
+    """Map selector to (default bases, bases with a nonzero variant glyph)."""
+    count = struct.unpack_from(">I", sub, 6)[0]
+    variants = {}
+    for i in range(count):
+        pos = 10 + 11 * i
+        selector = int.from_bytes(sub[pos:pos + 3], "big")
+        default, other = struct.unpack_from(">II", sub, pos + 3)
+        bases, glyphs = set(), set()
+        for offset, stride in ((default, 4), (other, 5)):
+            if not offset:
+                continue
+            rows = struct.unpack_from(">I", sub, offset)[0]
+            for j in range(rows):
+                at = offset + 4 + j * stride
+                base = int.from_bytes(sub[at:at + 3], "big")
+                if stride == 4:
+                    extra = struct.unpack_from("B", sub, at + 3)[0]
+                    bases.update(range(base, base + extra + 1))
+                elif struct.unpack_from(">H", sub, at + 3)[0]:
+                    glyphs.add(base)
+        variants[selector] = (bases, glyphs)
+    return variants
+
+
+def _coverage(path):
     """The set of Unicode code points the font maps to a glyph."""
     try:
         with open(path, "rb") as f:
@@ -90,33 +119,55 @@ def codepoints(path):
         off, length = tables[b"cmap"]
         cmap = data[off:off + length]
         n = struct.unpack(">H", cmap[2:4])[0]
-        best = {}
+        points, variants = set(), {}
+        understood = False
         for i in range(n):
             plat, enc, sub_off = struct.unpack(">HHI", cmap[4 + 8 * i:12 + 8 * i])
             fmt = struct.unpack(">H", cmap[sub_off:sub_off + 2])[0]
             unicode_table = plat == 0 or (plat == 3 and enc in (1, 10))
-            if unicode_table and fmt in (4, 12):
-                best[fmt] = cmap[sub_off:]
-        if 12 in best:
-            return _format12(best[12])
-        if 4 in best:
-            return _format4(best[4])
+            if not unicode_table:
+                continue
+            sub = cmap[sub_off:]
+            if fmt == 14:
+                variants.update(_variations(sub))
+            if fmt in (4, 12, 13):
+                understood = True
+                points.update(_format4(sub) if fmt == 4 else _groups(sub, fmt == 13))
+        if understood:
+            return points, variants
         raise FontError("font has no Unicode character map this reader understands")
     except struct.error:
         raise FontError("truncated or damaged font: %s" % path)
 
 
+def codepoints(path):
+    return _coverage(path)[0]
+
+
 def _needs_glyph(ch):
     # Spaces and invisible formatting characters draw nothing; skip them.
-    return not (ch.isspace() or unicodedata.category(ch) in ("Cf", "Cc", "Mn", "Me"))
+    return not (ch.isspace() or unicodedata.category(ch) in ("Cf", "Cc"))
 
 
 def missing(text, font_paths):
     """Characters in text that none of the fonts can draw, in first-seen order."""
-    sets = [codepoints(p) for p in font_paths]
+    fonts = [_coverage(p) for p in font_paths]
     out = []
-    for ch in text:
-        if _needs_glyph(ch) and ch not in out and not any(ord(ch) in s for s in sets):
+    for index, ch in enumerate(text):
+        cp = ord(ch)
+        if not _needs_glyph(ch) or ch in out:
+            continue
+        if 0xfe00 <= cp <= 0xfe0f or 0xe0100 <= cp <= 0xe01ef:
+            base = ord(text[index - 1]) if index else -1
+            supported = False
+            for points, variants in fonts:
+                defaults, specific = variants.get(cp, ((), ()))
+                if base in specific or (base in points and base in defaults):
+                    supported = True
+                    break
+        else:
+            supported = any(cp in points for points, _ in fonts)
+        if not supported:
             out.append(ch)
     return out
 

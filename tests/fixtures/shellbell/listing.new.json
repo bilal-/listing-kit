@@ -317,7 +317,7 @@
           "detail": "#493416"
         },
         "logo": "repo:brand/png/horizontal-black@2x.png",
-        "template": "shellbell-header-16x9",
+        "template": "header",
         "status": "prepared"
       },
       "header-21x9": {
@@ -339,7 +339,7 @@
           "detail": "#493416"
         },
         "logo": "repo:brand/png/horizontal-black@2x.png",
-        "template": "shellbell-header-21x9",
+        "template": "header",
         "status": "prepared"
       }
     },

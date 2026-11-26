@@ -4,11 +4,11 @@
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden}
 body{--u:1vmin;background:linear-gradient(var(--bg-a),var(--bg-b));color:var(--ink);
-  font-family:"LK Headline";display:flex;flex-direction:column;align-items:center;
+  font-family:var(--font-headline);display:flex;flex-direction:column;align-items:center;
   -webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
-.headline{font-family:"LK Headline";font-weight:var(--headline-weight,700);margin:0;
+.headline{font-family:var(--font-headline);font-weight:var(--headline-weight,700);margin:0;
   text-align:center;white-space:pre-line;line-height:1.12;text-wrap:balance;max-inline-size:100%}
-.detail{font-family:"LK Detail";font-weight:var(--detail-weight,400);margin:0;color:var(--detail);
+.detail{font-family:var(--font-detail);font-weight:var(--detail-weight,400);margin:0;color:var(--detail);
   text-align:center;white-space:pre-line;line-height:1.25;text-wrap:balance;max-inline-size:100%}
 .device{border:calc(var(--bezel-w)*var(--u)) solid var(--bezel);border-radius:calc(var(--radius)*var(--u));
   box-shadow:0 calc(3*var(--u)) calc(5*var(--u)) var(--shadow);background:var(--bezel);overflow:hidden;display:block}
