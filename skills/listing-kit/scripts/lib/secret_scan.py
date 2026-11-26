@@ -176,6 +176,12 @@ def credential_file(path):
     return path.name.lower().endswith(KEY_SUFFIXES)
 
 
+def ignored_private_files(directory, *pathspecs):
+    # List individual untracked files even when Git ignores the whole directory.
+    ignored = git_files(directory, "--others", "--ignored", "--exclude-standard", "--", *pathspecs)
+    return {path for path in ignored if credential_file(path) or private_local(path)}
+
+
 def report(path):
     label = "[redacted path]" if sensitive_name(path) else str(path)
     message = f"POTENTIAL SECRET in committed listing: {label}"
@@ -235,8 +241,7 @@ def main(paths):
         if not path.exists() and not path.is_symlink():
             continue
         try:
-            ignored = git_files(path.parent, "--others", "--ignored", "--exclude-standard",
-                                "--directory", "--", ":(literal)" + path.name)
+            ignored = ignored_private_files(path.parent, ":(literal)" + path.name)
             results.update(scan(path, path.parent, ignored, roots))
         except (OSError, RuntimeError, subprocess.SubprocessError):
             print("ERROR: secret scan could not complete", file=sys.stderr)

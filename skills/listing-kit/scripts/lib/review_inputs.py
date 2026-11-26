@@ -8,15 +8,13 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from secret_scan import credential_file, file_secret, git_files, private_local, sensitive_name, tracked
+from secret_scan import credential_file, file_secret, ignored_private_files, private_local, sensitive_name, tracked
 
 TREES = ("fastlane", "store-assets", ".listing-kit")
-DEVICE_SPECS = (":(glob)app.config.*", "app.json", ":(glob)**/*.pbxproj", ":(glob)**/Info.plist")
 
 
 def exclusions(root):
-    ignored = git_files(root, "--others", "--ignored", "--exclude-standard", "--directory",
-                        "--", *TREES, *DEVICE_SPECS)
+    ignored = ignored_private_files(root, *TREES)
     unsafe = set()
     passwords = set()
     for tree in TREES:
@@ -24,9 +22,6 @@ def exclusions(root):
             continue
         for directory, dirs, files in os.walk(root / tree):
             rel = Path(directory).relative_to(root)
-            if rel in ignored:
-                dirs.clear()
-                continue
             for name in dirs + files:
                 path = rel / name
                 if path in ignored:
