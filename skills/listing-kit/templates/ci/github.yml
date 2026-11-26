@@ -1,0 +1,113 @@
+# Publishing is off until the store's live test passes. With the fastlane adapter, the job reports:
+# "publishing to <store> is not enabled in this version of listing-kit until it has passed a live test; use the hand-upload folder"
+# Builds without the adapter print "this command is not part of this build of listing-kit".
+name: Store listing
+on:
+  pull_request:
+    paths:
+      - '__APP_PREFIX__fastlane/**'
+      - '__APP_PREFIX__store-assets/**'
+      - '__APP_PREFIX__.listing-kit/**'
+  workflow_dispatch:
+    inputs:
+      store:
+        description: Store to publish
+        required: true
+        type: choice
+        options:
+          - apple
+          - play
+
+permissions:
+  contents: read
+env:
+  KIT_REF: '__KIT_REF__'
+  APP_ROOT: '__APP_ROOT__'
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - &install-kit
+        name: Install listing-kit and ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+          kit="$(mktemp -d "$RUNNER_TEMP/listing-kit.XXXXXX")"
+          git clone --quiet --no-checkout --depth 1 https://github.com/bilal-/listing-kit "$kit"
+          git -C "$kit" fetch --quiet --depth 1 origin "$KIT_REF"
+          git -C "$kit" checkout --quiet --detach FETCH_HEAD
+          if [ ! -x "$kit/skills/listing-kit/bin/listing-kit" ]; then
+            echo "kit ref $KIT_REF has no listing-kit command; use a newer --kit-ref" >&2
+            exit 1
+          fi
+          echo "$kit/skills/listing-kit/bin" >> "$GITHUB_PATH"
+      - name: Validate listing
+        run: listing-kit validate "$APP_ROOT"
+      - name: Build review page
+        id: review
+        if: success() || failure()
+        run: listing-kit review "$APP_ROOT"
+      - name: Upload review page
+        if: (success() || failure()) && steps.review.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: listing-review
+          path: '__APP_PREFIX__listing-review.html'
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: store-listing-${{ inputs.store }}
+    steps:
+      - *checkout
+      - *install-kit
+      - name: Install fastlane
+        run: |
+          gem install fastlane -v 2.242.0 --user-install --no-document
+          echo "$(ruby -rrubygems -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+      - name: Publish listing
+        id: publish
+        env:
+          STORE: ${{ inputs.store }}
+          APP_STORE_CONNECT_API_KEY_JSON: ${{ inputs.store == 'apple' && secrets.APP_STORE_CONNECT_API_KEY_JSON || '' }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.store == 'play' && secrets.PLAY_SERVICE_ACCOUNT_JSON || '' }}
+        run: |
+          umask 077
+          key_dir="$(mktemp -d "$RUNNER_TEMP/listing-keys.XXXXXX")"
+          trap 'rm -rf -- "$key_dir"' EXIT
+          case "$STORE" in
+            apple)
+              export APP_STORE_CONNECT_API_KEY_PATH="$key_dir/apple.json"
+              secret_var=APP_STORE_CONNECT_API_KEY_JSON
+              ;;
+            play)
+              export SUPPLY_JSON_KEY="$key_dir/play.json"
+              secret_var=PLAY_SERVICE_ACCOUNT_JSON
+              ;;
+            *) exit 2 ;;
+          esac
+          python3 -I - "$secret_var" "$key_dir/$STORE.json" <<'PYKEY'
+          import os, sys
+          from pathlib import Path
+          value = os.environ.get(sys.argv[1])
+          if not value:
+              sys.exit("Missing store credential in environment secrets")
+          Path(sys.argv[2]).write_bytes(value.encode("utf-8"))
+          PYKEY
+          unset APP_STORE_CONNECT_API_KEY_JSON PLAY_SERVICE_ACCOUNT_JSON
+          listing-kit publish --store "$STORE" --yes "$APP_ROOT"
+      - name: Upload publish receipt
+        if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publish-receipt
+          path: '__APP_PREFIX__.listing-kit/publish.receipt.json'
+          include-hidden-files: true
+          if-no-files-found: warn
