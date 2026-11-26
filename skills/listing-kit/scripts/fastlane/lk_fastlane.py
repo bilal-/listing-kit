@@ -7,11 +7,13 @@ from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +41,32 @@ INSTALL = ("Install fastlane with 'gem install fastlane' (Ruby 3.2+ for 2.242.0)
 
 class MissingFastlane(Exception):
     pass
+
+
+class ChildTimeout(Exception):
+    pass
+
+
+def run_child(command, *, upload=False, check=False, **options):
+    timeout = float(os.environ.get("LK_FASTLANE_TIMEOUT", 900 if upload else 300))
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("LK_FASTLANE_TIMEOUT must be a positive finite number of seconds")
+    with subprocess.Popen(command, start_new_session=True, **options) as child:
+        try:
+            stdout, stderr = child.communicate(timeout=timeout)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.communicate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise ChildTimeout("%s timed out after %g seconds" % (Path(command[0]).name, timeout))
+        result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+        if check:
+            result.check_returncode()
+        return result
 
 
 def now():
@@ -179,7 +207,7 @@ class Store:
                 return ["bundle", "exec", "fastlane"], gemfile
         return ["fastlane"], None
 
-    def run(self, args, cwd, version=False):
+    def run(self, args, cwd, version=False, upload=False):
         prefix, gemfile = self.tool()
         # A clean cwd precludes implicit Deliverfile, Supplyfile and binary discovery.
         # Remove inherited tool overrides, including JSON objects and submission settings.
@@ -191,7 +219,7 @@ class Store:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
         try:
-            result = subprocess.run(prefix + args, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+            result = run_child(prefix + args, upload=upload, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         except FileNotFoundError:
             raise MissingFastlane(INSTALL)
@@ -216,6 +244,11 @@ def selected(args, root, rules):
         manifest = plan.manifest(data, rules, root)
         trees = manifest["trees"]
         ids = manifest["app"]
+        for name, flag, supplied in (("apple", "--app-identifier", args.app_identifier),
+                                     ("play", "--package-name", args.package_name)):
+            if supplied is not None and ids.get(name) != supplied:
+                raise argparse.ArgumentError(None, "%s %r conflicts with plan id %r for %s" %
+                                             (flag, supplied, ids.get(name), name))
         active = {t["store"] for t in plan.targets(data)}
     else:
         trees = plan._trees({})
@@ -323,17 +356,15 @@ def workspace_file(store, key):
 
 
 def pull(store, remote):
-    lock = store.state("remote.lock.json")
-    old = read_json(lock, {}).get("stores", {}).get(store.name, {})
-    if old.get("identity", store.identity) != store.identity:
-        raise ValueError("Previous pull was for another app or track; review remote.lock.json")
+    local, _ = working_inventory(store)
+    old = baseline(store, local, remote, operations(store), pulling=True)
     # Remember the common ancestor across incomplete downloads and unresolved conflicts.
-    ancestors = old.get("ancestors", old.get("files", {})).copy()
+    ancestors = old["ancestors"]
     conflicts = False
     staged = set()
     if plan._repo_root(store.root):
-        raw = subprocess.check_output(["git", "diff", "--cached", "--name-only", "--relative", "-z"],
-                                      cwd=store.root)
+        raw = run_child(["git", "diff", "--cached", "--name-only", "--relative", "-z"],
+                                      cwd=store.root, stdout=subprocess.PIPE, check=True).stdout
         staged = {store.root / os.fsdecode(p) for p in raw.split(b"\0") if p}
     for source in remote.text.values():
         if secret_scan.file_secret(source):
@@ -347,7 +378,7 @@ def pull(store, remote):
         if current != fresh and fresh != base:
             staged_change = False
             if dest in staged:
-                index = subprocess.run(["git", "show", ":./" + dest.relative_to(store.root).as_posix()],
+                index = run_child(["git", "show", ":./" + dest.relative_to(store.root).as_posix()],
                                        cwd=store.root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                 indexed = None if index.returncode else sha(comparable(store.name, index.stdout))
                 staged_change = indexed != base
@@ -362,8 +393,24 @@ def pull(store, remote):
     for key, path in remote.shots.items():
         dest = store.state("remote/" + store.name + "/" + key)
         atomic(dest, path.read_bytes())
-    record(lock, store.name, dict(identity=store.identity, pulledAt=now(), files=remote.hashes(),
-                                  ancestors=ancestors))
+    live = gallery_hashes(store, remote.shots, downloaded=True)
+    working = gallery_hashes(store, local.shots)
+    # Pull keeps images as references. Remember the local sources independently
+    # of the store encoding, without accepting an outstanding local edit.
+    sources = old["galleries"]
+    known_locales = {group.split("/")[0] for group in sources}
+    new_locales = {group.split("/")[0] for group in live} - known_locales
+    for group in live.keys() | working.keys():
+        current = working.get(group)
+        if group.split("/")[0] in new_locales:
+            sources[group] = current if current is not None else live[group]
+        elif current is None and group in live:
+            sources[group] = live[group]
+        elif current is not None and current in (live.get(group), old["remoteGalleries"].get(group)):
+            sources[group] = current
+    old.update(identity=store.identity, pulledAt=now(), files=remote.hashes(),
+               ancestors=ancestors, remoteGalleries=live)
+    record(store.state("remote.lock.json"), store.name, old)
     return conflicts
 
 
@@ -372,21 +419,21 @@ def target_locales(store, target):
         [plan._locale(item) for item in store.data["locales"]], target)]
 
 
-def prepared(store, view):
+def working_inventory(store, require_outputs=False):
     source = inventory(store, store.trees["metadata"], store.trees["screenshots"])
-    metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
-    screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
+    legacy = {}
     if store.data:
         active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
         locales = {loc for target in active for loc in target_locales(store, target)}
-        if not locales:
+        if require_outputs and not locales:
             raise ValueError("No active %s target locales to publish" % store.name)
         active_ids = {t["id"] for t in active}
         approved = {store.root / row["outputPath"] for row in store.manifest["outputs"]
                     if row["targetId"] in active_ids and row["upload"] == "fastlane" and row["kind"] == "screenshot"}
-        for path in approved:
-            if path not in source.shots.values():
-                raise ValueError("Missing planned screenshot: %s" % path)
+        if require_outputs:
+            missing = approved.difference(source.shots.values())
+            if missing:
+                raise ValueError("Missing planned screenshot: %s" % min(missing))
         source.shots = {k: p for k, p in source.shots.items() if p in approved}
         source.text = {k: p for k, p in source.text.items() if len(k.split("/")) == 2
                        or k.split("/")[1] in locales | {"default"}}
@@ -395,17 +442,24 @@ def prepared(store, view):
         legacy = apple_assets.load_plan(store.root)
         if store.data:
             legacy = {loc: entry for loc, entry in legacy.items() if loc in locales}
-        if legacy:
-            write_json(view / ".listing-kit/asset-plan.json", {"apple": legacy})
-        for loc in legacy:
-            base = store.trees["storeAssets"] / loc
-            for header in base.glob("*"):
-                if header.is_file() and header.suffix.lower() in IMAGE:
-                    dest = view / "store-assets/apple" / loc / header.name
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(safe(store.root, header), dest)
         source.shots = {k: p for k, p in source.shots.items() if not apple_assets.is_deferred(
             p, legacy.get(p.parent.name, {}).get("deferredScreenshots", {}))}
+    return source, legacy
+
+
+def prepared(store, view):
+    source, legacy = working_inventory(store, require_outputs=True)
+    metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
+    screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
+    if legacy:
+        write_json(view / ".listing-kit/asset-plan.json", {"apple": legacy})
+    for loc in legacy:
+        base = store.trees["storeAssets"] / loc
+        for header in base.glob("*"):
+            if header.is_file() and header.suffix.lower() in IMAGE:
+                dest = view / "store-assets/apple" / loc / header.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(safe(store.root, header), dest)
     for key, path in source.files().items():
         tree, rel = key.split("/", 1)
         dest = (metadata if tree == "metadata" else screenshots) / rel
@@ -434,7 +488,7 @@ def prepared(store, view):
                     dest = view / p.relative_to(store.root)
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(safe(store.root, p), dest)
-    subprocess.run(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view)], env=env, check=True)
+    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view)], env=env, check=True)
     return inventory(store, metadata, screenshots)
 
 
@@ -505,24 +559,100 @@ def photo_groups(store, images, downloaded=False):
     return groups
 
 
-def summary(store, local, remote):
-    send = {}
-    text = local.text.copy()
-    if store.name == "apple":
-        # Materialize default fields for actual locales. Never upload a broad default folder.
-        locales = {k.split("/")[1] for k in text if len(k.split("/")) == 3} - {"default"}
-        if store.data:
-            locales.update(loc for t in plan.targets(store.data, store.name) if t.get("status") != "held"
-                           for loc in target_locales(store, t))
+def gallery_hashes(store, images, downloaded=False, recorded=None):
+    groups = photo_groups(store, images, downloaded)
+    return {"/".join(group): [recorded[k] if recorded is not None else file_hash(images[k])
+                              for k in members] for group, members in groups.items()}
+
+
+def operations(store):
+    entries = read_json(store.state("publish.receipt.json"), {}).get("stores", {})
+    return entries.get(store.name, {}).get("operations", [])
+
+
+def save_operations(store, history):
+    record(store.state("publish.receipt.json"), store.name,
+           dict(identity=store.identity, operations=history))
+
+
+def apply_publication(state, operation):
+    # Apple replaces whole locales. Remove their former names and slots.
+    # Play replaces just the image folders included in the upload.
+    sent_shots = [Path(k) for k in operation["files"] if Path(k).suffix.lower() in IMAGE]
+    apple_locales = {p.parent.name for p in sent_shots if p.parts[0] == "screenshots"}
+    play_folders = {p.parent for p in sent_shots if p.parts[0] == "metadata"}
+    for key in list(state["files"]):
+        path = Path(key)
+        if (path.parts[0] == "screenshots" and path.parent.name in apple_locales
+                or path.parent in play_folders):
+            del state["files"][key]
+    for name in ("galleries", "remoteGalleries"):
+        for group in list(state[name]):
+            if group.split("/")[0] in apple_locales:
+                del state[name][group]
+    notes = {k: digest for k, digest in operation["files"].items() if "/changelogs/" in k}
+    if notes:
+        state.setdefault("publishedNotes", {})[operation["versionCode"]] = notes
+    state["files"].update(operation["files"])
+    state["ancestors"].update(operation["ancestors"])
+    state["galleries"].update(operation["galleries"])
+    state["remoteGalleries"].update(operation["galleries"])
+    state["publishedAt"] = operation["completedAt"]
+
+
+def baseline(store, local, remote, history, pulling=False):
+    lock = store.state("remote.lock.json")
+    state = read_json(lock, {}).get("stores", {}).get(store.name, {})
+    if state.get("identity", store.identity) != store.identity:
+        raise ValueError("Previous baseline was for another app or track; review remote.lock.json")
+    files = state.setdefault("files", {})
+    state.setdefault("identity", store.identity)
+    state.setdefault("ancestors", files.copy())
+    if "galleries" not in state:
+        # Older pull locks kept downloaded names and raw hashes, with the
+        # corresponding image dimensions available in the reference directory.
+        references = {}
+        for key in files:
+            if not (key.startswith("screenshots/") or
+                    ("/images/" in key and len(key.split("/")) == 5 and Path(key).suffix.lower() in IMAGE)):
+                continue
+            path = store.state("remote/" + store.name + "/" + key)
+            if path.is_file():
+                references[key] = path
+            elif key in remote.shots or key in local.shots:
+                references[key] = remote.shots.get(key) or local.shots[key]
+            elif not pulling:
+                raise ValueError("Missing screenshot reference for %s; run pull to refresh the baseline" % key)
+        state["galleries"] = gallery_hashes(store, references, downloaded=True, recorded=files)
+    state.setdefault("remoteGalleries", state["galleries"].copy())
+    # The receipt is durable first. Replay a completed send if the process
+    # stopped before advancing the pull ancestor, including old-format receipts.
+    cursor = state.get("receiptIndex", 0)
+    legacy_pull = state.get("pulledAt", "") if "receiptIndex" not in state else ""
+    for op in history[cursor:]:
+        if op["identity"] != store.identity or "completedAt" not in op:
+            continue
+        if "galleries" not in op:
+            shots = {k: path for k, path in local.shots.items() if k in op["files"]}
+            ancestors = {k: sha(comparable(store.name, path.read_bytes()))
+                         for k, path in local.text.items() if k in op["files"] and file_hash(path) == op["files"][k]}
+            op = dict(op, galleries=gallery_hashes(store, shots, recorded=op["files"]), ancestors=ancestors)
+        if op["completedAt"] <= legacy_pull:
+            # A later legacy pull records the store encoding. Its text ancestors
+            # are current, but the receipt still identifies our published images.
+            state["galleries"].update(op["galleries"])
         else:
-            locales.update(k.split("/")[-2] for k in local.shots)
-        for key in list(text):
-            if key.startswith("metadata/default/"):
-                path = text.pop(key)
-                if not locales:
-                    print("cannot compare Apple default without a concrete locale:", key)
-                for loc in locales:
-                    text.setdefault("metadata/%s/%s" % (loc, path.name), path)
+            apply_publication(state, op)
+    state["receiptIndex"] = len(history)
+    if cursor < len(history):
+        record(lock, store.name, state)
+    return state
+
+
+def summary(store, local, remote, state):
+    send = {}
+    print(store.name, "default values are not sent by publish")
+    text = {k: p for k, p in local.text.items() if not k.startswith("metadata/default/")}
     notes = {}
     for key, path in sorted(text.items()):
         if "/changelogs/" in key:
@@ -541,7 +671,9 @@ def summary(store, local, remote):
             print(store.name, key, "changed" if other else "added (cannot compare: absent from download)")
             send[key] = path
 
-    if any(k not in remote.text or p.read_bytes() != remote.text[k].read_bytes() for k, p in notes.items()):
+    if notes and {k: file_hash(p) for k, p in notes.items()} == state.get("publishedNotes", {}).get(store.code):
+        print(store.name, "previously completed release-note replacement skipped for", store.code)
+    elif any(k not in remote.text or p.read_bytes() != remote.text[k].read_bytes() for k, p in notes.items()):
         # Supply replaces release_notes. Include every observed translation for this version.
         # Missing notes in a supplied locale become empty strings in fastlane.
         for key in remote.text:
@@ -558,25 +690,29 @@ def summary(store, local, remote):
     for key in sorted(remote.text.keys() - text.keys() - notes.keys()):
         print(store.name, key, "remote only (no local field to upload)")
 
-    ours = photo_groups(store, local.shots)
+    shots = {k: p for k, p in local.shots.items()
+             if not k.startswith(("screenshots/default/", "metadata/default/"))}
+    ours = photo_groups(store, shots)
     theirs = photo_groups(store, remote.shots, downloaded=True)
     changed = set()
-    blocked = set()
-    for group in sorted(ours.keys() | theirs.keys()):
+    known_locales = {key.split("/")[0] for key in state["galleries"]}
+    groups = set(ours) | set(theirs) | {tuple(k.split("/")) for k in state["remoteGalleries"]}
+    for group in sorted(groups):
+        key = "/".join(group)
         mine, live = ours.get(group, []), theirs.get(group, [])
-        if not mine:
-            print(store.name, *group, "remote only:", len(live), "images")
-            continue
-        different = [file_hash(local.shots[k]) for k in mine] != [file_hash(remote.shots[k]) for k in live]
-        print(store.name, *group, "%d local images," % len(mine),
-              ("%d remote images" % len(live)) if live else "cannot compare (missing download)",
-              "— replacement requested" if different and live else "— unchanged" if live else "")
-        if different and live:
+        source = [file_hash(shots[k]) for k in mine]
+        observed = [file_hash(remote.shots[k]) for k in live]
+        prior_remote = state["remoteGalleries"].get(key, [])
+        if source and source != state["galleries"].get(key) and source != prior_remote:
             changed.add(group)
-        elif not live:
-            # An absent download is not proof that an existing gallery is empty.
-            # Include a new slot only with a comparable locale-wide Apple replacement.
-            blocked.add(group)
+            action = ("replacement requested" if group[0] in known_locales else
+                      "first upload: replaces whatever is on the store")
+        elif observed != prior_remote:
+            action = "the store's gallery differs from the last baseline; pull to review"
+        else:
+            action = "unchanged" if mine else "remote only"
+        print(store.name, *group, "%d local images, %d remote images — %s" %
+              (len(mine), len(live), action))
     if store.name == "apple" and changed:
         locales = {loc for loc, _ in changed}
         print("WARNING: overwrite_screenshots deletes every screenshot set for each locale being uploaded,"
@@ -599,7 +735,6 @@ def summary(store, local, remote):
                 count = str(len(theirs[group])) if group in theirs else "an unknown number of"
                 print("restore", *group, "%d local images replace %s remote images" % (len(members), count))
                 send.update((key, local.shots[key]) for key in members)
-                blocked.discard(group)
     else:
         if store.data and store.name == "play":
             for target in plan.targets(store.data, "play"):
@@ -610,8 +745,6 @@ def summary(store, local, remote):
                     raise ValueError("Play replacement overlaps a console slot; use the hand-upload folder")
         for group in sorted(changed):
             send.update((key, local.shots[key]) for key in ours[group])
-    if blocked:
-        print("Uncompared screenshot slots require the hand-upload folder.")
     return send
 
 
@@ -661,8 +794,13 @@ class Transfer:
                   "a live test; use the hand-upload folder" % self.store.name)
             if not yes:
                 return
-        elif not yes and (not sys.stdin.isatty() or input("Type yes to approve %s: " % self.store.name) != "yes"):
-            raise ValueError("No confirmation; non-interactive publish requires --yes")
+        elif not yes:
+            try:
+                approved = sys.stdin.isatty() and input("Type yes to approve %s: " % self.store.name) == "yes"
+            except (EOFError, KeyboardInterrupt):
+                approved = False
+            if not approved:
+                raise ValueError("Publish not approved; non-interactive publish requires --yes")
         record(self.store.state("publish.approved.json"), self.store.name, self.approval)
 
     def execute(self):
@@ -670,9 +808,13 @@ class Transfer:
             return
         store = self.store
         latest = download(store, self.folder.parent / "recheck")
+        history = operations(store)
+        state = baseline(store, self.local, latest, history)
+        if len(history) != self.approval["receiptIndex"]:
+            raise ValueError("Publish receipt changed; rerun publish for a fresh summary")
         if fingerprint(latest.hashes()) != self.approval["baseline"]:
             print("Remote baseline changed. Review the new summary and confirm again.")
-            summary(store, self.local, latest)
+            summary(store, self.local, latest, state)
             raise ValueError("Rerun publish for a new confirmation")
         staged = {}
         for path in self.folder.rglob("*"):
@@ -684,40 +826,38 @@ class Transfer:
         current_plan = plan.load(store.root) if (store.root / plan.LISTING).exists() else {}
         if current_plan != store.data:
             raise ValueError("Listing plan changed. Rerun publish for a new confirmation")
-        store.run(self.args, self.folder)
-        receipt = store.state("publish.receipt.json")
-        previous = read_json(receipt, {}).get("stores", {}).get(store.name, {})
-        history = previous.get("operations", [])
-        history.append(dict(self.approval, completedAt=now()))
-        record(receipt, store.name, dict(identity=store.identity, operations=history))
+        files = {k: self.folder / k for k in staged}
+        shots = {k: path for k, path in files.items() if path.suffix.lower() in IMAGE}
+        galleries = gallery_hashes(store, shots, recorded=staged)
+        ancestors = {k: sha(comparable(store.name, path.read_bytes())) for k, path in files.items()
+                     if path.suffix == ".txt"}
+        try:
+            store.run(self.args, self.folder, upload=True)
+        except (ChildTimeout, ValueError, OSError, MissingFastlane) as exc:
+            if "--overwrite_screenshots" in self.args:
+                print("The Apple gallery may now be empty. Run listing-kit handoff . and restore each affected "
+                      "locale’s complete screenshot set in App Store Connect from the hand-upload folder.",
+                      file=sys.stderr)
+            if isinstance(exc, ChildTimeout):
+                history.append(dict(self.approval, outcome="outcome unknown", timedOutAt=now()))
+                save_operations(store, history)
+                raise ValueError("%s; upload outcome unknown. Run publish for a fresh summary." % exc)
+            raise
+        operation = dict(self.approval, galleries=galleries, ancestors=ancestors, completedAt=now())
+        history.append(operation)
+        save_operations(store, history)
+        apply_publication(state, operation)
+        state["receiptIndex"] = len(history)
+        record(store.state("remote.lock.json"), store.name, state)
         print("Completed", store.name)
 
 
 def preview(store, local, scratch):
     remote = download(store, scratch / "before")
-    send = summary(store, local, remote)
-    receipt = read_json(store.state("publish.receipt.json"), {}).get("stores", {}).get(store.name, {})
+    state = baseline(store, local, remote, operations(store))
+    send = summary(store, local, remote, state)
     if not send:
         print(store.name, "no comparable changes to publish")
-        files = local.files()
-        for operation in reversed(receipt.get("operations", [])):
-            hashes = operation["files"]
-            if operation["identity"] != store.identity or not all(
-                k in files and file_hash(files[k]) == h for k, h in hashes.items()
-            ):
-                continue
-            observed = {k: p for k, p in remote.text.items()
-                        if k in hashes and k in local.text and comparable(store.name, p.read_bytes())
-                        == comparable(store.name, local.text[k].read_bytes())}
-            live_groups = photo_groups(store, remote.shots, downloaded=True)
-            for group, keys in photo_groups(store, local.shots).items():
-                if all(k in hashes for k in keys) and [hashes[k] for k in keys] == [
-                    file_hash(remote.shots[k]) for k in live_groups.get(group, [])
-                ]:
-                    observed.update((k, local.shots[k]) for k in keys)
-            if hashes.keys() <= observed.keys():
-                print("Previously completed operation skipped after read-back.")
-                break
         return None
     folder = scratch / "upload"
     (folder / "metadata").mkdir(parents=True)
@@ -727,10 +867,32 @@ def preview(store, local, scratch):
         shutil.copyfile(path, dest)
     args = upload_args(store, send, folder)
     print("Would run", shlex.join(store.tool()[0] + args), flush=True)
-    enabled = PUBLISH_ENABLED[store.name] or os.environ.get("LK_PUBLISH_UNVERIFIED") == "1"
-    approval = dict(identity=store.identity, files={k: file_hash(folder / k) for k in send},
+    enabled = PUBLISH_ENABLED[store.name] or (
+        os.environ.get("LK_PUBLISH_UNVERIFIED") == "%s:%s" % (store.name, store.app))
+    approval = dict(identity=store.identity, receiptIndex=state["receiptIndex"], files={k: file_hash(folder / k) for k in send},
                     baseline=fingerprint(remote.hashes()), versionCode=store.code, approvedAt=now())
     return Transfer(store, local, folder, args, approval, enabled)
+
+
+def review_unknown_uploads(stores, scratch):
+    reviewed = False
+    for store in stores:
+        history = operations(store)
+        pending = [op for op in history if op["identity"] == store.identity and
+                   op.get("outcome") == "outcome unknown" and not op.get("reviewedAt")]
+        if not pending:
+            continue
+        print(store.name, "previous upload outcome unknown. Downloading a fresh summary for review.", flush=True)
+        local, _ = working_inventory(store)
+        remote = download(store, scratch / store.name)
+        state = baseline(store, local, remote, history)
+        summary(store, local, remote, state)
+        for op in pending:
+            op["reviewedAt"] = now()
+        save_operations(store, history)
+        print("Inspect the affected listing in the store before running publish again.")
+        reviewed = True
+    return reviewed
 
 
 def configure(store, args, config):
@@ -766,9 +928,17 @@ def main(argv):
             sub.add_argument("--version-code", type=version_code)
     args = parser.parse_args(argv)
     root = Path(args.app_root or args.root).resolve(strict=True)
-    repo = plan._repo_root(root) or root
+    repo = plan._repo_root(root)
     rules = specs.load(root)
-    stores = selected(args, root, rules)
+    try:
+        stores = selected(args, root, rules)
+    except argparse.ArgumentError as exc:
+        parser.error(str(exc))
+    override = os.environ.get("LK_PUBLISH_UNVERIFIED")
+    if args.command == "publish" and override is not None:
+        if len(stores) != 1 or override != "%s:%s" % (stores[0].name, stores[0].app):
+            parser.error("LK_PUBLISH_UNVERIFIED requires exactly one selected store and its exact store:app-id")
+        print("WARNING: uploads are enabled for this run by LK_PUBLISH_UNVERIFIED=" + override, flush=True)
     for store in stores:
         print("%s app %s | %s %s" % (
             store.name, store.app, "version" if store.name == "apple" else "track", store.selector))
@@ -780,9 +950,14 @@ def main(argv):
     # Lock the directory itself, avoiding stale lock files after interruption.
     fd = os.open(str(state), os.O_RDONLY)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("Another listing-kit command holds the lock on %s" % state)
         local_config = stores[0].state("local.json")
-        if local_config.exists() and secret_scan.tracked(local_config):
+        if (local_config.exists() and repo and shutil.which("git") and
+                run_child(["git", "ls-files", "-z", "--", ":(literal)local.json"], cwd=state,
+                          stdout=subprocess.PIPE, check=True).stdout):
             raise ValueError(".listing-kit/local.json is tracked; remove it from the git index first")
         config = read_json(local_config, {})
         with tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-") as tmp:
@@ -794,15 +969,18 @@ def main(argv):
                     field, env, description = CREDENTIAL[store.name]
                     print("Keep the %s outside the repository; set %s or .listing-kit/local.json fastlane.%s."
                           % (description, env, field))
-                store.key = read_key(root, repo, store.name, args, config)
+                store.key = read_key(root, repo or root, store.name, args, config)
                 print(store.name, "account", account_name(store), flush=True)
-            secret_scan.check_store_credentials(repo)
+            secret_scan.check_store_credentials(repo or root)
             if args.command == "publish":
+                if review_unknown_uploads(stores, scratch):
+                    return 1
                 if stores[0].data:
                     inputs = plan.input_files(stores[0].data, rules, root)
-                    if secret_scan.main([str(p) for p in inputs if p.is_file()]):
+                    if run_child([sys.executable, "-EsB", str(SCRIPTS / "lib/secret_scan.py"),
+                                  *[str(p) for p in inputs if p.is_file()]]).returncode:
                         raise ValueError("Plan inputs failed the secret scan")
-                    subprocess.run([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
+                    run_child([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
                                     "--for", "publish"], check=True)
                 for store in stores:
                     views[store.name] = prepared(store, scratch / (store.name + "-view"))
@@ -847,6 +1025,6 @@ if __name__ == "__main__":
     except MissingFastlane as exc:
         print(exc, file=sys.stderr)
         sys.exit(3)
-    except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError, specs.SpecsError) as exc:
+    except (ChildTimeout, ValueError, RuntimeError, OSError, subprocess.CalledProcessError, specs.SpecsError) as exc:
         print("listing-kit:", exc, file=sys.stderr)
         sys.exit(1)

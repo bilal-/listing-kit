@@ -4,7 +4,7 @@ new_tempdir fixture
 new_stubdir
 export FL_FIXTURE="$fixture"
 export PATH="$STUB_BIN:$PATH"
-unset APP_STORE_CONNECT_API_KEY_PATH SUPPLY_JSON_KEY LK_PUBLISH_UNVERIFIED
+unset APP_STORE_CONNECT_API_KEY_PATH SUPPLY_JSON_KEY LK_PUBLISH_UNVERIFIED LK_FASTLANE_TIMEOUT
 export LK_SUPPORTS_IPHONE=0
 app="$fixture/repo/mobile"
 remote="$fixture/remote"
@@ -21,6 +21,13 @@ base = Path(os.environ["FL_FIXTURE"])
 args = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a") as log:
     print(json.dumps(args), file=log)
+def stall(marker):
+    if (base / marker).exists():
+        import subprocess
+        subprocess.run([sys.executable, "-c",
+            "import time,sys;from pathlib import Path;time.sleep(4);Path(sys.argv[1]).touch()",
+            str(base / "orphan")], check=True)
+
 def opt(key):
     return Path(args[args.index("--" + key) + 1])
 if args == ["--version"]:
@@ -31,11 +38,16 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
         sys.exit(1)
     store = "apple" if args[0] == "deliver" else "play"
     kind = "screenshots" if args[1] == "download_screenshots" else "metadata"
+    stall("hang-download")
     dest = opt(kind + "_path")
     if store == "play":
         assert not dest.exists()
     assert base / "repo" not in dest.parents
     shutil.copytree(base / "remote" / store / kind, dest, dirs_exist_ok=True)
+    if (base / "reencode").exists():
+        for image in dest.rglob("*.png"):
+            with image.open("ab") as stream:
+                stream.write(b"store encoding")
     if "recheck" in dest.parts and (base / "tamper").exists():
         extra = dest.parent.parent / "upload/metadata/en-US/subtitle.txt"
         extra.write_text("outside approved set")
@@ -43,6 +55,7 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
         (base / "remote/apple/metadata/en-US/name.txt").write_text("Other editor")
 else:
     store = "apple" if args[0] == "deliver" else "play"
+    stall("hang-upload")
     if (base / ("fail-" + store)).exists():
         sys.exit(1)
     dest = base / "remote" / store
@@ -112,7 +125,7 @@ mkdir -p "$shots/en-US" "$meta/en-US" "$app/.listing-kit/flows"
 echo keep > "$shots/en-US/01-hand.png"
 echo flow > "$app/.listing-kit/flows/open.yaml"
 cat > "$app/.listing-kit/listing.json" <<'JSON'
-{"format":2,"app":{"ios":"example.apple"},"locales":["en-US"],"targets":[{"id":"phone","store":"apple","state":"active","slot":"iphone-di-medium","size":[1206,2622]}],"screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"}]}
+{"format":2,"app":{"ios":"example.apple","android":"example.play"},"locales":["en-US"],"targets":[{"id":"phone","store":"apple","state":"active","slot":"iphone-di-medium","size":[1206,2622]}],"screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"}]}
 JSON
 cp "$app/.listing-kit/listing.json" "$fixture/saved"
 cp "$meta/en-US/release_notes.txt" "$fixture/old-notes"
@@ -127,6 +140,20 @@ echo 'local conflict' > "$meta/en-US/keywords.txt"
 echo 'store conflict' > "$ra/en-US/keywords.txt"
 cp "$meta/en-US/marketing_url.txt" "$fixture/url" 2>/dev/null
 rm "$ra/en-US/marketing_url.txt"
+it "A2 rejects a conflicting plan id before contacting fastlane"
+: > "$STUB_LOG"
+run_lk publish --store apple --app-identifier disposable.apple --yes
+assert_eq "$rc" 2
+assert_contains "$out" "example.apple"
+assert_contains "$out" "disposable.apple"
+assert_eq "$(cat "$STUB_LOG")" ""
+
+run_lk publish --store play --package-name disposable.play --yes
+assert_eq "$rc" 2
+assert_contains "$out" "example.play"
+assert_contains "$out" "disposable.play"
+assert_eq "$(cat "$STUB_LOG")" ""
+
 it "three-way pull applies independent changes and preserves user work"
 run_lk pull --store apple
 assert_eq "$rc" 1
@@ -152,10 +179,60 @@ assert_contains "$out" "publishing to apple is not enabled"
 assert_contains "$out" "--skip_screenshots"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
-export LK_PUBLISH_UNVERIFIED=1
+it "A1 remote-only differences alongside a title edit never propose an overwrite"
+touch "$fixture/reencode"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "the store's gallery differs from the last baseline; pull to review"
+assert_contains "$out" "--skip_screenshots"
+assert_not_contains "$out" "--overwrite_screenshots"
+rm "$fixture/reencode"
+
+it "A6 default folders and their fallback values are excluded from publish"
+cp -R "$shots/en-US" "$shots/default"
+cp -R "$meta/en-US" "$meta/default"
+mv "$meta/en-US/promotional_text.txt" "$fixture/concrete-promo"
+echo 'default-only promo' > "$meta/default/promotional_text.txt"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "default values are not sent by publish"
+assert_not_contains "$out" "metadata/default/"
+assert_not_contains "$out" "metadata/en-US/promotional_text.txt changed"
+mv "$fixture/concrete-promo" "$meta/en-US/promotional_text.txt"
+rm -r "$shots/default" "$meta/default"
+
+export SUPPLY_JSON_KEY="$fixture/play.json"
+both=(--app-identifier example.apple --package-name example.play --yes)
+it "disabled multi-store publish compares both stores and sends nothing"
+run_lk publish "${both[@]}"
+assert_eq "$rc" 0
+assert_contains "$out" "publishing to apple is not enabled"
+assert_contains "$out" "publishing to play is not enabled"
+assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+it "A3 rejects unscoped, mismatched and multi-store overrides"
+for override in 1 apple:disposable.apple play:example.apple; do
+    LK_PUBLISH_UNVERIFIED="$override" run_lk publish "${a[@]}" --yes
+    assert_ne "$rc" 0
+    assert_contains "$out" "LK_PUBLISH_UNVERIFIED"
+done
+LK_PUBLISH_UNVERIFIED=apple:example.apple run_lk publish "${both[@]}"
+assert_ne "$rc" 0
+assert_contains "$out" "LK_PUBLISH_UNVERIFIED"
+assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+export LK_PUBLISH_UNVERIFIED=apple:example.apple
 it "noninteractive live publish needs approval"
 run_lk publish "${a[@]}"
 assert_eq "$rc" 1
+it "A4 a held directory lock fails promptly"
+python3 "$ROOT/tests/unit/fastlane_controls.py" lock "$lk" "$app" && pass || fail "lock contention"
+for control in eof interrupt; do
+    it "A4 $control at the confirmation prompt declines cleanly"
+    rc=0
+    out="$(python3 "$ROOT/tests/unit/fastlane_controls.py" "$control" "$lk" "$app" 2>&1)" || rc=$?
+    assert_eq "$rc" 1
+    assert_contains "$out" "not approved"
+    assert_not_contains "$out" "Traceback"
+done
 it "changed remote invalidates approval before transfer"
 touch "$fixture/race"
 run_lk publish "${a[@]}" --yes
@@ -170,33 +247,62 @@ assert_eq "$rc" 1
 assert_contains "$out" "approved files changed"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 rm "$fixture/tamper"
-it "partial failure is resumable, text-only Apple upload contains only title"
-export SUPPLY_JSON_KEY="$fixture/play.json"
-echo 'New title' > "$meta/android/en-US/title.txt"
-touch "$fixture/fail-play"
-both=(--app-identifier example.apple --package-name example.play --yes)
-run_lk publish "${both[@]}"
-assert_eq "$rc" 1
-assert_eq "$(cat "$fixture/sent" 2>/dev/null)" "apple $name"
+it "A1 scoped Apple upload preserves a console edit and re-encoded images"
+cp "$rs/en-US/02_recipe-detail.png" "$rs/en-US/01_recipes.png"
+touch "$fixture/reencode"
+: > "$STUB_LOG"
+: > "$fixture/sent"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "uploads are enabled for this run by LK_PUBLISH_UNVERIFIED"
+assert_eq "$(cat "$fixture/sent")" "apple $name"
 assert_file "$app/.listing-kit/publish.approved.json"
 assert_file "$app/.listing-kit/publish.receipt.json"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_screenshots"'
 assert_not_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
-it "all selected store summaries precede the first upload"
-python3 - "$STUB_LOG" <<'PYORDER'
-import json, sys
-calls = [json.loads(s) for s in open(sys.argv[1]) if s.startswith("[")]
-first_write = next(i for i, a in enumerate(calls) if a[:2] == ["deliver", "--app_identifier"])
-assert any(a[:2] == ["supply", "init"] for a in calls[:first_write])
-PYORDER
-[ "$?" = 0 ] && pass || fail "Apple uploaded before Play had been compared"
-rm "$fixture/fail-play"
-run_lk publish "${both[@]}"
+cmp -s "$rs/en-US/01_recipes.png" "$rs/en-US/02_recipe-detail.png" && pass || fail "console edit lost"
+cp "$example/screenshots/en-US/01_recipes.png" "$rs/en-US/01_recipes.png"
+rm "$fixture/reencode"
+
+it "A5 publish advances the pull ancestor and preserves the next local edit"
+cp "$example/metadata/$name" "$meta/$name"
+run_lk pull "${a[@]}"
 assert_eq "$rc" 0
-assert_eq "$(cat "$fixture/sent" 2>/dev/null)" "$(printf 'apple %s\nplay en-US/title.txt' "$name")"
+assert_eq "$(cat "$meta/$name")" "$(cat "$example/metadata/$name")"
+cp "$ra/$name" "$meta/$name"
+
+it "A1 pull records the whole local locale when the store has fewer screenshot slots"
+cp -R "$meta/en-US" "$meta/fr-FR"
+cp -R "$meta/fr-FR" "$ra/fr-FR"
+cp -R "$shots/en-US" "$shots/fr-FR"
+mkdir "$rs/fr-FR"
+cp "$rs/en-US/01_recipes.png" "$rs/fr-FR/"
+run_lk pull "${a[@]}"
+assert_eq "$rc" 0
+cp "$fixture/sent" "$fixture/before-publish"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+cmp -s "$fixture/sent" "$fixture/before-publish" && pass || fail "unchanged locale was sent"
+rm -r "$meta/fr-FR" "$ra/fr-FR" "$shots/fr-FR" "$rs/fr-FR"
+
+it "Play title-only upload skips all other assets after pull"
+export LK_PUBLISH_UNVERIFIED=play:example.play
+run_lk pull "${p[@]}"
+assert_eq "$rc" 0
+echo 'New title' > "$meta/android/en-US/title.txt"
+touch "$fixture/fail-play"
+run_lk publish "${p[@]}" --yes
+assert_eq "$rc" 1
+assert_eq "$(cat "$fixture/sent")" "apple $name"
+rm "$fixture/fail-play"
+run_lk publish "${p[@]}" --yes
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" "$(printf 'apple %s\nplay en-US/title.txt' "$name")"
 for flag in skip_upload_apk skip_upload_aab skip_upload_images skip_upload_changelogs skip_upload_screenshots; do
   assert_contains "$(cat "$STUB_LOG")" "\"--$flag\""
 done
+export LK_PUBLISH_UNVERIFIED=apple:example.apple
+cp "$app/.listing-kit/remote.lock.json" "$fixture/pre-upload.lock"
 it "unchanged Apple whitespace does not send copy; changed screenshot restores whole locale"
 printf '  New name \n' > "$meta/$name"
 cp "$shots/en-US/02_recipe-detail.png" "$shots/en-US/01_recipes.png"
@@ -205,6 +311,42 @@ assert_eq "$rc" 0
 assert_contains "$out" "every screenshot set"
 assert_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
 assert_eq "$(grep -c '^apple en-US/.*png$' "$fixture/sent" 2>/dev/null)" 8
+it "A1 receipt prevents repeat overwrite if the lock predates the successful send"
+cp "$fixture/pre-upload.lock" "$app/.listing-kit/remote.lock.json"
+touch "$fixture/reencode"
+echo 'Another title' > "$meta/$name"
+: > "$fixture/sent"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" "apple $name"
+rm "$fixture/reencode"
+it "A1 an older completed receipt protects a gallery after a legacy pull of re-encoded images"
+touch "$fixture/reencode"
+run_lk pull "${a[@]}"
+assert_eq "$rc" 0
+python3 - "$app/.listing-kit" <<'PYLEGACY'
+import json, sys
+from pathlib import Path
+state = Path(sys.argv[1])
+lock = state / "remote.lock.json"
+data = json.loads(lock.read_text())
+apple = data["stores"]["apple"]
+data["stores"]["apple"] = {k: apple[k] for k in ("identity", "ancestors", "files", "pulledAt")}
+lock.write_text(json.dumps(data))
+receipt = state / "publish.receipt.json"
+data = json.loads(receipt.read_text())
+for op in data["stores"]["apple"]["operations"]:
+    for key in ("galleries", "ancestors", "receiptIndex"):
+        op.pop(key, None)
+receipt.write_text(json.dumps(data))
+PYLEGACY
+: > "$fixture/sent"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" ""
+rm "$fixture/reencode"
+export LK_PUBLISH_UNVERIFIED=play:example.play
+
 it "Play gallery and release-note operations isolate replacement scopes"
 mkdir -p "$meta/android/en-US/changelogs"
 echo notes > "$meta/android/en-US/changelogs/44.txt"
@@ -217,6 +359,25 @@ assert_contains "$(cat "$fixture/sent")" "changelogs/44.txt"
 assert_not_contains "$(cat "$fixture/sent")" "45.txt"
 assert_not_contains "$(cat "$fixture/sent")" "featureGraphic"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_upload_metadata"'
+it "A5 the baseline contains every file sent in the Play operation"
+python3 - "$app/.listing-kit" <<'PYLOCK'
+import json, sys
+from pathlib import Path
+state = Path(sys.argv[1])
+def entry(name):
+    return json.loads((state / name).read_text())["stores"]["play"]
+sent = entry("publish.receipt.json")["operations"][-1]["files"]
+assert sent and sent.items() <= entry("remote.lock.json")["files"].items()
+PYLOCK
+[ "$?" = 0 ] && pass || fail "incomplete publish baseline"
+
+it "A1 a stale download cannot repeat a completed release-note replacement"
+rm "$remote/play/metadata/en-US/changelogs/44.txt"
+: > "$fixture/sent"
+run_lk publish "${p[@]}" --version-code 44 --yes
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" ""
+export LK_PUBLISH_UNVERIFIED=apple:example.apple
 it "an unmapped downloaded Apple gallery blocks destructive replacement"
 mkdir -p "$rs/unexpected/gallery"
 cp "$rs/en-US/01_recipes.png" "$rs/unexpected/gallery/unknown.png"
@@ -225,6 +386,40 @@ run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "hand-upload folder"
 rm -r "$rs/unexpected"
+it "B7 failed Apple overwrite explains potential loss and recovery"
+touch "$fixture/fail-apple"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "gallery may now be empty"
+assert_contains "$out" "App Store Connect"
+rm "$fixture/fail-apple"
+
+it "A4 a timed-out download kills the entire child group"
+touch "$fixture/hang-download"
+LK_FASTLANE_TIMEOUT=1 run_lk pull "${a[@]}"
+assert_eq "$rc" 1
+assert_contains "$out" "timed out"
+rm "$fixture/hang-download"
+
+it "A4 a timed-out upload requires a fresh review even with --yes"
+touch "$fixture/hang-upload"
+LK_FASTLANE_TIMEOUT=2 run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "outcome unknown"
+assert_contains "$(cat "$app/.listing-kit/publish.receipt.json")" "outcome unknown"
+rm "$fixture/hang-upload"
+echo '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":6}}}}' > "$app/.listing-kit/asset-plan.json"
+: > "$fixture/sent"
+: > "$STUB_LOG"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "outcome unknown"
+assert_contains "$out" "APP_IPHONE_67"
+assert_contains "$(cat "$STUB_LOG")" "download_screenshots"
+assert_eq "$(cat "$fixture/sent")" ""
+assert_ne "$(test -e "$fixture/orphan" && echo yes)" yes
+rm "$app/.listing-kit/asset-plan.json"
+
 it "validate checks the selected asset plan before comparing"
 echo '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":6}}}}' > "$app/.listing-kit/asset-plan.json"
 run_lk publish "${a[@]}" --yes
@@ -266,7 +461,16 @@ cp -R "$meta/en-US" "$app/ios/copy/en-US"
 cp -R "$meta/en-US" "$app/ios/copy/fr-FR"
 cp "$meta"/*.txt "$app/ios/copy/"
 cp "$shots/en-US/01_one_iphone-medium.png" "$app/ios/images/en-US/"
-cp "$shots/en-US/01_one_iphone-medium.png" "$rs/en-US/01_remote_medium.png"
+rm -r "$rs/en-US"
+mkdir "$rs/en-US"
+cp "$app/ios/images/en-US/01_one_iphone-medium.png" "$rs/en-US/01_remote_medium.png"
+mv "$app/.listing-kit/remote.lock.json" "$fixture/previous.lock"
+mv "$app/.listing-kit/publish.receipt.json" "$fixture/previous.receipt"
+run_lk publish --yes
+assert_eq "$rc" 0
+assert_contains "$out" "first upload: replaces whatever is on the store"
+assert_eq "$(grep -c 'apple en-US/01_one_iphone-medium.png' "$fixture/sent")" 1
+: > "$fixture/sent"
 echo 'Changed active title' > "$app/ios/copy/$name"
 echo 'Held' > "$app/ios/copy/fr-FR/name.txt"
 echo 'held' > "$app/ios/images/en-US/untracked.png"
