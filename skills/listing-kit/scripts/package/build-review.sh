@@ -57,12 +57,14 @@ sys.path.insert(0, lib_dir)
 from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
+import specs
 import apple_assets
 from secret_scan import secret_text
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
+rules = specs.load(root)
 read = store_fields.read
 
 def dims(p):
@@ -71,10 +73,10 @@ def dims(p):
 
 images = listing.images
 
-def devclass(wh):
+def devclass(wh, path):
     if not wh:
         return "?"
-    return apple_class(*wh) or f"{wh[0]}×{wh[1]}"
+    return apple_class(*wh, path, rules) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
     s = s or ""
@@ -99,9 +101,10 @@ if apple_assets.has_apple_listing(root):
         fields = store_fields.rows("apple", ld, apple_default)
         shots = {}
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        for f in images(os.path.join(FL, "screenshots", loc)):
-            cls = devclass(dims(f))
-            if cls in deferred:
+        deferred_labels = {s["label"] for label in deferred for s in specs.slot_by_label(rules, "apple", label)}
+    for f in apple_assets.screenshot_paths(os.path.join(FL, "screenshots", loc), rules):
+            cls = devclass(dims(f), f)
+            if cls in deferred_labels:
                 continue  # Preserve old files, but do not present them as active deliverables.
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
         graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
@@ -121,15 +124,17 @@ if os.path.isdir(A):
         loc = os.path.basename(ld)
         fields = store_fields.rows("play", ld)
         shots = {}
-        for sub, lbl in [("phoneScreenshots", "Phone"), ("sevenInchScreenshots", '7" tablet'),
-                         ("tenInchScreenshots", '10" tablet'), ("tvScreenshots", "TV"),
-                         ("wearScreenshots", "Wear")]:
-            fs = images(os.path.join(ld, "images", sub))
+        for slot in specs.slots(rules, "play"):
+            if not slot.get("folder"):
+                continue
+            lbl = slot["label"]
+            fs = images(os.path.join(ld, "images", slot["folder"]))
             if fs:
                 shots[lbl] = [os.path.relpath(f, root) for f in fs]
         graphics = []
         # supply reads the graphics directly from the locale images directory.
-        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon"), ("tvBanner", "TV banner")]:
+        for graphic in rules["stores"]["play"]["graphics"]:
+            name, lbl = graphic["file"], graphic["label"]
             for f in images(os.path.join(ld, "images")):
                 if os.path.splitext(os.path.basename(f))[0].lower() == name.lower():
                     graphics.append((lbl, os.path.relpath(f, root), dims(f)))

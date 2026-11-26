@@ -13,23 +13,6 @@ assert_file "$SKILL_DIR/specs/stores.json"
 if json_valid "$SKILL_DIR/specs/stores.json"; then pass "valid JSON"; else fail "invalid stores.json"; fi
 assert_contains "$(python3 "$SPECS" verified)" "20"
 
-it "every size in the old Apple size table maps to a slot with the same label"
-OUT="$(cd "$SCRIPTS/lib" && py <<'PY'
-import specs, os
-d = specs.load()
-bad = []
-for line in open("apple-screenshot-sizes.tsv", encoding="utf-8"):
-    if not line.strip() or line.startswith("#"): continue
-    dims, label = line.rstrip("\n").split("\t")
-    w, h = (int(x) for x in dims.split("x"))
-    s = specs.apple_slot_for_size(d, w, h)
-    ok = s and (s["label"] == label or label in s.get("legacyLabels", []))
-    if not ok: bad.append("%s %s -> %s" % (dims, label, s and s["label"]))
-print("BAD: " + "; ".join(bad) if bad else "ALL MAPPED")
-PY
-)"
-assert_eq "ALL MAPPED" "$OUT"
-
 it "Duo outer and inner are separate slots, and sizes work in either orientation"
 assert_eq "iphone-duo-outer" "$(python3 "$SPECS" slot apple 1398 2034)"
 assert_eq "iphone-duo-inner" "$(python3 "$SPECS" slot apple 2853 2007)"

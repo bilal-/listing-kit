@@ -714,7 +714,8 @@
      "formats": [
       "png"
      ],
-     "alpha": false,
+     "bitDepth": 8,
+          "alpha": false,
      "upload": "console",
      "file": "header-16x9",
      "required": {
@@ -732,7 +733,8 @@
       "png",
       "jpeg"
      ],
-     "alpha": false,
+     "bitDepth": 8,
+          "alpha": false,
      "upload": "console",
      "file": "header-21x9",
      "required": {

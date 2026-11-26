@@ -93,7 +93,7 @@ Shared logic lives once in `scripts/lib/`:
 - `imginfo.py` checks PNG/JPEG stream structure (size, depth, alpha, CRCs, row
   filters, tables) in pure Python and runs a full pixel decode via ImageMagick
   when installed (`--decode`).
-- `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
+- `specs/stores.json` maps App Store sizes to display classes.
 - `fields.py` defines every copy field's limit, unit, and required flag.
 - `listing.py` discovers locales and images within the fastlane tree.
 - `apple_assets.py` adds header and upload-plan locales for Apple, and validates

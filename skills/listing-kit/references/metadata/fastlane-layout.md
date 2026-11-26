@@ -59,7 +59,7 @@ Persist approved Apple coverage in `.listing-kit/asset-plan.json` at the app roo
 }
 ```
 
-Use the exact display-class labels in `scripts/lib/apple-screenshot-sizes.tsv`.
+Use the exact display-class labels in `specs/stores.json`.
 Counts are the approved number (1–10) in that class and locale; the validator
 requires a match. Header entries are lower-case PNG/JPEG basenames within that
 locale's creative-assets folder. Either `screenshots` or `headers` may be omitted

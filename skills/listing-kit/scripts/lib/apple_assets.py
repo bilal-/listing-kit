@@ -15,10 +15,10 @@ from collections import Counter
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from imginfo import APPLE_SIZES, apple_class, image_info, validate_many
+import specs
+from imginfo import format_allowed, apple_class, image_info, validate_many
 from listing import apple_locales as listing_apple_locales, has_apple_app_metadata, images
 
-HEADER_SIZES = {(5244, 2950), (3840, 1646)}
 
 
 def header_dir(root, locale):
@@ -33,10 +33,11 @@ def header_locales(root):
                   if not n.startswith(".") and images(os.path.join(base, n)))
 
 
-def load_plan(root):
+def load_plan(root, rules=None):
     plan_path = os.path.join(root, ".listing-kit", "asset-plan.json")
     if not os.path.isfile(plan_path):
         return {}
+    rules = rules if rules is not None else specs.load(root)
     with open(plan_path, encoding="utf-8") as source:
         plan = json.load(source)
     if not isinstance(plan, dict) or set(plan) != {"apple"} or not isinstance(plan["apple"], dict):
@@ -54,13 +55,14 @@ def load_plan(root):
                 or not isinstance(deferred, dict) or not (shots or headers or deferred)):
             raise ValueError("specify screenshots, headers and/or deferredScreenshots " + locale)
         for display, expected in shots.items():
-            if display not in APPLE_SIZES.values() or type(expected) is not int or not 1 <= expected <= 10:
+            matching = specs.slot_by_label(rules, "apple", display)
+            if not matching or type(expected) is not int or not 1 <= expected <= max(s["max"] for s in matching):
                 raise ValueError("unknown display class or invalid screenshot count for " + locale)
         for name in headers:
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.(png|jpg|jpeg)", name):
                 raise ValueError("header must be a PNG/JPEG basename, not a path")
         for display, reason in deferred.items():
-            if display not in APPLE_SIZES.values() or display in shots:
+            if not specs.slot_by_label(rules, "apple", display) or display in shots:
                 raise ValueError("unknown or both active and deferred display class for " + locale)
             if not isinstance(reason, str) or not reason.strip() or len(reason) > 500 or any(ord(c) < 32 for c in reason):
                 raise ValueError("deferred screenshot reason must be nonempty single-line text (up to 500 characters)")
@@ -90,31 +92,35 @@ def has_apple_listing(root):
     )
 
 
-def _valid_header(path, info):
-    w, h, depth, color = info
-    if (w, h) not in HEADER_SIZES or depth != 8 or color != 2:
-        return False
-    if (w, h) == (5244, 2950):
-        with open(path, "rb") as source:
-            return path.lower().endswith(".png") and source.read(8) == b"\x89PNG\r\n\x1a\n"
-    return True
+def screenshot_paths(directory, rules):
+    folders = sorted({s["folder"] for s in specs.slots(rules, "apple") if s.get("folder")})
+    return images(directory) + [p for folder in folders for p in images(os.path.join(directory, folder))]
 
 
-def validate(root, required_displays=()):
+def validate(root, required_displays=(), rules=None):
+    rules = rules if rules is not None else specs.load(root)
+    headers = rules["stores"]["apple"]["graphics"]
+
+    def valid_header(path, info):
+        w, h, depth, color = info
+        return any(g["size"] == [w, h] and depth == g["bitDepth"]
+                   and (color == 2 or (g.get("alpha") and color == 6))
+                   and format_allowed(path, g["formats"]) for g in headers)
+
     results = []
     saw_unavailable = False
     header_items = [(locale, path) for locale in header_locales(root) for path in images(header_dir(root, locale))]
-    header_statuses = validate_many([path for _, path in header_items], accept=_valid_header)
+    header_statuses = validate_many([path for _, path in header_items], accept=valid_header)
     for (locale, path), (info, dec) in zip(header_items, header_statuses):
         w, h, _, _ = info
-        struct_ok = _valid_header(path, info)
+        struct_ok = valid_header(path, info)
         if dec == "unavailable":
             saw_unavailable = True
         label = "{}/{}".format(locale, os.path.basename(path))
         if dec.startswith("bad:"):
             results.append(("FAIL", "Apple header {}: {}".format(label, dec[5:])))
         elif not struct_ok:
-            results.append(("FAIL", "Apple header {}: expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha".format(label)))
+            results.append(("FAIL", "Apple header {}: dimensions, format, depth or alpha differ from store header rules".format(label)))
         elif dec.startswith("could not decode:"):
             results.append(("WARN", "Apple header {}: {} ({}x{} RGB/no-alpha)".format(label, dec, w, h)))
         elif dec == "bad":
@@ -123,17 +129,17 @@ def validate(root, required_displays=()):
             results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
     try:
-        for locale, target in load_plan(root).items():
+        for locale, target in load_plan(root, rules).items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
             for display, reason in target.get("deferredScreenshots", {}).items():
-                if display in required_displays:
+                if any(s["label"] in required_displays for s in specs.slot_by_label(rules, "apple", display)):
                     results.append(("FAIL", "cannot defer required screenshot class: {} ({})".format(display, locale)))
                 else:
                     results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
-            counts = Counter(apple_class(*image_info(path)[:2]) for path in images(
-                os.path.join(root, "fastlane", "screenshots", locale)))
+            counts = Counter(apple_class(*image_info(path)[:2], path, rules) for path in screenshot_paths(
+                os.path.join(root, "fastlane", "screenshots", locale), rules))
             for display, expected in shots.items():
-                actual = counts[display]
+                actual = sum(counts[s["label"]] for s in specs.slot_by_label(rules, "apple", display))
                 results.append(("PASS" if actual == expected else "FAIL",
                                 "planned {}/{}: {} of {} screenshots".format(locale, display, actual, expected)))
             for name in headers:

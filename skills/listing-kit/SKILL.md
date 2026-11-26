@@ -141,7 +141,7 @@ When the user asks for a non-interactive or CI run (written `--non-interactive` 
 | `scripts/generate/feature-graphic.sh` | 1024×500 icon-on-gradient Play feature graphic (ImageMagick) |
 | `scripts/lib/secret-scan.sh` | Fail the run if secrets leaked into the committed tree |
 | `scripts/lib/imagemagick.sh` | Find ImageMagick 7 or 6 and check the tools an operation needs (sourced by the image scripts) |
-| `scripts/lib/apple-screenshot-sizes.tsv` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
+| `specs/stores.json` | App Store screenshot sizes → display class (keep in sync with `references/stores/apple-app-store.md`) |
 | `scripts/lib/apple_assets.py` | Apple locales across metadata, screenshots, headers and plans; header/plan validation |
 | `scripts/lib/imginfo.py` | PNG/JPEG size/depth/alpha facts + App Store display class (shared by validate and review) |
 | `scripts/lib/fields.py` | Store copy fields: limits, units, required flags (shared by validate and review) |

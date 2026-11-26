@@ -198,7 +198,7 @@ if [ "$apple_present" = 1 ]; then
         base="${path##*/}"; check_ext "$path"
         s_dec=1; record_decode "$dec" "$base" || { s_dec=0; badfmt=1; }
         [ "${dec#bad: }" = "$dec" ] || continue
-        if [ "$cls" = "-" ]; then fail "$base: ${w}x${h} is not an App Store screenshot size (see scripts/lib/apple-screenshot-sizes.tsv)"
+        if [ "$cls" = "-" ]; then fail "$base: ${w}x${h} is not an App Store screenshot size (see specs/stores.json)"
         elif [ "$s_dec" = 1 ]; then classes="$classes$cls"$'\n'; fi
         [ "$ct" = 2 ] || { fail "$base: must be RGB no-alpha (colortype=$ct)"; badfmt=1; }
       done <<<"$imginfo_out"

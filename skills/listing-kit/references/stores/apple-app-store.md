@@ -28,7 +28,7 @@ medium slot. Capture medium at native resolution; do not stretch a large capture
 Persist the selected sets/counts in the [asset plan](../metadata/fastlane-layout.md#apple-asset-plan).
 The validator checks current minimums plus that plan; a valid unrelated set cannot
 satisfy a missing planned class. Its size table is
-`scripts/lib/apple-screenshot-sizes.tsv`, shared with the review page.
+`specs/stores.json`, shared with the review page.
 
 For Duo, check that Xcode and the installed runtime actually provide its device
 type before building (Xcode 27.1 / iOS 27.1 at this snapshot). See the
