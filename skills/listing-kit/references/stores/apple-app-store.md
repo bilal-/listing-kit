@@ -32,7 +32,7 @@ Use the console upload slot to choose a capture device. Capture at an accepted n
 
 At least 1 screenshot across primary device families per locale.
 
-Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
+Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/) · [Store reference 2](https://developer.apple.com/news/upcoming-requirements/)
 
 <!-- rules:end screenshots -->
 

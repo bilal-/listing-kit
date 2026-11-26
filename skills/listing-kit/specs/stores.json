@@ -9,8 +9,72 @@
   "playPreviewAssets": "https://support.google.com/googleplay/android-developer/answer/9866151",
   "appleLocales": "https://github.com/fastlane/fastlane/blob/2.242.0/fastlane_core/lib/fastlane_core/languages.rb",
   "playListing": "https://support.google.com/googleplay/android-developer/answer/9859152",
-  "playReleaseNotes": "https://support.google.com/googleplay/android-developer/answer/9859348"
+  "playReleaseNotes": "https://support.google.com/googleplay/android-developer/answer/9859348",
+  "appleUpcomingRequirements": "https://developer.apple.com/news/upcoming-requirements/",
+  "playStoreListingFields": "https://support.google.com/googleplay/android-developer/answer/9859152"
  },
+ "watch": [
+  {
+   "id": "apple-screenshots",
+   "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/",
+   "kind": "html",
+   "extract": "pixel-sizes"
+  },
+  {
+   "id": "apple-version-info",
+   "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/",
+   "kind": "html",
+   "extract": "limits"
+  },
+  {
+   "id": "apple-app-info",
+   "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/",
+   "kind": "html",
+   "extract": "limits"
+  },
+  {
+   "id": "apple-creative-assets",
+   "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
+   "kind": "html",
+   "extract": "pixel-sizes"
+  },
+  {
+   "id": "apple-upcoming-requirements",
+   "url": "https://developer.apple.com/news/upcoming-requirements/",
+   "kind": "html",
+   "extract": "dated-list"
+  },
+  {
+   "id": "play-preview-assets",
+   "url": "https://support.google.com/googleplay/android-developer/answer/9866151",
+   "kind": "html",
+   "extract": "pixel-sizes"
+  },
+  {
+   "id": "play-store-listing-fields",
+   "url": "https://support.google.com/googleplay/android-developer/answer/9859152",
+   "kind": "html",
+   "extract": "limits"
+  },
+  {
+   "id": "fastlane-screenshots",
+   "url": "https://raw.githubusercontent.com/fastlane/fastlane/master/deliver/lib/deliver/app_screenshot.rb",
+   "kind": "source",
+   "extract": "ruby-constants"
+  },
+  {
+   "id": "fastlane-supply",
+   "url": "https://raw.githubusercontent.com/fastlane/fastlane/master/supply/lib/supply.rb",
+   "kind": "source",
+   "extract": "ruby-constants"
+  },
+  {
+   "id": "fastlane-languages",
+   "url": "https://raw.githubusercontent.com/fastlane/fastlane/master/fastlane_core/lib/fastlane_core/languages.rb",
+   "kind": "source",
+   "extract": "ruby-constants"
+  }
+ ],
  "conditions": {
   "supportsIphone": "The app runs on iPhone (not iPad-only).",
   "supportsIpad": "The app runs on iPad.",
