@@ -21,6 +21,7 @@ Usage: listing-kit <command> [arguments]
   plan check|manifest|outputs [args]      Inspect the listing plan
   detect [app-root]                       Report detected app capabilities
   hook install|status [app-root]          Install or check the review hook
+  template new <name>                 Create an app-owned screenshot template
   compose [args]                          Render planned store assets
   fastlane setup|pull|publish [args]      Configure or sync a store listing
   pull [args]                             Alias for fastlane pull
@@ -82,6 +83,12 @@ case "$cmd" in
       -h|--help) command_usage 'hook install|status [app-root]' ;;
       install) exec bash "$scripts/package/install-review-hook.sh" "$@" ;;
       status) exec bash "$scripts/package/install-review-hook.sh" --status "$@" ;;
+      *) invalid ;;
+    esac ;;
+  template)
+    case "${1:-}" in
+      -h|--help) command_usage 'template new <name>' ;;
+      new) shift; exec python3 "$scripts/lib/user_templates.py" "$@" ;;
       *) invalid ;;
     esac ;;
   compose)

@@ -1,5 +1,5 @@
 """Serialize compose runs and checkpoint each published output under the app root."""
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
@@ -11,6 +11,7 @@ import stat
 
 import json_input
 import specs
+from regular_files import directory
 
 LOCK = ".listing-kit/compose.lock.json"
 RECORD = ".listing-kit/outputs.json"
@@ -33,26 +34,6 @@ def _entry(entry):
              all(isinstance(renderer.get(k), str) for k in ("os", "browser"))) and
             ("size" not in entry or specs._size(entry["size"])) and
             (entry.get("checks") is None or isinstance(entry["checks"], dict)))
-
-
-@contextmanager
-def directory(root, relative, create=False):
-    """Pin each parent while walking from the app root. Never follow symlinks."""
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    with ExitStack() as stack:
-        fd = os.open(root, flags)
-        stack.callback(os.close, fd)
-        for part in Path(relative).parts:
-            if not specs.component(part):
-                raise ValueError("invalid directory: %s" % relative)
-            if create:
-                try:
-                    os.mkdir(part, dir_fd=fd)
-                except FileExistsError:
-                    pass
-            fd = os.open(part, flags, dir_fd=fd)
-            stack.callback(os.close, fd)
-        yield fd
 
 
 def output_directory(root, path, create=False):

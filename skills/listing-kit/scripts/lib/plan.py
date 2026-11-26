@@ -17,12 +17,13 @@ import sys
 import unicodedata
 
 if __package__:
-    from . import json_input, layout, specs, template_values
+    from . import json_input, layout, specs, template_values, user_templates
 else:
     import json_input
     import layout
     import specs
     import template_values
+    import user_templates
 
 
 FORMAT = 2
@@ -220,6 +221,7 @@ class _Checker:
         self.locales = {}
         self.target_ids = set()
         self.screen_ids = set()
+        self.checked_templates = set()
         self.mode = "raw"
         tree = dict(metadata=self.tree_path, fastlaneDir=self.tree_path)
         self.trees = dict(apple=dict(tree, screenshots=self.tree_path), play=tree, storeAssets=self.tree_path)
@@ -234,10 +236,33 @@ class _Checker:
         self.palette = dict(background=self.background, ink=colour, detail=colour)
         def measure(limit):
             return partial(self.expect, lambda v: template_values.measurement(v, limit), "expected number in [0, %d]" % limit)
-        self.style = dict(mode=("raw", "framed"), template=template_values.TEMPLATES, fit=("contain", "cover", "bleed"), palette=self.palette,
+        self.style = dict(mode=("raw", "framed"), template=self.template, fit=("contain", "cover", "bleed"), palette=self.palette,
                           bezel=dict(color=colour, shadow=colour, width=measure(10), radius=measure(50), bleed=bool), fonts=self.fonts, logo=self.file_ref)
         self.capture = dict(deviceType=self.nonempty, display=self.nonempty, orientation=("portrait", "landscape"),
                             nativeSize=self.size, runtime=self.nonempty, appId=self.nonempty)
+
+    def template(self, value, path):
+        try:
+            if isinstance(value, str) and value in self.checked_templates:
+                return
+            template = user_templates.resolve(self.app_root, value)
+            if template:
+                for ref in template.digests:
+                    if ref.startswith("bundled:"):
+                        source = user_templates.KIT / "assets" / ref[len("bundled:"):]
+                    else:
+                        source = self.app_root / ref
+                    self.files[ref] = source, source
+            self.checked_templates.add(value)
+        except ValueError as exc:
+            location = str(LISTING)
+            try:
+                source = (self.app_root / LISTING).read_text(encoding="utf-8")
+                location += f":{json_input.field_line(source, path)}"
+            except (ValueError, OSError):
+                pass  # In-memory plan and spec defaults need not have a source line.
+            for message in str(exc).splitlines():
+                self.error(path, f"{location}: {message}")
 
     def background(self, value, path):
         if not isinstance(value, list) or not value:
@@ -408,7 +433,7 @@ class _Checker:
                         dict(id=str, store=("apple", "play"), slot=self.nonempty, size=[int],
                         state=("active", "deferred", "retired"), reason=str,
                         suffix=self.filename_id, upload=("fastlane", "console"),
-                        locales=self.locale_list, style=self.style, capture=self.capture, captureLocales=("primary", "all"),
+                        locales=self.locale_list, style=self.style, template=self.template, capture=self.capture, captureLocales=("primary", "all"),
                         status=self.nonempty, draft=bool), ("id", "store", "slot", "size", "state")):
             return
         if "id" in t:
@@ -465,7 +490,7 @@ class _Checker:
 
     def screen(self, s, path):
         if not self.obj(s, path, dict(id=str, flow=self.flow, flows=self.flows,
-                        panel=self.panel, style=self.style, route=str, state=str, caption=self.localized,
+                        panel=self.panel, style=self.style, template=self.template, route=str, state=str, caption=self.localized,
                         detail=self.localized, altText=self.localized, draft=bool,
                         only=[self.target_ref], **{"except": [self.target_ref]}), ("id",)):
             return
@@ -481,7 +506,7 @@ class _Checker:
     def graphic(self, value, path):
         is_icon = path == "graphics.play.icon"
         self.obj(value, path,
-                 dict(template=template_values.TEMPLATES, headline=self.localized, detail=self.localized,
+                 dict(template=self.template, headline=self.localized, detail=self.localized,
                  altText=self.localized, draft=bool, status=self.nonempty, palette=self.palette,
                  logo=self.file_ref, **({"from": self.file_ref} if is_icon else {})), ("from",) if is_icon else ("headline",))
 
@@ -614,8 +639,8 @@ class _Checker:
             panel = item["panel"]
             strings["panel"] = dict(copy(panel, path + ".panel"), rows=[
                 copy(row, f"{path}.panel.rows[{i}]") for i, row in enumerate(panel["rows"])])
-        if style.get("template") is not None and style["template"] not in template_values.TEMPLATES:
-            self.error(path + ".template", "unknown bundled template: %r" % style["template"])
+        if style.get("template") is not None:
+            self.template(style["template"], path + ".template")
         profiles = style.get("fonts", {})
         roles = {**profiles.get("default", {}), **profiles.get(loc, {})}
         style = dict(style, logo=self.resolved(style.get("logo")), fonts={
@@ -662,8 +687,11 @@ class _Checker:
                 self.captures[raw] = dict(targetId=tid, store=store, screenId=sid, localeId=capture["id"],
                                           deviceLocale=capture[store], flowPath=flow, demoEntry=self.resolved(self.demo),
                                           rawPath=raw, **settings)
-            style = _style(dict(base, template=slot.get("defaultTemplate")), data.get("style", {}),
-                           t.get("style", {}), s.get("style", {}))
+            style = _style(dict(base, template=slot.get("defaultTemplate")), data.get("style", {}))
+            for item in (t, s):
+                style = _style(style, item.get("style", {}))
+                if "template" in item:
+                    style["template"] = item["template"]
             if locale is primary and "style" in s and style["mode"] != "raw" and slot["framing"] == "forbidden":
                 self.error(paths[sid] + ".style.mode", "%s requires raw style" % slot["id"])
             yield dict(kind="screenshot", targetId=tid, screenId=sid, store=store, slotId=slot["id"], index=index,

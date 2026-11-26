@@ -3,7 +3,7 @@
 
 Reads .listing-kit/listing.json through plan.manifest() and, for every output:
   raw mode      normalizes one PNG capture to 8-bit RGB (it must already be the target size);
-  framed/band   renders a bundled template around the capture;
+  framed/band   renders the selected template around the capture;
   panel         renders a brand panel with no capture;
   graphics      renders the feature graphic and headers; derives the Play icon.
 
@@ -17,6 +17,8 @@ Exit:  0 done; 1 a problem with an input or an image (details printed);
        2 usage or an invalid plan; 3 all outputs are blocked by a missing browser, or ImageMagick is required;
        4 would restyle existing images (rerun with --restyle).
 """
+from contextlib import ExitStack
+from functools import lru_cache
 import argparse
 import base64
 import html
@@ -41,6 +43,7 @@ import specs  # noqa: E402
 import render  # noqa: E402
 import ownership
 import template_values
+import user_templates
 import fontcheck  # noqa: E402
 
 def listing_name(root, man, rec):
@@ -95,7 +98,9 @@ RENDERER_VERSION = (
 )
 
 
-def template_hash(name):
+def template_hash(name, user=None):
+    if user:
+        return sha_obj([user.digests, sha_file(Path(render.TEMPLATES) / "base.css"), RENDERER_VERSION])
     template_values.template_name(name)
     files = [Path(render.TEMPLATES) / fn for fn in ("base.css", name + ".html")]
     return sha_obj([sha_file(path) for path in files] + list(RENDERER_VERSION))
@@ -133,7 +138,7 @@ def flatten_rgb(png, deadline):
 
 
 class Job:
-    def __init__(self, root, rec):
+    def __init__(self, root, rec, resolve=user_templates.resolve):
         self.root, self.rec = root, rec
         self.out = os.path.join(root, rec["outputPath"])
         self.raw = os.path.join(root, rec["rawPath"]) if rec.get("rawPath") else None
@@ -146,17 +151,19 @@ class Job:
             self.template = None if rec["slotId"] == "icon" else rec.get("template") or default
             self.mode = "icon" if rec["slotId"] == "icon" else "graphic"
         elif self.kind == "panel":
-            self.template, self.mode = "panel", "panel"
+            selected = rec.get("template") or style.get("template")
+            self.template = selected if selected and selected not in template_values.TEMPLATES else "panel"
+            self.mode = "panel"
         elif self.mode == "raw":
             self.template = None
         else:
             self.template = rec.get("template") or style.get("template") or "caption-top"
-        if self.template is not None:
-            template_values.template_name(self.template)
+        self.user = resolve(root, self.template) if self.template is not None else None
+        self.branded = self.user is not None or self.template in ("feature", "header", "panel")
         self.fonts = {role: [os.path.normpath(os.path.join(root, p)) for p in paths]
                       for role, paths in (style.get("fonts") or {}).items()}
         self.logo = os.path.normpath(os.path.join(root, style["logo"])) if style.get("logo") else None
-        if self.template not in ("feature", "header", "panel"):
+        if not self.branded:
             self.logo = None
         self.source = os.path.normpath(os.path.join(root, rec["from"])) if rec.get("from") else None
         self.raw_data = None
@@ -174,14 +181,14 @@ class Job:
         content = {"size": size, "text": self.text}
         if self.raw:
             content["capture"] = sha_file(self.raw)
-        if self.template in ("panel", "feature", "header") and not self.logo:
+        if self.branded and not self.logo:
             content["brand"] = self.rec.get("appName")
         fonts = {role: [sha_file(p) for p in paths] for role, paths in self.fonts.items()}
-        style = {"template": template_hash(self.template), "palette": self.style.get("palette"), "fonts": fonts,
+        style = {"template": template_hash(self.template, self.user), "palette": self.style.get("palette"), "fonts": fonts,
                  "logo": sha_file(self.logo) if self.logo else None, "locale": self.rec.get("storeCode")}
-        if self.kind == "shot":
+        if self.user or self.kind == "shot":
             style["fit"] = self.fit()
-            if self.template == "caption-top":
+            if self.user or self.template == "caption-top":
                 style["bezel"] = self.style.get("bezel")
         return sha_obj(content), sha_obj(style)
 
@@ -195,7 +202,7 @@ class Job:
             if not w:
                 raise render.RenderError("raw capture is not a readable image: %s" % self.rec["rawPath"])
             shot_size = (w, h)
-        return dict(template=self.template, locale=self.rec.get("storeCode") or "en-US", style=self.style,
+        return dict(template=self.template, user=self.user, locale=self.rec.get("storeCode") or "en-US", style=self.style,
                     fonts=self.fonts, text=self.text, raw=self.raw if self.kind == "shot" else None,
                     shot_size=shot_size, logo=self.logo, app_name=self.rec.get("appName"), fit=self.fit())
 
@@ -268,11 +275,16 @@ def inline_asset(url, assets):
     return "data:%s;base64,%s" % (mime, base64.b64encode(data).decode("ascii"))
 
 
-def preview_page(jobs):
+def preview_page(jobs, renderer=None):
     frames = []
     for job in jobs:
         w, h = job.rec["size"]
-        if job.template:
+        if job.user:
+            png = build(job, renderer)
+            if png is None:
+                raise ValueError("%s: %s" % (job.rec["outputPath"], ", ".join(job.problems)))
+            page = '<style>*{margin:0}</style><img alt="" src="%s">' % inline_asset("/image.png", {"/image.png": png})
+        elif job.template:
             assets = render.page_assets(**job.asset_args())
             page = assets["/index.html"].decode()
             def stylesheet(match):
@@ -313,11 +325,12 @@ def report_failures(failed):
 
 def compose_outputs(args, man, state):
     root = state.root
-    jobs = [Job(root, rec) for rec in man["outputs"] if args.preview or
+    resolve = lru_cache(maxsize=None)(user_templates.resolve)
+    jobs = [Job(root, rec, resolve) for rec in man["outputs"] if args.preview or
             ((not args.target or rec.get("targetId") in args.target) and
              (not args.screen or rec.get("screenId") in args.screen))]
     for job in jobs:
-        if job.template in ("header", "feature", "panel") and not job.rec.get("appName"):
+        if job.branded and not job.rec.get("appName"):
             job.rec = dict(job.rec, appName=listing_name(root, man, job.rec))
     if args.preview:
         rel = ".listing-kit/preview.html"
@@ -325,7 +338,12 @@ def compose_outputs(args, man, state):
         conflict = current and current != state.outputs.get(rel, {}).get("sha256")
         if conflict and not args.adopt:
             raise ValueError("%s: %s" % (rel, ownership.CONFLICT))
-        page = preview_page(jobs)
+        with ExitStack() as resources:
+            renderer = None
+            if any(job.user for job in jobs):
+                browser, renderer = render.open_browser()
+                resources.callback(browser.close)
+            page = preview_page(jobs, renderer)
         sha = hashlib.sha256(page).hexdigest()
         if current != sha or rel not in state.outputs or state.outputs[rel]["sha256"] != sha:
             state.publish(rel, page, dict(sha256=sha, content=sha, style=sha), current if args.adopt else None)
