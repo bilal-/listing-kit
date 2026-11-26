@@ -61,4 +61,23 @@ python3 "$SUT" "a" "$T/cut.ttf" >/dev/null 2>&1; assert_eq 2 "$?" "truncated"
 python3 "$SUT" "a" "$ROOT/README.md" >/dev/null 2>&1; assert_eq 2 "$?" "not a font"
 python3 "$SUT" "a" "$T/absent.ttf" >/dev/null 2>&1; assert_eq 2 "$?" "missing file"
 
+it "combining marks and unsupported variation sequences require glyphs"
+OUT="$(python3 "$SUT" $'A\xD6\xB0A\xEF\xB8\x8F' "$T/latin.ttf")"
+assert_contains "$OUT" "U+05B0"
+assert_contains "$OUT" "U+FE0F"
+
+it "format 13 uses a constant glyph and format 14 selects a supported sequence"
+python3 - "$T" <<'PYFONT'
+import struct, sys
+from pathlib import Path
+sub = struct.pack(">HHIII", 13, 0, 40, 0, 2) + struct.pack(">IIIIII", 65, 66, 1, 67, 68, 0)
+uvs = struct.pack(">HII", 14, 30, 1) + bytes.fromhex("00fe0f") + struct.pack(">II", 0, 21)
+uvs += struct.pack(">I", 1) + bytes.fromhex("0000410001")
+cmap = struct.pack(">HHHHIHHI", 0, 2, 3, 10, 20, 0, 5, 20 + len(sub)) + sub + uvs
+(Path(sys.argv[1]) / "many.ttf").write_bytes(struct.pack(">IHHHH4sIII", 65536, 1, 0, 0, 0, b"cmap", 0, 28, len(cmap)) + cmap)
+PYFONT
+OUT="$(python3 "$SUT" $'A\xEF\xB8\x8FB' "$T/many.ttf" 2>&1)"; assert_eq 0 "$?" "mapped sequence and constant glyph"
+OUT="$(python3 "$SUT" $'B\xEF\xB8\x8FCD' "$T/many.ttf" 2>&1)"; assert_eq 1 "$?" "unsupported sequence and zero glyph range"
+assert_contains "$OUT" "U+FE0F"
+assert_contains "$OUT" "U+0044"
 summary

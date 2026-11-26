@@ -60,6 +60,61 @@ assert_eq 1 "$RC" "exit 1"
 assert_contains "$OUT" "no raw capture at .listing-kit/raw/iphone/en-US/home.png"
 assert_eq "" "$(files_in "$T/missing" | tr ' ' '\n' | grep Screenshots || true)" "no screenshots written"
 
+it "preview embeds both Apple header canvases and every screenshot without writing PNGs"
+make_app "$T/preview"
+raws "$T/preview" 1206 2622
+python3 - "$T/preview/.listing-kit/listing.json" <<'PYP'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["graphics"]["apple"] = {k: {"headline": {"en-US": "Apple <Header>"}, "detail": {"en-US": "Detail"}} for k in ("header-16x9", "header-21x9")}
+p.write_text(json.dumps(d))
+PYP
+OUT="$(python3 "$COMPOSE" "$T/preview" --preview 2>&1)"; RC=$?
+assert_eq 0 "$RC" "preview: $OUT"
+assert_contains "$OUT" "$T/preview/.listing-kit/preview.html"
+if python3 - "$T/preview" <<'PYP'
+from html.parser import HTMLParser
+from pathlib import Path
+import sys
+class Frames(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.pages = []
+    def handle_starttag(self, tag, attrs):
+        if tag == "iframe":
+            self.pages.append(dict(attrs)["srcdoc"])
+root = Path(sys.argv[1])
+frames = Frames()
+frames.feed((root / ".listing-kit/preview.html").read_text())
+assert len(frames.pages) == 9
+assert all('href="/' not in p and 'src="/' not in p for p in frames.pages)
+assert sum("Apple &lt;Header&gt;" in p and 'class="header"' in p for p in frames.pages) == 2
+assert any("data:image/png;base64," in p for p in frames.pages)
+assert all("data:font/ttf;base64," in p for p in frames.pages)
+assert not list((root / "fastlane").rglob("*.png"))
+PYP
+then pass; else fail; fi
+
+it "unknown templates and empty backgrounds are invalid before loading build inputs"
+for invalid in template background; do
+    make_app "$T/invalid"
+    python3 - "$T/invalid/.listing-kit/listing.json" "$invalid" <<'PYP'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+if sys.argv[2] == "template":
+    d["style"]["template"] = "../outside"
+else:
+    d["style"]["palette"]["background"] = []
+p.write_text(json.dumps(d))
+PYP
+    OUT="$(python3 "$COMPOSE" "$T/invalid" 2>&1)"; RC=$?
+    assert_eq 2 "$RC" "invalid $invalid rejects the plan"
+    assert_contains "$OUT" "$invalid"
+done
 if have_magick; then
 
 it "raw mode copies captures to the store paths, numbered in screen order, and records what it owns"
@@ -204,4 +259,6 @@ else
   pass "skipped: not installed here"
 fi
 
+it "composer regression cases"
+if python3 "$ROOT/tests/unit/compose_regressions.py"; then pass; else fail; fi
 summary
