@@ -56,12 +56,12 @@ else
 fi
 
 LAUNCHER="$SKILL_DIR/bin/listing-kit"
-STATUS_LINE="Source and plan only. Not yet built or captured on a device."
 for stack in expo ios android flutter; do
   app="$EXAMPLES/$stack-recipe-box"
+  status_line="Source and plan only. Not yet built or captured on a device."
   case "$stack" in
     expo) kind=expo-managed; stores="apple play" ;;
-    ios) kind=native-ios; stores=apple ;;
+    ios) kind=native-ios; stores=apple; status_line="Compiles for the iOS simulator. Not yet installed or captured on a device." ;;
     android) kind=native-android; stores=play ;;
     flutter) kind=flutter; stores="apple play" ;;
   esac
@@ -76,9 +76,9 @@ for stack in expo ios android flutter; do
   it "$stack plan is valid with all capture inputs present"
   "$LAUNCHER" plan check "$app" && "$LAUNCHER" plan check --for capture "$app" && pass || fail "invalid plan"
   it "$stack README and example index record device status"
-  grep -Fxq "$STATUS_LINE" "$app/README.md" && pass || fail "missing README status"
+  grep -Fxq "$status_line" "$app/README.md" && pass || fail "missing README status"
   row="$(grep -F "| [\`$stack-recipe-box\`]($stack-recipe-box) |" "$ROOT/examples/README.md")"
-  assert_contains "$row" "$STATUS_LINE" "$stack index status"
+  assert_contains "$row" "$status_line" "$stack index status"
 
   it "$stack ships text sources and four flows with identifiers from the app"
   if python3 - "$app" "$stack" "$stores" <<'PY'
@@ -126,5 +126,8 @@ for path in sorted(paths):
 PY
   then pass; else fail "$stack source or flow mismatch"; fi
 done
+it "Flutter host setup reports missing templates and only updates its own example"
+if python3 "$ROOT/tests/structure/flutter-host.py" "$EXAMPLES/flutter-recipe-box"; then pass; else fail; fi
+
 remove_fixture "$EXAMPLES"
 summary

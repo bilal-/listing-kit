@@ -39,6 +39,7 @@ class _RecipeBoxState extends State<RecipeBox> {
                   builder: (context, refresh) => ListView(children: [
                     for (final item in groceries)
                       Semantics(
+                        container: true,
                         identifier: item.id,
                         child: CheckboxListTile(
                           title: Text(item.label),
@@ -57,6 +58,7 @@ class _RecipeBoxState extends State<RecipeBox> {
               case '/settings':
                 return _page(context, 'Settings', ListView(children: [
                   Semantics(
+                    container: true,
                     identifier: 'dark_theme',
                     child: SwitchListTile(
                       title: const Text('Dark theme'),
@@ -80,6 +82,7 @@ class _RecipeBoxState extends State<RecipeBox> {
   Widget _page(BuildContext context, String title, Widget body) {
     return Scaffold(
       appBar: AppBar(title: Text(title), leading: Semantics(
+        container: true,
         identifier: 'back',
         child: BackButton(onPressed: () => Navigator.pop(context)),
       )),
@@ -92,15 +95,15 @@ class _RecipeBoxState extends State<RecipeBox> {
       appBar: AppBar(title: const Text('Recipes')),
       body: ListView(children: [
         Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-          Semantics(identifier: 'open_shopping', child: TextButton(
+          Semantics(container: true, identifier: 'open_shopping', child: TextButton(
             onPressed: () => Navigator.pushNamed(context, '/shopping'), child: const Text('Shopping'),
           )),
-          Semantics(identifier: 'open_settings', child: TextButton(
+          Semantics(container: true, identifier: 'open_settings', child: TextButton(
             onPressed: () => Navigator.pushNamed(context, '/settings'), child: const Text('Settings'),
           )),
         ]),
         for (final recipe in recipes)
-          Semantics(identifier: recipe.id, child: ListTile(
+          Semantics(container: true, identifier: recipe.id, child: ListTile(
             leading: Text(recipe.emoji, style: Theme.of(context).textTheme.headlineMedium),
             title: Text(recipe.title),
             subtitle: Text('${recipe.minutes} min'),
@@ -120,7 +123,7 @@ class _RecipeBoxState extends State<RecipeBox> {
         const SizedBox(height: 16),
         Text('Ingredients', style: heading),
         for (var i = 0; i < recipe.ingredients.length; i++)
-          Semantics(identifier: i == 0 ? 'first_ingredient' : null, child: Text('• ${recipe.ingredients[i]}')),
+          Semantics(container: true, identifier: i == 0 ? 'first_ingredient' : null, child: Text('• ${recipe.ingredients[i]}')),
         const SizedBox(height: 16),
         Text('Steps', style: heading),
         for (var i = 0; i < recipe.steps.length; i++) Text('${i + 1}. ${recipe.steps[i]}'),

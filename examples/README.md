@@ -3,7 +3,7 @@
 | Example | Stack | Status |
 | --- | --- | --- |
 | [`expo-recipe-box`](expo-recipe-box) | Expo / React Native | Historical listing output. The iPhone medium set needs recapture. [Capture report](expo-recipe-box/LISTING-REPORT.md) |
-| [`ios-recipe-box`](ios-recipe-box) | Native iOS / SwiftUI | Source and plan only. Not yet built or captured on a device. |
+| [`ios-recipe-box`](ios-recipe-box) | Native iOS / SwiftUI | Compiles for the iOS simulator. Not yet installed or captured on a device. |
 | [`android-recipe-box`](android-recipe-box) | Native Android / Jetpack Compose | Source and plan only. Not yet built or captured on a device. |
 | [`flutter-recipe-box`](flutter-recipe-box) | Flutter / iOS and Android | Source and plan only. Not yet built or captured on a device. |
 

@@ -14,6 +14,8 @@ app=$(mktemp -d)
 cp -R examples/flutter-recipe-box/. "$app/"
 cd "$app"
 flutter create --no-pub --platforms=ios,android --project-name recipebox --org com.example .
+# Remove the starter app's widget test and lint config before running flutter analyze.
+rm -f test/widget_test.dart analysis_options.yaml
 python3 host/configure.py
 flutter pub get
 "$kit" plan check --for capture .

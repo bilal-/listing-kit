@@ -1,6 +1,6 @@
 # Recipe Box for iOS
 
-Source and plan only. Not yet built or captured on a device.
+Compiles for the iOS simulator. Not yet installed or captured on a device.
 
 This SwiftUI example has a hand-written Xcode project with one iPhone application target and a Release configuration. The four Maestro flows launch with `-recipeBoxState demo` to open the five recipes with Lemons and Avocados checked on the shopping list.
 
