@@ -16,7 +16,7 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 rm -rf "$T"
 
-# Build the review page against the committed example (both stores present).
+# Build the review page against the fixture copy (both stores present).
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
 it "exits 0 and writes listing-review.html at the app root"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
