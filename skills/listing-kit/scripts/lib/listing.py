@@ -15,7 +15,6 @@ if __name__ == "__main__":
 import specs
 from imginfo import is_image
 
-# deliver folders under metadata/ that are not locales.
 # Recognized deliver app-level metadata files directly under fastlane/metadata/.
 DELIVER_APP_FILES = {
     "primary_first_sub_category.txt",
@@ -56,15 +55,34 @@ def _subdirs(d):
         return []
 
 
+def screenshot_folders(rules):
+    return sorted({"iMessage"} | {s["folder"] for s in specs.slots(rules, "apple") if s.get("folder")})
+
+
+def apple_screenshot_dirs(fl, locale, rules):
+    base = os.path.join(fl, "screenshots")
+    yield "", os.path.join(base, locale)
+    for platform in screenshot_folders(rules):
+        yield platform, os.path.join(base, platform, locale)
+        yield platform, os.path.join(base, locale, platform)
+
+
 def apple_locales(fl, rules=None):
     """Include known locales and directories containing localized deliver assets."""
     rules = rules if rules is not None else specs.load(os.path.dirname(fl))
     apple = rules["stores"]["apple"]
     meta = os.path.join(fl, "metadata")
     shots = os.path.join(fl, "screenshots")
-    names = {n for n in _subdirs(meta) if n not in apple["nonLocaleFolders"]
-             and (n in apple["locales"] or _has_files(os.path.join(meta, n), localized_files(rules)))}
-    names.update(n for n in _subdirs(shots) if n in apple["locales"] or images(os.path.join(shots, n)))
+    known = set(apple["locales"])
+    localized = localized_files(rules)
+    names = {n for n in _subdirs(meta) if n not in apple.get("nonLocaleFolders", ())
+             and (n in known or _has_files(os.path.join(meta, n), localized))}
+    folders = screenshot_folders(rules)
+    candidates = set(_subdirs(shots)).difference(folders)
+    for platform in folders:
+        candidates.update(_subdirs(os.path.join(shots, platform)))
+    names.update(n for n in candidates if n in known or
+                 any(images(directory) for _, directory in apple_screenshot_dirs(fl, n, rules)))
     return [os.path.join(meta, n) for n in sorted(names)]
 
 
@@ -98,6 +116,13 @@ def images(d):
         return []
     return [os.path.join(d, n) for n in names
             if not n.startswith(".") and os.path.isfile(os.path.join(d, n)) and is_image(n)]
+
+
+def manual_screenshots(root, store, locale):
+    base = os.path.join(root, "store-assets", store, locale, "screenshots")
+    for slot in _subdirs(base):
+        for path in images(os.path.join(base, slot)):
+            yield slot, path
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ Use the console upload slot to choose a capture device. Capture at an accepted n
 | iPhone Duo (outer display) | Required if the app runs on iPhone (not iPad-only) from 2027-04-01 unless the app is built with an iOS SDK older than 27.1 | 1–10 | 1398×2034 | PNG/JPEG, no alpha | fastlane |
 | iPhone Duo (inner display) | Required if the app runs on iPhone (not iPad-only) from 2027-04-01 unless the app is built with an iOS SDK older than 27.1 | 1–10 | 2007×2853 | PNG/JPEG, no alpha | fastlane |
 | iPad 13" | Required if the app runs on iPad | 1–10 | 2064×2752, 2048×2732 | PNG/JPEG, no alpha | fastlane |
+| iPad 12.9" | Optional | 1–10 | 2048×2732 | PNG/JPEG, no alpha | fastlane |
 | iPad 11" | Optional | 1–10 | 1668×2420, 1668×2388, 1640×2360, 1512×2316, 1488×2266 | PNG/JPEG, no alpha | fastlane |
 | iPad 10.5" | Optional | 1–10 | 1668×2224 | PNG/JPEG, no alpha | fastlane |
 | iPad 9.7" | Optional | 1–10 | 1536×2048, 2048×1536, 1536×2008, 2048×1496, 768×1024, 1024×768, 768×1004, 1024×748, fixed orientation | PNG/JPEG, no alpha | fastlane |

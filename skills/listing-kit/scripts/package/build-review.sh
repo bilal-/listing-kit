@@ -54,7 +54,7 @@ import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
 sys.path.insert(0, lib_dir)
-from imginfo import image_info, apple_class
+from imginfo import image_info
 import fields as store_fields
 import listing
 import specs
@@ -65,7 +65,10 @@ from secret_scan import secret_text
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-rules = specs.load(root)
+try:
+    rules = specs.load(root)
+except specs.SpecsError:
+    rules = specs.load()  # Keep the review available when local rules cannot be read.
 requirements = detect.Requirements(root, rules)
 read = store_fields.read
 
@@ -78,11 +81,6 @@ def dims(p):
     return (w, h) if w else None
 
 images = listing.images
-
-def devclass(wh, path):
-    if not wh:
-        return "?"
-    return apple_class(*wh, path, rules) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
     s = s or ""
@@ -98,22 +96,25 @@ except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
-ios_locs = apple_assets.apple_locales(root, rules)
+ios_locs = apple_assets.apple_locales(root, rules, apple_plan)
 apple_default = listing.apple_default(FL, rules)
-if apple_assets.has_apple_listing(root, rules):
+if apple_assets.has_apple_listing(root, rules, ios_locs):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
         fields = field_rows("apple", ld, apple_default)
         shots = {}
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        deferred_labels = {s["label"] for label in deferred for s in specs.slot_by_label(rules, "apple", label)}
-        console = os.path.join(apple_assets.header_dir(root, loc), "screenshots")
-        for f in apple_assets.screenshot_paths(os.path.join(FL, "screenshots", loc), rules, console):
-            cls = devclass(dims(f), f)
-            if cls in deferred_labels:
-                continue  # Preserve old files, but do not present them as active deliverables.
+        deferred_ids = apple_assets.deferred_slots(rules, deferred)
+        for platform, f, slot, (w, h) in apple_assets.active_screenshots(root, loc, deferred_ids, rules):
+            cls = slot["label"] if slot else (f"{w}×{h}" if w else "?")
+            if platform == "iMessage":
+                cls = "iMessage " + cls
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
+        for slot_id, f in listing.manual_screenshots(root, "apple", loc):
+            slot = specs.slot(rules, "apple", slot_id)
+            if slot and slot_id not in deferred_ids:
+                shots.setdefault(slot["label"], []).append(os.path.relpath(f, root))
         graphics = []
         for f in images(apple_assets.header_dir(root, loc)):
             info = image_info(f)

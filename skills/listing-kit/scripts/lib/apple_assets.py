@@ -11,26 +11,30 @@ import os
 import re
 import sys
 from collections import Counter
+from pathlib import Path
 
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import specs
-from imginfo import format_allowed, apple_class, image_info, validate_many
-from listing import apple_locales as listing_apple_locales, has_apple_app_metadata, images
-
+from imginfo import EXTENSIONS, apple_class, format_allowed, image_info, validate_many
+from listing import (apple_locales as listing_apple_locales, apple_screenshot_dirs,
+                     has_apple_app_metadata, images, manual_screenshots)
 
 
 def header_dir(root, locale):
     return os.path.join(root, "store-assets", "apple", locale)
 
 
+def header_files(root, locale):
+    return sorted(p for p in Path(header_dir(root, locale)).glob("*")
+                  if not p.name.startswith(".") and p.is_file() and p.suffix.lower() in EXTENSIONS + (".mov", ".mp4"))
+
+
 def header_locales(root):
-    base = os.path.join(root, "store-assets", "apple")
-    if not os.path.isdir(base):
-        return []
-    return sorted(n for n in os.listdir(base)
-                  if not n.startswith(".") and images(os.path.join(base, n)))
+    base = Path(root, "store-assets", "apple")
+    return sorted(p.name for p in base.glob("*") if not p.name.startswith(".") and p.is_dir()
+                  and (header_files(root, p.name) or any(manual_screenshots(root, "apple", p.name))))
 
 
 def load_plan(root, rules=None):
@@ -73,37 +77,54 @@ def load_plan(root, rules=None):
     return plan["apple"]
 
 
-def apple_locales(root, rules=None):
-    """Metadata paths for every locale visible in the Apple asset preview."""
-    rules = specs.load(root) if rules is None else rules
-    try:
-        planned = set(load_plan(root, rules))
-    except (OSError, ValueError):
-        planned = set()  # validate() reports malformed plans separately.
+def deferred_slots(rules, displays):
+    return {s["id"] for label in displays for s in specs.slot_by_label(rules, "apple", label)}
+
+
+def active_screenshots(root, locale, deferred_ids, rules, nonempty=os.path.getsize, *, hand_upload=False):
+    """Yield platform, path, slot and size after deliver's framing and plan filters."""
     fastlane = os.path.join(root, "fastlane")
-    return sorted(set(listing_apple_locales(fastlane, rules)) | {
-        os.path.join(fastlane, "metadata", locale)
-        for locale in set(header_locales(root)) | planned | set(console_locales(root, rules))
-    })
+    for platform, directory in apple_screenshot_dirs(fastlane, locale, rules):
+        paths = [p for p in images(directory) if nonempty(p)]
+        framed = any(Path(p).stem.lower().endswith("_framed") for p in paths)
+        for path in paths:
+            name = Path(path).stem.lower()
+            size = image_info(path)[:2]
+            if framed and not name.endswith("_framed"):
+                # Deliver uses the filename. Hand upload accepts any Watch capture size.
+                watch = (any(s["id"] == "watch" for s in specs.apple_slots_for_size(rules, *size))
+                         if hand_upload else "watch" in name)
+                if not watch:
+                    continue
+            relative = os.path.relpath(path, os.path.join(fastlane, "screenshots"))
+            slot = specs.apple_slot_for_file(rules, *size, relative)
+            if slot is None or slot["id"] not in deferred_ids:
+                yield platform, path, slot, size
 
 
-def has_apple_listing(root, rules=None):
+def apple_locales(root, rules=None, plan=None):
+    """Metadata paths for every locale visible in the Apple asset preview."""
+    rules = rules if rules is not None else specs.load(root)
+    if plan is None:
+        try:
+            plan = load_plan(root, rules)
+        except (OSError, ValueError):
+            plan = {}  # validate() reports malformed plans separately.
+    fastlane = os.path.join(root, "fastlane")
+    meta = os.path.join(fastlane, "metadata")
+    locales = set(listing_apple_locales(fastlane, rules))
+    locales.update(os.path.join(meta, loc) for loc in set(header_locales(root)) | set(plan))
+    return sorted(locales)
+
+
+def has_apple_listing(root, rules=None, locales=None):
     """True when root has recognized Apple deliver metadata, screenshots, headers, or plan."""
     fastlane = os.path.join(root, "fastlane")
     return bool(
-        apple_locales(root)
-        or has_apple_app_metadata(fastlane)
+        (apple_locales(root, rules) if locales is None else locales)
+        or has_apple_app_metadata(fastlane, rules)
         or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
     )
-
-
-def console_locales(root, rules):
-    base = os.path.join(root, "store-assets", "apple")
-    if os.path.isdir(base):
-        for name in sorted(os.listdir(base)):
-            if not name.startswith(".") and any(images(os.path.join(base, name, "screenshots", s["id"]))
-                                                 for s in specs.slots(rules, "apple")):
-                yield name
 
 
 def screenshot_paths(directory, rules, console=None):

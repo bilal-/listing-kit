@@ -460,16 +460,16 @@ assert_not_contains "$OUT" "no App Store or Google Play listing was found"
 rm -rf "$T"
 
 it "counts failures of python helpers (locale discovery and imginfo) as validation failures"
-new_tempdir SHIM
-SHIM="$SHIM/kit/scripts"
+new_tempdir SHIM_ROOT
+SHIM="$SHIM_ROOT/scripts"
 mkdir -p "$SHIM"
-cp -R "$SKILL_DIR/specs" "$SHIM/../"
+cp -R "$SKILL_DIR/specs" "$SHIM_ROOT/"
 cp -R "$SCRIPTS/validate" "$SCRIPTS/lib" "$SHIM/"
-printf '\ndef apple_locales(root): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
+printf '\ndef apple_locales(root, rules=None, plan=None): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
 apple_only
 OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "apple_assets.py --locales failure exits 1"
-assert_contains "$OUT" "apple_assets.py"
+assert_contains "$OUT" "RuntimeError: apple_assets.py failed"
 assert_not_contains "$OUT" "LISTING VALID"
 rm -rf "$T"
 # 2. listing.py failing on play-locales
@@ -495,7 +495,7 @@ OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "imginfo.py failure on Play graphics exits 1"
 assert_contains "$OUT" "imginfo.py"
 assert_not_contains "$OUT" "integer expression"
-rm -rf "$T" "$SHIM"
+remove_fixture "$T" "$SHIM_ROOT"
 
 it "warns once when ImageMagick is unavailable and fails on bad full decode of any screenshot or graphic"
 new_tempdir NOIM_BIN
