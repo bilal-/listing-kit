@@ -1,8 +1,10 @@
 # Store listing CI
 
-From a kit checkout, run `skills/listing-kit/bin/listing-kit link` to install the launcher. Follow its PATH hint. Then run the command from your app directory. In a monorepo, pass `--app-root 'apps/my app'` to select the listing. The generator writes CI files at the Git repository root. Outside Git it uses the app directory. App paths must be literal paths without CI expression or glob characters.
+From the kit checkout, run `skills/listing-kit/bin/listing-kit link` and follow its PATH hint.
 
-Both providers require `--kit-ref`. Set `KIT_REF` to a released tag or a full commit SHA containing the listing-kit command and the adapters you use.
+Run `listing-kit ci init` from the app directory. For a monorepo, pass `--app-root 'apps/my app'`. The generator writes CI files at the Git repository root. Outside Git it uses the app directory. App paths must be literal paths without CI expression or glob characters.
+
+Both providers require `--kit-ref`. Set `KIT_REF` to a released tag or a full commit SHA containing the launcher and the adapters you use.
 
 ```sh
 listing-kit ci init --provider github --kit-ref "$KIT_REF"

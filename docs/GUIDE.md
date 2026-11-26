@@ -1,158 +1,75 @@
-# listing-kit — User Guide
+# First run with Recipe Box
 
-This guide walks through a real run, end to end. For how listing-kit is built and
-why, see [ARCHITECTURE.md](ARCHITECTURE.md). For
-the operational instructions the agent follows, see
-[`skills/listing-kit/SKILL.md`](../skills/listing-kit/SKILL.md).
+The [bundled Expo app](../examples/expo-recipe-box) has sample recipes, four saved Maestro flows and a historical listing. You can inspect that listing before installing a simulator. Work in a disposable copy of the app for this walkthrough.
 
----
+## Inspect what is there
 
-## 1. Install
-
-Pick your agent (see the [README Install section](../README.md#install)). For
-Claude Code:
+[Install the launcher](INSTALL.md), change into your copy of `examples/expo-recipe-box`, and run:
 
 ```sh
-/plugin marketplace add bilal-/listing-kit
-/plugin install listing-kit@listing-kit
+listing-kit doctor
+listing-kit detect
+listing-kit validate
+listing-kit review
 ```
 
-For Codex:
+Doctor reports tools, the plan and the hook. On this first run the plan and hook can be missing. Detect prints each platform condition and its evidence. Open `listing-review.html` to read the existing copy and see the galleries. The example's older iPhone shots leave the Dynamic Island medium set missing. The validator reports that failure.
+
+## Plan a new set
+
+Ask the agent to “prepare my store listing.” Read the routes and the flows together. The recipe list shows seeded recipes and the detail flow checks an ingredient. Start with these two screens for the missing iPhone slot. Agree on the captions and device before building.
+
+Save the following as `.listing-kit/listing.json` in your copy. It adds one target to exercise the pipeline. The existing iPad and Play assets remain part of the listing you review.
+
+```json
+{
+  "format": 2,
+  "app": {"ios": "sh.bilal.recipebox"},
+  "locales": ["en-US"],
+  "style": {"mode": "framed"},
+  "targets": [
+    {"id": "iphone", "store": "apple", "slot": "iphone-di-medium",
+     "size": [1206, 2622], "state": "active"}
+  ],
+  "screens": [
+    {"id": "recipes", "flow": ".listing-kit/flows/recipes.yaml",
+     "caption": {"en-US": "Your recipe box"}},
+    {"id": "recipe-detail", "flow": ".listing-kit/flows/recipe-detail.yaml",
+     "caption": {"en-US": "Ingredients at a glance"}}
+  ]
+}
+```
+
+Run `listing-kit plan check --for capture` to check the plan and flow paths. Run `listing-kit plan outputs` to see where the two raw and final images will go. For a larger plan, add locales, approved target slots, graphics and split roots as needed. [Plan reference](../skills/listing-kit/references/plan-file.md)
+
+## Build and capture
+
+On a Mac with the matching simulator installed, use the [Expo stack instructions](../skills/listing-kit/references/stacks/react-native-expo.md) to build and install the app. The rule for this target selects an iPhone 17 Pro. The example's flows clear app state on launch, so embed the JS bundle in a Release build.
 
 ```sh
-codex plugin marketplace add bilal-/listing-kit
-codex plugin add listing-kit@listing-kit
+npm ci
+npx expo run:ios --configuration Release --device "iPhone 17 Pro"
+listing-kit capture --dry-run
+listing-kit capture
 ```
 
-The skill installs **once** into your agent environment, then points at any
-mobile repo — it is not installed per app-repo.
+Dry run checks device selection. Capture runs the saved flows, sanitizes the status bar and writes the PNGs under `.listing-kit/raw/iphone/en-US/`. For an Android plan, install the app on the matching running emulator first.
 
-## 2. Kick it off
+## Compose, validate and review
 
-From inside your mobile app's repo, ask the agent something like:
-
-> *"Use listing-kit to prepare App Store and Google Play screenshots and metadata for this app."*
-
-The agent runs the pipeline:
-
-```
-detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
+```sh
+listing-kit compose --preview
+listing-kit compose
+listing-kit validate
+listing-kit review
 ```
 
-## 3. What happens at each step
+Inspect `.listing-kit/preview.html` for the planned appearance and `listing-review.html` for the finished listing. If compose reports an ownership conflict, inspect the named file before deciding which version to keep. Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
 
-### Detect & Doctor
-The agent classifies your stack (iOS / Android / Flutter / RN-Expo) and confirms
-targets with you. Then **Doctor** checks your toolchain *before* any build and
-reports anything missing with fix instructions. Optional tools (Maestro,
-ImageMagick) are noted but not required yet.
+In your app's Git worktree, run `listing-kit hook install` and check `listing-kit hook status`. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 
-### Discover & Curate — *your* main decision point
-The agent enumerates your screens from static repo signals (routes, storyboards,
-nav graphs, deep links) and shows you a list **before** building anything. You
-then decide, per screen:
+## Hand over
 
-| | |
-|---|---|
-| **Select** | Is it on the store? |
-| **Order** | Sequence — the first screenshot matters most |
-| **Name** | The marketing caption (the agent can propose one) |
-| **Desired state** | Free text: *"Library, populated with books, not empty"* |
+Run `listing-kit handoff --open` to open the upload index. Use its text and ordered assets in the named store destinations.
 
-### Plan
-Confirm stores, device classes (the agent pre-selects from repo hints like iPad
-support or a Wear module), and locale (`en-US` default). Default is **5 hero
-screens** per device class.
-
-### Configure — secrets stay out of the repo
-If the app already has `fastlane/` metadata, the agent reads it first and treats
-it as the baseline. A rerun should preserve good copy and make small edits for
-new features, changed screens, missing fields, or validation failures.
-
-If your app has a **demo mode** or accepts **mock data**, the agent uses it to
-populate screens. Any credentials needed go in a git-ignored
-`.listing-kit/secrets.local` or environment variables — **never** in committed
-files.
-
-### Run
-The agent builds and launches on the right simulator/emulator, sanitizes the
-status bar to **9:41 / full battery & signal**, and pre-grants permissions so
-dialogs don't interrupt automation.
-
-> On iOS, camera and App Tracking Transparency can't be pre-granted — if a screen
-> needs them, the agent dismisses the dialog in-flow or asks you to.
-
-### Drive
-Now Maestro is installed (prompted here, not earlier). For each curated screen
-the agent writes a Maestro flow that taps through the app by accessibility label
-and checks the screen shows real content, reaching your desired state. **Each flow is saved** as a
-rerunnable recipe under `.listing-kit/flows/`.
-
-If a screen can't be automated (canvas/game UI, missing semantics, unscriptable
-auth), the agent asks you to navigate there manually and signals when to capture.
-
-### Capture
-Screenshots are taken with clean SDK tooling (`simctl io ... screenshot`,
-`adb exec-out screencap`) at every required dimension, with the sanitized status
-bar intact. Raw captures carry an alpha channel, which both stores reject, so each
-one is flattened to 24-bit RGB (and Play phone shots are cropped to 9:16). This
-step needs ImageMagick; the agent asks you to install it here if it's missing.
-
-### Assemble & Validate
-Everything is written into the fastlane layout, ordered by numeric filename
-prefix, including the Play **feature graphic** (generated as an icon-on-gradient
-placeholder if you don't have one). A **secret scan** runs over the committed tree
-and **fails the run** if anything leaked. Then the written tree is checked against
-current store rules: character limits, screenshot sizes and formats, and required
-assets. If the app is in a git repo, the agent also installs a pre-commit hook so
-changes to [staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
-automatically refresh and stage `listing-review.html`.
-
-The validator reports when the store rules were verified and which project files or flags established platform support. To check a planned submission, run `validate-listing.sh <app-root> --as-of YYYY-MM-DD --ios-sdk X.Y`. A valid listing plan’s `platforms` flags take precedence over the iPhone/iPad environment overrides and static detection. The [Apple](../skills/listing-kit/references/stores/apple-app-store.md) and [Play](../skills/listing-kit/references/stores/google-play.md) tables show the bundled rules.
-
-You get a **report**: per store/locale, what exists vs. required vs. missing,
-with next actions.
-
-## 4. The output
-
-```
-fastlane/
-  metadata/                 # iOS copy (name, subtitle, description, keywords, URLs…)
-    android/                # Android copy + images/ (screenshots, featureGraphic, icon)
-  screenshots/<locale>/     # iOS screenshots, ordered 01_, 02_, …
-store-assets/apple/<locale>/  # App Store header assets (uploaded by hand in App Store Connect)
-listing-review.html         # open in a browser: copy buttons, screenshots, validation
-.listing-kit/asset-plan.json  # the Apple screenshot sets and headers you approved
-.listing-kit/flows/         # Maestro flows: committed, so reruns and CI can replay them
-.listing-kit/secrets.local  # git-ignored: credentials for demo/mock logins (NEVER committed)
-```
-
-Commit `fastlane/`. Review the copy like code. Re-run any time the app changes.
-Existing copy is the baseline on reruns, so the expected output is a focused diff,
-not a fresh rewrite. In git repos, changes to
-[staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
-refresh `listing-review.html` at commit time. The saved Maestro flows make
-screenshot capture repeatable.
-
-## 5. Re-running & CI
-
-Because flows are persisted, later runs replay them. For CI, tell the agent to run
-*non-interactively* (the skill's `--non-interactive` mode): it skips manual-assist and prompts, reports missing assets
-instead of hanging, and relies on the flows captured in a prior interactive run.
-
-## 6. Troubleshooting
-
-| Symptom | Likely cause / fix |
-|---|---|
-| Doctor fails on iOS | Run `xcode-select --install`; `pod install` if a Podfile exists |
-| Maestro can't find a screen | Add accessibility labels; for Flutter, add `Semantics`/`semanticLabel` |
-| Permission dialog blocks a flow | Camera/ATT can't be pre-granted on iOS — handled in-flow or manually |
-| Feature graphic step skipped | Install ImageMagick (`brew install imagemagick`) or supply a graphic matching the [Play graphics table](../skills/listing-kit/references/stores/google-play.md#graphics) |
-| Validator: "must be RGB no-alpha" | A raw capture slipped through: run `scripts/capture/normalize-screenshot.sh in.png out.png` (add `--play` for Play) |
-| Secret scan failed the run | A credential reached the listing tree — move it to `.listing-kit/secrets.local` |
-
-## 7. Going further
-
-- **Add a stack or store**: write a module in `skills/listing-kit/references/` —
-  see [CONTRIBUTING.md](../CONTRIBUTING.md).
-- **Manage a store listing** with `listing-kit fastlane setup`, `listing-kit pull`, and `listing-kit publish`. The publish preview shows the replacement scope before hand upload. [Store management](../skills/listing-kit/references/metadata/fastlane-layout.md#store-management)
+For an app you own on the store, `listing-kit fastlane setup` checks download access using a credential path. Use `listing-kit pull` to import existing text and review conflicts. Run `listing-kit publish` for a change summary and the proposed fastlane command. This version does not upload until the store adapter passes its live test. [Credentials](CREDENTIALS.md) · [Troubleshooting](TROUBLESHOOTING.md)

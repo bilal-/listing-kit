@@ -36,13 +36,11 @@ Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-
 
 <!-- rules:end screenshots -->
 
-Record the selected sets and counts in the [asset plan](../metadata/fastlane-layout.md#apple-asset-plan). For Duo, use the [native capture preflight](../stacks/ios-native.md#optional-duo-capture) to check the installed devices and runtimes. Record a deferred target with its reason in `deferredScreenshots`. Check the dated requirements above for the intended submission date and build SDK.
-
-Run `scripts/capture/normalize-screenshot.sh in.png out.png` on raw captures before validation.
+Select slot IDs in the [listing plan](../plan-file.md). For Duo, use the [native preflight](../stacks/ios-native.md#optional-duo-capture) to check the devices and runtimes. Record a reason for a deferred target. Check dated requirements for the intended submission date and build SDK.
 
 ## Detecting iPad support
 
-The validator reads the native target device family, Info.plist and static Expo configuration. Use the iPad slot above to select a simulator. Place captures in the locale screenshot directory with an iPad-specific filename prefix.
+Run `listing-kit detect` to inspect native device families and static Expo settings. Confirm unknown support with the user. Capture and compose the approved iPad target with its own slot and output filenames.
 
 ## Metadata fields
 

@@ -35,17 +35,9 @@ editing app code, or gate it behind a `--dart-define` the app reads). A built de
 app runs standalone on the simulator, so Maestro's `clearState` still works. Boot
 the simulator/emulator first (see the native docs) so it appears in `flutter devices`.
 
-## Sanitize & permissions
-Same as the underlying platform:
-- iOS: `scripts/capture/sanitize-status-bar.sh ios booted`, then
-  `scripts/capture/grant-permissions.sh ios <bundle-id> booted`
-- Android: `scripts/capture/sanitize-status-bar.sh android`, then
-  `scripts/capture/grant-permissions.sh android <applicationId>`
-
 ## Capture
-Use the **platform** SDK tooling, not `flutter screenshot` (which lacks the
-status-bar override): `xcrun simctl io booted screenshot` on iOS,
-`adb exec-out screencap -p` on Android.
+
+Run `listing-kit capture` against the installed app. The command selects the planned device and uses simctl or adb for the raw PNG. Set permissions and orientation in the Maestro flow.
 
 ## Driving caveat
 Maestro drives Flutter through the **semantics tree**. It must be populated for

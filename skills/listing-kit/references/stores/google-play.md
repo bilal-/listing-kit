@@ -37,7 +37,7 @@ Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay
 
 <!-- rules:end graphics -->
 
-Generate an icon-on-gradient feature graphic with `scripts/generate/feature-graphic.sh` or supply the finished artwork. Keep feature graphics separate from screenshots.
+Supply finished artwork or plan a feature graphic and an icon source under `graphics.play`. Run `listing-kit compose` to produce the planned graphics.
 
 ## Detecting tablet support (decide whether to capture tablet sets)
 

@@ -75,6 +75,4 @@ screen styling alone does not cover views outside the React tree. Verify the
 actual raw capture before attributing a margin to the app or editing its pixels.
 See [Expo SystemUI](https://docs.expo.dev/versions/latest/sdk/system-ui/).
 
-Same as the underlying platform — use the **platform** SDK tooling
-(`xcrun simctl` / `adb`) for status bar, permissions, and capture. See
-`ios-native.md` and `android-native.md`.
+Run `listing-kit capture` with the matching installed build and [saved flows](../driving/maestro.md). Capture handles the status bar and device screenshot.

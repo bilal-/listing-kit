@@ -47,7 +47,7 @@ assert_contains "$(head -5 "$SKILL_DIR/SKILL.md")" "description:"
 # ---- all expected reference docs exist ----
 for d in stores/apple-app-store stores/google-play \
          stacks/ios-native stacks/android-native stacks/flutter stacks/react-native-expo \
-         driving/maestro metadata/fastlane-layout platforms/tool-mapping; do
+         plan-file driving/maestro metadata/fastlane-layout platforms/tool-mapping; do
   it "reference doc exists: $d.md"
   assert_file "$SKILL_DIR/references/$d.md"
 done
@@ -94,12 +94,10 @@ SK="$(cat "$SKILL_DIR/SKILL.md")"
 assert_contains "$SK" "Never fabricate"
 
 it "SKILL.md states reruns preserve existing fastlane listings"
-assert_contains "$SK" "Preserve existing listings on reruns"
-assert_contains "$SK" "treat it as the baseline"
-assert_contains "$SK" "Do not rewrite a good description"
+assert_contains "$SK" "Ask before rewriting committed content"
+assert_contains "$SK" "Read existing copy, plans, flows and assets first"
 
-it "SKILL.md states git repos install the review refresh hook"
-assert_contains "$SK" 'run `scripts/package/install-review-hook.sh`'
-assert_contains "$SK" 'The hook watches staged changes to `fastlane/**`, `store-assets/**`, files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and app-owned `*.pbxproj` or `Info.plist` files.'
+it "the agent installs the review hook through the public command"
+assert_contains "$SK" "listing-kit hook install"
 
 summary
