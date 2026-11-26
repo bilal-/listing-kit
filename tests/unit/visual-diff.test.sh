@@ -201,4 +201,25 @@ if command -v magick >/dev/null 2>&1; then
   rm -rf "$P" "$C"
 fi
 
+it "pairs filenames containing newlines and counts a failed final merge"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+name=$'two\nlines.png'
+touch "$P/$name" "$C/$name"
+OUT="$(LK_NO_IMAGEMAGICK=1 bash "$SUT" "$P" "$C" 2>&1)"
+assert_contains "$OUT" "1 unchanged"
+new_stubdir
+cat > "$STUB_BIN/sort" <<EOF
+#!/bin/sh
+for arg do
+  if [ "\$arg" = -u ]; then echo 'merge error' >&2; exit 1; fi
+done
+exec "$(command -v sort)" "\$@"
+EOF
+chmod +x "$STUB_BIN/sort"
+OUT="$(LK_NO_IMAGEMAGICK=1 PATH="$STUB_BIN:$PATH" bash "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" "merge error"
+assert_contains "$OUT" "1 errors"
+rm -rf "$P" "$C"
+
 summary

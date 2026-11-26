@@ -140,6 +140,8 @@ it "ignores an unrelated fastlane/metadata/README.md on a Play-only listing"
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"
 rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
 printf '# Metadata notes\n' > "$T/fastlane/metadata/README.md"
+mkdir -p "$T/fastlane/metadata/notes" "$T/fastlane/screenshots/notes"
+touch "$T/fastlane/metadata/notes/README.md" "$T/fastlane/screenshots/notes/README.md"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 PAGE="$(cat "$T/listing-review.html")"
@@ -162,13 +164,21 @@ it "fails explicitly instead of emitting an empty validation section when transc
 SHIM="$(mktemp -d)"
 cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
 mkdir -p "$SHIM/validate"
-printf '#!/usr/bin/env bash\necho "validator crashed" >&2\nexit 2\n' > "$SHIM/validate/validate-listing.sh"
-chmod +x "$SHIM/validate/validate-listing.sh"
-T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
-OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
-assert_eq 1 "$RC" "validator exit 2 fails build-review"
-assert_contains "$OUT" "transcript"
-if [ -f "$T/listing-review.html" ]; then fail "should not write listing-review.html on failed transcript capture"; else pass "no broken html written"; fi
+T="$(mktemp -d)"; mkdir -p "$T/fastlane"
+for spec in '1|unexpected <exception>' '2|LISTING HAS FAILURES' '0|LISTING VALID\nLISTING HAS FAILURES' '1|LISTING VALID' '0|LISTING VALID\nTraceback'; do
+  printf 'printf "%%b\\n" "%s"\nexit %s\n' "${spec#*|}" "${spec%%|*}" > "$SHIM/validate/validate-listing.sh"
+  OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "crash or mismatched terminal verdict fails build-review"
+  PAGE="$(cat "$T/listing-review.html" 2>/dev/null)"
+  assert_contains "$PAGE" "validator crashed"
+  case "$spec" in *exception*) assert_contains "$PAGE" "unexpected &lt;exception&gt;";; esac
+done
+for spec in '1|LISTING HAS FAILURES' '0|LISTING VALID' '1|nothing to validate'; do
+  printf 'echo "%s"\nexit %s\n' "${spec#*|}" "${spec%%|*}" > "$SHIM/validate/validate-listing.sh"
+  OUT="$(bash "$SHIM/package/build-review.sh" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "accept matching terminal verdict $spec"
+  assert_not_contains "$(cat "$T/listing-review.html")" 'validator crashed'
+done
 rm -rf "$T" "$SHIM"
 
 it "renders Apple review panels when only metadata/default/ or app-level copy is present"

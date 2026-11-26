@@ -137,7 +137,10 @@ Packages:
       android.permission.INTERNET
       android.permission.CAMERA
       android.permission.ACCESS_FINE_LOCATION: restricted=true
+    install permissions:
+      android.permission.READ_CONTACTS: granted=true
 DUMP
+      awk 'BEGIN {for(i=0;i<16000;i++) print "additional package information"}' 
     exit 0;;
 esac
 exit 0
@@ -146,6 +149,7 @@ chmod +x "$STUB_BIN/adb"
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" android com.example.app 2>&1)"; RC=$?
 LOG="$(stub_log)"
 assert_eq 0 "$RC" "android exits 0 when declared grants succeed"
+assert_eq 1 "$(printf '%s\n' "$LOG" | grep -c 'dumpsys package')" "one package inspection"
 assert_contains "$LOG" "shell pm grant com.example.app android.permission.CAMERA"
 assert_contains "$LOG" "shell pm grant com.example.app android.permission.ACCESS_FINE_LOCATION"
 assert_not_contains "$LOG" "pm grant com.example.app android.permission.READ_CONTACTS" "undeclared permission skipped"
@@ -157,7 +161,7 @@ cat > "$STUB_BIN/adb" <<EOF
 echo "adb \$*" >> "$STUB_LOG"
 case "\$*" in
   *"dumpsys package com.example.app"*)
-    printf 'Packages:\n  Package [com.example.app]:\n    requested permissions:\n      android.permission.INTERNET\n'
+    printf 'Packages:\n  Package [com.example.app]:\n    requested permissions:\n      android.permission.INTERNET\n    runtime permissions:\n      android.permission.CAMERA: granted=false\n'
     exit 0;;
 esac
 exit 0

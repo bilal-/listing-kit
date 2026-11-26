@@ -167,15 +167,21 @@ write_png("trns_before_plte.png", 2, 2, 1, 3, [chunk(b"tRNS", b"\x00"), chunk(b"
 write_png("trns_over_plte.png", 2, 2, 1, 3, [chunk(b"PLTE", b"\x00\x00\x00"), chunk(b"tRNS", b"\x00\x00"), idat_idx1])
 # PLTE on ct=0, PLTE after IDAT, tRNS after IDAT, PLTE > 2^depth on ct=3, unknown critical chunk
 write_png("plte_ct0.png", 2, 2, 8, 0, [chunk(b"PLTE", b"\x00\x00\x00"), idat_gray])
+write_png("rgb_trns_before_plte.png", 2, 2, 8, 2, [chunk(b"tRNS", bytes(6)), chunk(b"PLTE", bytes(3)), idat_rgb])
+write_png("animated.png", 2, 2, 8, 2, [chunk(b"acTL", struct.pack(">II", 1, 0)), idat_rgb])
 write_png("plte_after_idat.png", 2, 2, 8, 2, [idat_rgb, chunk(b"PLTE", b"\x00\x00\x00")])
 write_png("trns_after_idat.png", 2, 2, 8, 2, [idat_rgb, chunk(b"tRNS", b"\x00" * 6)])
 write_png("plte_over_depth.png", 2, 2, 1, 3, [chunk(b"PLTE", b"\x00\x00\x00" * 3), idat_idx1])
 write_png("unknown_crit.png", 2, 2, 8, 2, [chunk(b"ABCD", b"x"), idat_rgb])
 PY
 for f in trns_ct6 trns_ct4 trns_ct0_len trns_ct2_len trns_before_plte trns_over_plte \
-         plte_ct0 plte_after_idat trns_after_idat plte_over_depth unknown_crit; do
+         rgb_trns_before_plte plte_ct0 plte_after_idat trns_after_idat plte_over_depth unknown_crit; do
   assert_eq "$UNK" "$(info4 "$TMP/$f.png")" "reject $f"
 done
+
+it "reports animated PNGs as unsuitable for a static listing"
+assert_eq "$UNK" "$(info4 "$TMP/animated.png")"
+assert_contains "$(python3 "$SUT" --validate "$TMP/animated.png")" "animated PNG"
 
 it "refuses PNGs exceeding the 64-megapixel cap before inflating"
 python3 - "$TMP" <<'PY'
@@ -280,7 +286,7 @@ open(os.path.join(td, "nodqt.jpg"), "wb").write(b"\xff\xd8" + dht0 + sof + sos +
 open(os.path.join(td, "wrongdqt.jpg"), "wb").write(b"\xff\xd8" + dqt1 + dht0 + sof + sos + b"\x00\xff\xd9")
 sos_ta1 = b"\xff\xda" + struct.pack(">HB", 12, 3) + b"\x01\x01\x02\x00\x03\x00\x00\x3f\x00"
 open(os.path.join(td, "wrongdht.jpg"), "wb").write(b"\xff\xd8" + dqt0 + dht0 + sof + sos_ta1 + b"\x00\xff\xd9")
-# Arithmetic SOF9 without DAC rejected, with DAC accepted
+# Arithmetic SOF9 with default or explicit conditioning tables
 sof9 = seg(0xC9, struct.pack(">BHHB", 8, 40, 60, 1) + b"\x01\x11\x00")
 sos9 = seg(0xDA, b"\x01\x01\x00\x00\x3f\x00")
 dac = seg(0xCC, b"\x00\x01\x10\x05")
@@ -315,12 +321,21 @@ open(os.path.join(td, "prog_ok.jpg"), "wb").write(
 PY
 
 for bad in nosos noeoi emptyscan sosfirst notables_base notables_prog nodht nodqt wrongdqt wrongdht \
-           arith_nodac garbage ff_ff_00 ff_ff_00_chunk rst_only badsof_len badsos_ns0 badsos_trunc; do
+           garbage ff_ff_00 ff_ff_00_chunk rst_only badsof_len badsos_ns0 badsos_trunc; do
   assert_eq "$UNK" "$(info4 "$TMP/$bad.jpg")" "reject JPEG $bad"
 done
 assert_eq "$(printf '1024\t500\t8\t2')" "$(info4 "$TMP/valid_rst.jpg")" "valid JPEG with byte stuffing + fill RST0"
 assert_eq "$(printf '300\t200\t8\t0')" "$(info4 "$TMP/prog_ok.jpg")" "valid progressive JPEG with per-scan DHT"
 assert_eq "$(printf '60\t40\t8\t0')" "$(info4 "$TMP/arith_ok.jpg")" "arithmetic JPEG with DQT + DAC"
+assert_eq "$(printf '60\t40\t8\t0')" "$(info4 "$TMP/arith_nodac.jpg")" "arithmetic JPEG with default tables"
+assert_eq "65535" "$(python3 - "$TMP/ff_ff_00_chunk.jpg" <<'PYOFFSET'
+import sys
+data = open(sys.argv[1], "rb").read()
+sos = data.index(b"\xff\xda") + 2
+start = sos + int.from_bytes(data[sos:sos + 2], "big")
+print(data.index(b"\xff\xff\x00", start) - start)
+PYOFFSET
+)" "first FF is the last byte in the first entropy read"
 assert_eq "$UNK" "$(info4 "$TMP/missing.png")" "missing file reports UNKNOWN"
 
 it "fake_jpeg pads unused final bits with 1s per T.81 on odd MCU counts"
@@ -345,7 +360,7 @@ ln -s "$PY_BIN" "$STUB_BIN/python3"
 cat > "$STUB_BIN/magick" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-  *warn.png*) echo "magick: warning" >&2; exit 0;;
+  *warn.png*) echo "Corrupt JPEG data: premature end of data segment" >&2; exit 0;;
   *bad.png*) exit 1;;
   *) exit 0;;
 esac
@@ -357,18 +372,56 @@ assert_contains "$DEC_MULTI" "$(printf 'ok\t%s' "$TMP/good.png")" "magick stub o
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/warn.png")" "magick warning treated as bad"
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/bad.png")" "magick exit 1 treated as bad"
 
-# Stub IM6 convert (no magick) and IM6 identify-only (no magick or convert)
 IM6_BIN="$(mktemp -d)"; STUB_DIRS+=("$IM6_BIN")
-ln -s "$PY_BIN" "$IM6_BIN/python3"
-printf '#!/bin/sh\nexit 0\n' > "$IM6_BIN/convert"; chmod +x "$IM6_BIN/convert"
-assert_eq "ok" "$(PATH="$IM6_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" | cut -f1)" "IM6 convert ok"
-rm -f "$IM6_BIN/convert"
-printf '#!/bin/sh\nexit 1\n' > "$IM6_BIN/identify"; chmod +x "$IM6_BIN/identify"
-assert_eq "bad" "$(PATH="$IM6_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" | cut -f1)" "IM6 identify exit 1 bad"
+cp "$TMP/good.png" "$TMP/good two.png"
+for decoder in convert identify; do
+  cat > "$IM6_BIN/$decoder" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" >> "$ARG_LOG"
+EOF
+  chmod +x "$IM6_BIN/$decoder"
+  ARG_LOG="$TMP/args" PATH="$IM6_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" "$TMP/good two.png" > "$TMP/status"
+  assert_eq "$(printf 'ok\t%s\nok\t%s' "$TMP/good.png" "$TMP/good two.png")" "$(cat "$TMP/status")"
+  if [ "$decoder" = convert ]; then
+    expected="$(printf '%s\n' "$TMP/good.png" "$TMP/good two.png" 'null:')"
+  else
+    expected="$(printf '%s\n' -verbose "$TMP/good.png" "$TMP/good two.png")"
+  fi
+  assert_eq "$expected" "$(cat "$TMP/args")" "$decoder fully decodes both files in one command"
+  rm "$TMP/args" "$IM6_BIN/$decoder"
+done
+
+it "bounds decoder invocations by file and pixel count, bisecting only failed batches"
+cat > "$IM6_BIN/magick" <<'EOF'
+#!/bin/sh
+count=0
+rc=0
+for arg do
+  case "$arg" in *.png|*.jpg) count=$((count+1));; esac
+  case "$arg" in */bad.png) rc=1;; esac
+done
+echo "$count" >> "$ARG_LOG"
+exit "$rc"
+EOF
+chmod +x "$IM6_BIN/magick"
+batch_sizes(){
+  : > "$TMP/sizes"
+  ARG_LOG="$TMP/sizes" PATH="$IM6_BIN" "$PY_BIN" "$SUT" --decode "$@" > "$TMP/status"
+  paste -sd, "$TMP/sizes"
+}
+args=()
+for ((i=0;i<17;i++)); do args+=("$TMP/good.png"); done
+assert_eq '16,1' "$(batch_sizes "${args[@]}")" "16-file cap"
+fake_jpeg "$TMP/large.jpg" 8000 8000
+assert_eq '3,1' "$(batch_sizes "$TMP/large.jpg" "$TMP/large.jpg" "$TMP/large.jpg" "$TMP/large.jpg")" "200 MP cap"
+args[0]="$TMP/bad.png"
+assert_eq '8,4,2,1,1,2,4' "$(batch_sizes "${args[@]:0:8}")" "bisect eight files with one failure"
+assert_eq 1 "$(grep -c '^bad' "$TMP/status")" "isolate only the bad file"
 
 if command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
   assert_eq "ok" "$(dec1 "$TMP/good.png")" "real IM decodes fake_png"
   assert_eq "ok" "$(dec1 "$TMP/one_mcu.jpg")" "real IM decodes 1x1 fake_jpeg"
+  assert_eq "ok" "$(dec1 "$TMP/pad4.png")" "real IM fully decodes padded final IDAT"
   # Structurally framed 64x64 JPEG whose 1-byte scan triggers Corrupt JPEG data warning
   python3 - "$TMP/short_scan.jpg" <<'PY'
 import struct, sys

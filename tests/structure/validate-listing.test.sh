@@ -56,6 +56,8 @@ rm -rf "$T"
 it "a Play-only listing passes (even with an unrelated fastlane/metadata/README.md)"
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt
 printf '# Listing metadata notes\n' > "$T/fastlane/metadata/README.md"
+mkdir -p "$T/fastlane/metadata/notes" "$T/fastlane/screenshots/notes"
+touch "$T/fastlane/metadata/notes/README.md" "$T/fastlane/screenshots/notes/README.md"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0 for Play-only with README.md"
 assert_contains "$OUT" "== Google Play =="
@@ -478,6 +480,7 @@ done
 T="$(mktemp -d)"; cp -R "$APP/fastlane" "$APP/app.json" "$T/"
 fake_png "$T/store-assets/apple/en-US/header-16x9.png" 5244 2950
 OUT="$(PATH="$NOIM_BIN" "$BASH_BIN" "$SUT" "$T" 2>&1)"; RC=$?
+assert_not_contains "$OUT" "command not found" "restricted PATH supplies every validator command"
 assert_eq 0 "$RC" "structural-only validation passes with a warning when IM is absent"
 assert_contains "$OUT" "structurally only"
 WARN_LINES="$(printf '%s\n' "$OUT" | grep -c 'structurally only' || true)"
@@ -514,5 +517,52 @@ PY
   assert_not_contains "$OUT" "✓ feature graphic 1024x500"
   rm -rf "$T"
 fi
+
+it "rejects oversized PNG/JPEG and malformed assets before starting ImageMagick"
+T="$(mktemp -d)"
+fake_png "$T/$PHONE/over.png" 8001 8000 1 0
+fake_jpeg "$T/$PHONE/over.jpg" 8001 8000
+fake_jpeg "$T/store-assets/apple/en-US/header.jpg" 8001 8000
+printf garbage > "$T/$PHONE/damaged.png"
+new_stubdir; stub magick
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_eq "" "$(stub_log)" "no decoder invoked for structurally rejected files"
+rm -rf "$T"
+
+it "checks the TV banner and all duplicate graphic candidates"
+play_only
+printf broken > "$T/$IMG/tvBanner.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "a corrupt optional TV banner fails validation"
+assert_contains "$OUT" "tvBanner.png"
+rm "$T/$IMG/tvBanner.png"
+fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
+printf broken > "$T/$IMG/featureGraphic.png"
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" "duplicate featureGraphic"
+assert_contains "$OUT" "featureGraphic.png: image failed"
+rm -rf "$T"
+
+it "reports the decoder's resource limit as a warning on each blocked asset"
+play_only
+fake_png "$T/store-assets/apple/en-US/header.png" 3840 1646
+cp -R "$APP/fastlane/screenshots" "$T/fastlane/"
+cp -R "$APP/fastlane/metadata/en-US" "$T/fastlane/metadata/"
+new_stubdir
+cat > "$STUB_BIN/magick" <<'LIMIT'
+#!/bin/sh
+echo 'Image width exceeds user limit in IHDR' >&2
+exit 1
+LIMIT
+chmod +x "$STUB_BIN/magick"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "policy warnings allow a structurally valid listing"
+for asset in header.png medium_01.png icon.png featureGraphic.png 01_recipes.png; do
+  warnings="$(printf '%s\n' "$OUT" | grep ' ! ' || true)"
+  assert_contains "$warnings" "$asset: could not decode: Image width exceeds user limit"
+done
+rm -rf "$T"
 
 summary
