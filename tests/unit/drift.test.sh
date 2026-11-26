@@ -3,7 +3,9 @@
 new_tempdir area
 cp -R "$ROOT/tests/fixtures/drift" "$area/pages"
 pages="$area/pages"
-digests="$area/digests"
+export LK_DRIFT_TEST_ROOT="$area/allowed"
+mkdir -p "$LK_DRIFT_TEST_ROOT"
+digests="$LK_DRIFT_TEST_ROOT/digests"
 script="$SCRIPTS/specs/drift.py"
 run_drift() {
   out="$(python3 -I -B "$script" "$@" 2>&1)"
@@ -37,25 +39,50 @@ PY
 
 expect_digest() {
   it "extracts sorted, unique facts from $1"
-  run_drift extract "${1%.*}" "$pages/$1"
+  run_drift extract "${3:-${1%.*}}" "$pages/$1"
   assert_eq 0 "$rc"
   if [ "$rc" = 0 ]; then
     python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]) != json.loads(sys.argv[2]))' "$out" "$2" && pass || fail "$out"
   fi
 }
-expect_digest apple-screenshots.html '["1284x2778","2778x1284","512x512","9 April 2027","April 2027","Sept. 9, 2026","September 9, 2026"]'
-expect_digest apple-version-info.html '["Keywords: up to 100 bytes","Promotional text: 170 characters"]'
-expect_digest apple-app-info.html '["Name: 30 characters","Subtitle: 30 characters"]'
-expect_digest apple-creative-assets.html '["1024x1024"]'
-expect_digest play-preview-assets.html '["1024x500","512x512"]'
-expect_digest play-store-listing-fields.html '["App name: 30 characters","Full description: up to 4000 characters","Short description: 80 characters","Tags: up to 5"]'
-expect_digest apple-upcoming-requirements.html '["App icon requirements: May 2027","Icon updates: June 2027","SDK requirements: September 9, 2026","Screenshot requirements: April 2027"]'
-expect_digest fastlane-screenshots.rb '["APPLE_TV: 1920x1080","IOS_55: 1242x2208","IOS_65: 1284x2778","IOS_65: 2778x1284","IPAD: 1024x768"]'
-expect_digest fastlane-supply.rb '["IMAGES_TYPES: featureGraphic","IMAGES_TYPES: icon","METADATA_UPLOAD_FIELDS: short_description","METADATA_UPLOAD_FIELDS: title","SCREENSHOT_TYPES: phoneScreenshots","SCREENSHOT_TYPES: sevenInchScreenshots"]'
-expect_digest fastlane-languages.rb '["ALL_LANGUAGES: de-DE","ALL_LANGUAGES: en-US"]'
+expect_digest apple-screenshots.html '["Devices / Phone :: 1170x2532","Devices / tablet :: 2048x2732","Devices / tablet :: 2732x2048","Phone A / Portrait :: 1170x2532","Phone B / Portrait :: 1170x2532","Screenshot sizes / Other sample dates :: 9 April 2027","Screenshot sizes / Other sample dates :: Sept. 9, 2026","Screenshot sizes / Phone A :: 1170x2532","Screenshot sizes / Phone B :: 1080x1920","Screenshot sizes / Phone B :: 1170x2532","Screenshot sizes / starting in :: April 2027","Screenshot sizes :: 1284x2778","Screenshot sizes :: 2778x1284","Screenshot sizes :: 512x512","Screenshot sizes :: September 9, 2026"]'
+expect_digest apple-version-info.html '["Keywords :: up to 100 bytes","Listing fields / Description :: 80 characters","Listing fields / Metadata / Caption :: between 2 and 30 characters","Listing fields / Metadata / Summary :: 80 characters","Listing fields / Name :: 30 characters","Promotional text :: 170 characters"]'
+expect_digest apple-app-info.html '["App / Name :: 30 characters","Bundle / Name :: 50 characters","Fields / Name :: 30 characters","Fields / Subtitle :: 50 characters","Name :: 30 characters","Subtitle :: 30 characters"]'
+expect_digest apple-creative-assets.html '["App icon :: 1024x1024"]'
+expect_digest play-preview-assets.html '["Artwork / Feature graphic :: 1024x500","Artwork / Icon :: 512x512","Phone screenshots / Each side must be :: between 320 px and 3,840 px","Phone screenshots / The long side is :: at most 2.3 times","Phone screenshots / The short side has a :: minimum 1080px","Phone screenshots / the short side. Use :: 16:9"]'
+expect_digest play-store-listing-fields.html '["Store listing / App name :: 30 characters","Store listing / Full description :: up to 4000 characters","Store listing / Short description :: 80 characters","Tags / Select :: up to 5"]'
+expect_digest apple-upcoming-requirements.html '["App icon requirements :: May 2027","Icon updates :: June 2027 :: Explanatory copy goes here. June 2027","SDK :: April 2027 :: Beta April 2027, mandatory June 2027","SDK :: June 2027 :: Beta April 2027, mandatory June 2027","SDK requirements :: September 9, 2026","Screenshot requirements :: April 2027"]'
+expect_digest fastlane-screenshots.rb '["DisplayType::APPLE_TV :: [[1920,1080]]","DisplayType::IOS_65 :: [[1284,2778],[2778,1284]]","DisplayType::IPAD :: [1024,768]","IOS_55 :: [[1242,2208]]","IOS_61 :: [[1170,2532],[2532,1170]]"]'
+expect_digest fastlane-supply.rb '["AVAILABLE_METADATA_FIELDS :: [\"title\",\"short_description\",\"full_description\",\"video\"]","IMAGES_TYPES :: [\"featureGraphic\",\"icon\",\"tvBanner\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\",\"tenInchScreenshots\",\"tvScreenshots\",\"wearScreenshots\"]"]'
+expect_digest fastlane-languages.rb '["ALL_LANGUAGES :: [\"en-US\",\"de-DE\"]"]'
 
 check_pages() { run_drift check --pages "$pages" --digests "$digests"; }
 update_pages() { run_drift update --pages "$pages" --digests "$digests"; }
+
+table="$pages/play-listing-table.html"
+table_facts='["Store listing / App name :: Character limit = 30","Store listing / Full description :: Character limit = 4000","Store listing / Short description :: Character limit = 80"]'
+expect_digest play-listing-table.html "$table_facts" play-store-listing-fields
+sed -e 's/<th>/<td><p>/g' -e 's#</th>#</p></td>#g' \
+  -e 's/limit\*/<b>limit<\/b><sup>*<\/sup>/' -e 's/>80</><p><b>80<\/b><\/p></' \
+  "$table" > "$pages/nested-table.html"
+expect_digest nested-table.html "$table_facts" play-store-listing-fields
+
+it "bare numbers in a table without a limit header are ignored"
+sed 's/Character limit\*/Example/' "$table" > "$pages/no-limit.html"
+run_drift extract play-store-listing-fields "$pages/no-limit.html"
+assert_eq 2 "$rc"
+assert_contains "$out" 'zero facts'
+
+cat > "$pages/device-columns.html" <<'HTML'
+<h1>Artwork</h1><h2>Screenshots</h2><table>
+<tr><th>Orientation</th><th>Phone</th><th>Tablet</th></tr>
+<tr><td>Portrait</td><td>1170 x 2532</td><td>2048 x 2732</td></tr></table>
+HTML
+expect_digest device-columns.html '["Artwork / Screenshots / Portrait :: Phone = 1170x2532","Artwork / Screenshots / Portrait :: Tablet = 2048x2732"]' apple-screenshots
+
+# Keep the prose facts in the baseline so check can run even if it misses the table.
+listing_page="$pages/play-store-listing-fields.html"
+cat "$table" >> "$listing_page"
 it "check identifies unseeded sources"
 check_pages
 assert_eq 2 "$rc"
@@ -75,15 +102,299 @@ check_pages
 assert_eq 0 "$rc"
 assert_contains "$out" 'apple-screenshots: unchanged'
 
+# Change just one rule against the same reviewed snapshot each time.
+changed_rule() {
+  local file="$1" old="$2" new="$3"
+  it "$4"
+  python3 - "$pages/$file" "$old" "$new" <<'PYEDIT'
+from pathlib import Path
+import sys
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = path.read_text()
+assert text.count(old) == 1
+path.write_text(text.replace(old, new))
+PYEDIT
+  check_pages
+  assert_eq 1 "$rc"
+  assert_contains "$out" "${file%.*}: changed"
+  cp "$ROOT/tests/fixtures/drift/$file" "$pages/$file"
+}
+
+it "check detects a changed bare limit"
+cp "$listing_page" "$area/listing-baseline.html"
+sed 's/>80</>90</' "$area/listing-baseline.html" > "$listing_page"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" 'play-store-listing-fields: changed'
+
+it "check detects two rows exchanging their bare limits"
+sed -e 's/>30</>SWAP</g' -e 's/>80</>30</g' -e 's/>SWAP</>80</g' "$area/listing-baseline.html" > "$listing_page"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" 'play-store-listing-fields: changed'
+cp "$area/listing-baseline.html" "$listing_page"
+changed_rule apple-screenshots.html '<h2>Phone A</h2><p>Portrait: 1170x2532' '<h2>Phone A</h2><p>Portrait: not accepted' 'one heading loses a shared portrait size'
+changed_rule apple-app-info.html '<p>Name: 30 characters</p><h2>Bundle</h2><p>Name: 50 characters' '<p>Name: 50 characters</p><h2>Bundle</h2><p>Name: 30 characters' 'identically named fields swap limits across headings'
+changed_rule apple-app-info.html '(30 characters)<br><b>Subtitle</b> (50 characters)' '(50 characters)<br><b>Subtitle</b> (30 characters)' 'inline fields swap limits across a line break'
+changed_rule apple-screenshots.html 'Phone 1170x2532, tablet 2048x2732' 'Phone 2048x2732, tablet 1170x2532' 'device sizes swap within a list item'
+changed_rule play-preview-assets.html '500 px' '600 px' 'unit-bearing dimensions change'
+changed_rule apple-screenshots.html '<td>1170x2532</td>' '<td>unavailable</td>' 'one device loses a shared size'
+changed_rule apple-screenshots.html '1170x2532</td></tr>
+<tr><th>Phone B</th><td>1170x2532 and 1080 by 1920' '1170x2532 and 1080 by 1920</td></tr>
+<tr><th>Phone B</th><td>1170x2532' 'a size moves between devices'
+changed_rule play-preview-assets.html '320 px' '360 px' 'standalone side range changes'
+changed_rule play-preview-assets.html '1080px' '1440px' 'minimum side changes'
+changed_rule play-preview-assets.html '2.3 times' '2.4 times' 'ratio multiplier changes'
+changed_rule play-preview-assets.html '16:9' '16:10' 'aspect ratio changes'
+changed_rule apple-version-info.html 'Between 2' 'Between 3' 'lower character bound changes'
+changed_rule apple-version-info.html 'Name: 30 characters</p><p>Description: 80' 'Name: 80 characters</p><p>Description: 30' 'paragraph fields swap limits'
+changed_rule apple-version-info.html 'Caption: Between 2 and 30 characters</td>
+<td>Summary: 80 characters' 'Caption: 80 characters</td>
+<td>Summary: Between 2 and 30 characters' 'table cells swap limits'
+changed_rule apple-upcoming-requirements.html 'mandatory June' 'mandatory July' 'second deadline changes under the same heading'
+changed_rule apple-upcoming-requirements.html 'mandatory June' 'optional June' 'milestone wording changes'
+changed_rule fastlane-screenshots.rb '[1170,2532]' '[1179,2556]' 'symbol-label display changes size'
+changed_rule fastlane-supply.rb 'title short_description' 'short_description title' 'Play metadata fields retain their complete ordered value'
+
+it "alternate Ruby literal and constant spellings still work"
+cat > "$pages/alternate.rb" <<'RB'
+METADATA_UPLOAD_FIELDS = ["title", "short_description"].freeze
+IMAGE_TYPES = %w|featureGraphic icon tvBanner|
+SCREENSHOT_TYPES = %w[
+  phoneScreenshots
+  sevenInchScreenshots
+].freeze
+OTHER = ["ignored"]
+RB
+expect_digest alternate.rb '["IMAGE_TYPES :: [\"featureGraphic\",\"icon\",\"tvBanner\"]","METADATA_UPLOAD_FIELDS :: [\"title\",\"short_description\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\"]"]' fastlane-supply
+
+it "Apple sizes retain display classes, panel labels, and Watch model groups"
+# Give the two real Play panels the same dimensions to exercise deduplication.
+cp "$pages/apple-display-cards.html" "$pages/apple-screenshots.html"
+sed 's/1280px by 720px/512px by 512px/' "$pages/play-asset-panels.html" > "$pages/play-preview-assets.html"
+update_pages
+assert_eq 0 "$rc"
+run_drift extract apple-screenshots "$pages/apple-screenshots.html"
+for fact in '13\" display :: 2048x2732' '12.9\" display :: 2048x2732' \
+            'iPhone Duo / outer display :: 1398x2034' 'iPhone Duo / inner display :: 2853x2007' \
+            'Apple Watch / Ultra 4, Ultra 3 :: 422x514' 'Apple Watch / Series 12, Series 11, Series 10 :: 416x496'; do
+  assert_contains "$out" "$fact"
+done
+it "removing the shared size from only the 13-inch display changes its digest"
+sed '1,/12.9" display/{ /2048 x 2732 pixels/d; }' "$pages/apple-display-cards.html" > "$pages/apple-screenshots.html"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" '- iPad / 13" display :: 2048x2732'
+assert_not_contains "$out" '- iPad / 12.9" display'
+cp "$pages/apple-display-cards.html" "$pages/apple-screenshots.html"
+it "removing shared dimensions from one asset changes only that panel"
+sed '/tv_banner_requirements/,$s/512px by 512px/not required/' "$pages/play-preview-assets.html" > "$area/edited.html"
+cp "$area/edited.html" "$pages/play-preview-assets.html"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" '- Preview assets / TV banner / Content guidelines / Requirements / Dimensions :: 512x512'
+assert_not_contains "$out" '- Preview assets / App icon'
+cp "$ROOT/tests/fixtures/drift/apple-screenshots.html" "$ROOT/tests/fixtures/drift/play-preview-assets.html" "$pages/"
+cp "$area/first/"*.json "$digests/"
+
+it "prose facts retain each parent heading"
+echo '<h2>App icon</h2><h3>Requirements</h3><p>Dimensions: 512x512</p>
+<h2>TV banner</h2><h3>Requirements</h3><p>Dimensions: 512x512</p>' > "$area/headings.html"
+run_drift extract play-preview-assets "$area/headings.html"
+assert_contains "$out" 'App icon / Requirements / Dimensions :: 512x512'
+assert_contains "$out" 'TV banner / Requirements / Dimensions :: 512x512'
+
+for pair in 'AVAILABLE_METADATA_FIELDS:metadata fields' 'IMAGES_TYPES:image types' 'SCREENSHOT_TYPES:screenshot types'; do
+  it "missing or empty ${pair#*:} reports a supply source problem"
+  for replacement in '' "${pair%%:*} = []"; do
+    sed "/${pair%%:*}/s/.*/$replacement/" "$ROOT/tests/fixtures/drift/fastlane-supply.rb" > "$pages/fastlane-supply.rb"
+    check_pages
+    assert_eq 2 "$rc"
+    assert_contains "$out" "fastlane-supply: problem"
+    assert_contains "$out" "${pair#*:}"
+  done
+done
+cp "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
+it "display names alone cannot mask missing display sizes"
+echo 'IOS_35 = "iOS-3.5-in"' > "$area/names-only.rb"
+run_drift extract fastlane-screenshots "$area/names-only.rb"
+assert_eq 2 "$rc"
+assert_contains "$out" 'display sizes'
+it "an empty language list reports a languages source problem"
+echo 'ALL_LANGUAGES = %w[]' > "$area/empty.rb"
+run_drift extract fastlane-languages "$area/empty.rb"
+assert_eq 2 "$rc"
+assert_contains "$out" 'languages: problem'
+assert_contains "$out" 'languages'
+
+it "a device heading survives prose inside an article or a labelled list item"
+cat > "$area/contexts.html" <<'HTML'
+<article><h2>Tablet</h2><p>Required size is 1200x1800.</p></article>
+<ul><li><p>Phone</p><p>Required size is 1080x1920.</p></li></ul>
+HTML
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Tablet / Required size is :: 1200x1800'
+assert_contains "$out" 'Phone / Required size is :: 1080x1920'
+
+it "repeated orientation labels retain their device row"
+cat > "$area/contexts.html" <<'HTML'
+<table><tr><th>Phone A</th><td>Portrait: 1170x2532</td></tr>
+<tr><th>Phone B</th><td>Portrait: 1170x2532</td></tr></table>
+HTML
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Phone A / Portrait :: 1170x2532'
+assert_contains "$out" 'Phone B / Portrait :: 1170x2532'
+
+it "row and item labels keep their heading and each inline orientation"
+cat > "$area/contexts.html" <<'HTML'
+<h2>Artwork</h2>
+<table><tr><th>Phone</th><td>Portrait: 1170x2532</td></tr></table>
+<li><p>Tablet</p><p>Portrait: 2048x2732</p><p>Landscape: 2732x2048</p></li>
+HTML
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Artwork / Phone / Portrait :: 1170x2532'
+assert_contains "$out" 'Artwork / Tablet / Portrait :: 2048x2732'
+assert_contains "$out" 'Artwork / Tablet / Landscape :: 2732x2048'
+
+it "nested lists retain the nearest device label"
+echo '<ul><li>Devices<ul><li><p>Tablet</p><p>1200x1800</p></li></ul></li></ul>' > "$area/contexts.html"
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Tablet :: 1200x1800'
+
+it "an outer device label scopes values in unlabelled nested items"
+echo '<h2>Sizes</h2><li>Phone<ul><li>Portrait: 1170x2532</li><li>Landscape: 2532x1170</li></ul></li>' > "$area/contexts.html"
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Sizes / Phone / Portrait :: 1170x2532'
+assert_contains "$out" 'Sizes / Phone / Landscape :: 2532x1170'
+
+it "inline field labels can introduce limits without a colon"
+echo '<h2>Metadata</h2><p><b>Name</b> (30 characters)</p><p><b>Subtitle</b> (30 characters)</p>' > "$area/fields.html"
+run_drift extract apple-app-info "$area/fields.html"
+assert_contains "$out" 'Name :: 30 characters'
+assert_contains "$out" 'Subtitle :: 30 characters'
+
+it "deadline context includes words following a standalone date"
+echo '<li><h3>SDK</h3><time>June 2027</time><p>Beta starts</p></li>' > "$area/date-first.html"
+run_drift extract apple-upcoming-requirements "$area/date-first.html"
+assert_contains "$out" 'SDK :: June 2027'
+assert_contains "$out" 'Beta starts'
+
+it "display names and constant-keyed hash values are facts"
+cat > "$pages/fastlane-screenshots.rb" <<'RB'
+IOS_35 = "iOS-3.5-in"
+IOS_35_SIZES = [[640,960]]
+IOS_40 = 'iOS-4-in'.freeze
+WATCH = 'Series #3' # device name
+display_names = { DisplayType::IOS_35 => "iPhone 3.5", DisplayType::IOS_40 => IOS_40, DisplayType::WATCH => ["watch", "watchOS"] }
+RB
+expect_digest fastlane-screenshots.rb '["DisplayType::IOS_35 :: \"iPhone 3.5\"","DisplayType::IOS_40 :: IOS_40","DisplayType::WATCH :: [\"watch\",\"watchOS\"]","IOS_35 :: \"iOS-3.5-in\"","IOS_35_SIZES :: [[640,960]]","IOS_40 :: \"iOS-4-in\"","WATCH :: \"Series #3\""]'
+cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$pages/"
+
+it "unsupported Ruby declarations leave other literal facts available"
+echo 'lookup = { generated_size => DisplayType::IOS_61 }' >> "$pages/fastlane-screenshots.rb"
+echo 'sizes = { IOS_70: [[100,200], computed] }' >> "$pages/fastlane-screenshots.rb"
+echo 'METADATA_FIELDS = build_fields()' >> "$pages/fastlane-supply.rb"
+check_pages
+assert_eq 0 "$rc"
+cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
+
+it "dated facts retain the rest of the sentence across paragraph boundaries"
+cat > "$area/window.html" <<'HTML'
+<li><h3>SDK</h3><p>Before one two three four five six seven eight</p><time>June 2027</time>
+<p>nine ten eleven twelve thirteen fourteen fifteen sixteen must be built with SDK 26.1. After</p></li>
+HTML
+run_drift extract apple-upcoming-requirements "$area/window.html"
+assert_contains "$out" 'SDK :: June 2027'
+assert_contains "$out" 'one two three four five six seven eight'
+assert_contains "$out" 'nine ten eleven twelve thirteen fourteen fifteen sixteen must be built with SDK 26.1.'
+before="$out"
+sed -e 's/Before/Changed introduction/' -e 's/After/Changed ending/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_eq "$before" "$out"
+
+sed 's/SDK 26\.1/SDK 26.2/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_ne "$before" "$out" "editing the required SDK after the date changes the fact"
+
+it "distant edits in a dated paragraph without a heading leave the digest unchanged"
+echo '<li>Old one two three four five six seven eight June 2027 nine ten eleven twelve thirteen fourteen fifteen sixteen End</li>' > "$area/window.html"
+run_drift extract apple-upcoming-requirements "$area/window.html"
+assert_eq 0 "$rc"
+before="$out"
+sed 's/Old/Revised/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_eq "$before" "$out"
+
+it "a deeply nested baseline is a problem and later sources still run"
+python3 -c 'print("[" * 2000 + "]" * 2000)' > "$digests/apple-screenshots.json"
+check_pages
+assert_eq 2 "$rc"
+assert_contains "$out" 'apple-screenshots: problem'
+assert_contains "$out" 'fastlane-languages: unchanged'
+assert_not_contains "$out" 'Traceback'
+cp "$area/first/apple-screenshots.json" "$digests/"
+
+it "check and update confine digests to the kit or explicit test directory"
+mkdir -p "$area/kit/specs"
+cp -R "$SKILL_DIR/bin" "$SCRIPTS" "$area/kit/"
+cp "$SKILL_DIR/specs/stores.json" "$area/kit/specs/"
+outside="$area/outside"
+cp -R "$digests" "$outside"
+ln -s "$outside" "$LK_DRIFT_TEST_ROOT/link"
+for command in check update; do
+  for path in "$outside" "$LK_DRIFT_TEST_ROOT/../outside" "$LK_DRIFT_TEST_ROOT/link"; do
+    run_drift "$command" --pages "$pages" --digests "$path"
+    assert_eq 2 "$rc"
+  done
+  (unset LK_DRIFT_TEST_ROOT
+   python3 -I -B "$script" "$command" --pages "$pages" --digests "$digests") >/dev/null 2>&1
+  assert_eq 2 "$?"
+done
+for command in update check; do
+  python3 -I -B "$area/kit/scripts/specs/drift.py" "$command" --pages "$pages" >/dev/null
+  assert_eq 0 "$?"
+done
+mv "$area/kit/specs/digests" "$area/kit-baselines"
+ln -s "$area/kit-baselines" "$area/kit/specs/digests"
+for command in check update; do
+  python3 -I -B "$area/kit/scripts/specs/drift.py" "$command" --pages "$pages" >/dev/null 2>&1
+  assert_eq 2 "$?"
+done
+
+it "a symlinked baseline cannot read outside the selected directory"
+mv "$digests/apple-screenshots.json" "$area/real.json"
+ln -s "$area/real.json" "$digests/apple-screenshots.json"
+check_pages
+assert_eq 2 "$rc"
+assert_contains "$out" 'apple-screenshots: problem'
+assert_contains "$out" 'fastlane-languages: unchanged'
+rm "$digests/apple-screenshots.json"
+mv "$area/real.json" "$digests/apple-screenshots.json"
+
+it "a computed suffix cannot be mistaken for a complete list"
+echo 'METADATA_FIELDS = ["title"] + extra' > "$pages/fastlane-supply.rb"
+check_pages
+assert_eq 2 "$rc"
+assert_contains "$out" 'fastlane-supply: problem'
+cp "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
+
+it "fetched field text has no terminal control characters in the report"
+printf '<h2>##[warning]field\033[31m</h2><p>7 characters</p>\n' > "$pages/apple-app-info.html"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" '##[warning]field'
+assert_not_contains "$out" "$(printf '\033')"
+cp "$ROOT/tests/fixtures/drift/apple-app-info.html" "$pages/"
+
 it "check names added and removed facts per source"
 echo '<p>1290 x 2796</p>' > "$pages/apple-screenshots.html"
 echo '<article><h3>New SDK</h3><time>May 2028</time></article>' >> "$pages/apple-upcoming-requirements.html"
 check_pages
 assert_eq 1 "$rc"
-assert_contains "$out" '+ 1290x2796'
-assert_contains "$out" '- 1284x2778'
-assert_contains "$out" '- 2778x1284'
-assert_contains "$out" '+ New SDK: May 2028'
+assert_contains "$out" '+ Page :: 1290x2796'
+assert_contains "$out" '- Screenshot sizes :: 1284x2778'
+assert_contains "$out" '- Screenshot sizes :: 2778x1284'
+assert_contains "$out" '+ New SDK :: May 2028'
 
 it "zero facts and missing pages take priority over changes"
 echo '<script>const ignored = "512 x 512"</script>' > "$pages/play-preview-assets.html"
@@ -97,10 +408,17 @@ check_pages
 assert_eq 2 "$rc"
 assert_contains "$out" 'fastlane-languages: problem'
 assert_not_contains "$out" 'fastlane-languages: unchanged'
-it "an incomplete update preserves the old baselines"
+echo 'ALL_LANGUAGES = build_list()' > "$pages/fastlane-languages.rb"
+it "an incomplete update writes successful sources and preserves each failed baseline"
 update_pages
 assert_eq 2 "$rc"
-diff -r "$digests" "$area/first" >/dev/null 2>&1 && pass || fail 'incomplete update changed baselines'
+assert_contains "$out" 'play-preview-assets: problem'
+assert_contains "$out" 'fastlane-languages: problem'
+assert_contains "$out" 'apple-screenshots: updated'
+assert_contains "$(cat "$digests/apple-screenshots.json")" '1290x2796'
+for id in play-preview-assets fastlane-languages; do
+  cmp -s "$digests/$id.json" "$area/first/$id.json" && pass || fail "$id baseline changed"
+done
 
 it "update accepts reviewed changes into an existing baseline"
 cp "$ROOT/tests/fixtures/drift/play-preview-assets.html" "$ROOT/tests/fixtures/drift/fastlane-languages.rb" "$pages/"
@@ -132,7 +450,7 @@ assert_contains "$out" 'fastlane-languages: problem'
 it "weekly workflow can update one issue with only its built-in token"
 workflow="$ROOT/.github/workflows/drift.yml"
 out="$(cat "$workflow" 2>/dev/null)"
-for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' 'gh issue create' 'gh issue edit' 'Store rules drift detected' '--body-file'; do
+for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' '--state open --author app/github-actions --search "\"$title\" in:title"' 'gh issue create' 'gh issue edit' '.title == "Store rules drift detected"' '--body-file'; do
   assert_contains "$out" "$literal"
 done
 pin="$(sed -n 's/.*uses: \(actions\/checkout@[0-9a-f]*\).*/\1/p' "$ROOT/.github/workflows/tests.yml")"
@@ -140,8 +458,37 @@ assert_contains "$out" "$pin"
 assert_eq 'secrets.GITHUB_TOKEN' "$(printf '%s\n' "$out" | grep -Eo 'secrets\.[[:alnum:]_]+' | sort -u)"
 if printf '%s\n' "$out" | grep -Eiq 'git[[:space:]]+(commit|push)|contents: write|drift\.py update|secrets\['; then fail "unexpected write or secret"; else pass; fi
 
+it "workflow suspends runner commands for the entire report with a fresh token"
+mkdir -p "$area/bin"
+cat > "$area/bin/python3" <<'SH'
+#!/bin/sh
+echo '  + ##[warning]fixture'
+echo '::notice::fixture' >&2
+exit 1
+SH
+chmod +x "$area/bin/python3"
+sed -n '/^        run: |/,$p' "$workflow" | sed '1d; /^      - name:/,$d; s/^          //' > "$area/compare.sh"
+previous=''
+for attempt in 1 2; do
+  log="$(RUNNER_TEMP="$area" GITHUB_OUTPUT="$area/output" PATH="$area/bin:$PATH" bash -e "$area/compare.sh")"
+  token="$(printf '%s\n' "$log" | sed -n 's/^::stop-commands:://p')"
+  [ -n "$token" ] && pass || fail 'missing stop token'
+  assert_ne "$previous" "$token"
+  assert_eq "$(printf '::stop-commands::%s\n  + ##[warning]fixture\n::notice::fixture\n::%s::' "$token" "$token")" "$log"
+  assert_contains "$(cat "$area/drift.txt")" '  + ##[warning]fixture'
+  previous="$token"
+done
+
+it "standalone fetch tests leave no bytecode in a clean checkout"
+mkdir -p "$area/copy/tests/unit" "$area/copy/skills/listing-kit"
+cp "$ROOT/tests/unit/drift_fetch.py" "$area/copy/tests/unit/"
+cp -R "$SCRIPTS" "$area/copy/skills/listing-kit/"
+find "$area/copy" -name __pycache__ -type d -prune -exec rm -rf {} +
+python3 -I "$area/copy/tests/unit/drift_fetch.py" >/dev/null 2>&1
+assert_eq 0 "$?"
+assert_eq '' "$(find "$area/copy" -name __pycache__ -print)"
+
 it "doctor reports bundled age after 120 days and keeps the verification date"
-cp -R "$SKILL_DIR" "$area/kit"
 for age in 120 121; do
   date="$(python3 - "$area/kit/specs/stores.json" "$age" <<'PY'
 import datetime, json, sys
