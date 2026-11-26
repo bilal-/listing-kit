@@ -66,7 +66,7 @@ Use one entry per Apple locale. Each needs at least one count, header filename o
 
 ## Store management
 
-`listing-kit fastlane setup` uses the selected app's download actions to check access. Identify the store with `--store apple` or `--store play`. With no plan, supply the Apple `--app-identifier` or Play `--package-name`. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` can supply the external paths. See [credentials](../../../../docs/CREDENTIALS.md).
+Before the first pull, configure the external key path and run `listing-kit fastlane setup --store apple` or `listing-kit fastlane setup --store play`. Setup checks download access. Use the same store selection for pull and publish. Without a plan, Apple needs `--app-identifier` and Play needs `--package-name` on each command. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` can supply the key paths. [Worked commands](../../../../docs/GUIDE.md#sync-an-app-you-own) · [Credentials](../../../../docs/CREDENTIALS.md)
 
 `listing-kit pull` updates nonconflicting text, records hashes in `.listing-kit/remote.lock.json` and saves screenshot references under `.listing-kit/remote/<store>/`. When both sides changed a field, the working file stays in place and the downloaded copy goes under that reference directory. Review the two versions before merging.
 
@@ -74,4 +74,25 @@ Use one entry per Apple locale. Each needs at least one count, header filename o
 
 `listing-kit handoff --open` builds a copy in `.listing-kit/upload/` with Apple and Play folders, ordered screenshots, text and graphics. Open `INDEX.html` or read `INDEX.md` for destinations, missing items and omissions. Edit the source listing. Handoff refuses to replace a modified or unrecognized upload folder.
 
-Capture, compose and the fastlane adapter use the manifest's split roots. Standalone validate, review, the review hook and handoff expect conventional listing paths. For split projects, stage public files into the conventional layout in a separate app folder before standalone review or handoff. Include platform declarations, any effective rules override and the Apple asset plan for validation. Check the folder against the manifest before delivery.
+## Standalone tools with split roots
+
+Capture, compose and the fastlane adapter use the plan's paths. Standalone validate, review and handoff read `fastlane/` and `store-assets/`. The review hook watches the conventional paths. Skip hook installation for a split listing.
+
+Stage the public listing and its app declarations in the app repository's Git index. From the repository root, export the index to a fresh temporary directory. This includes the staged Apple asset plan, platform declarations and rules overrides.
+
+```sh
+view=$(mktemp -d)
+git checkout-index --all --prefix="$view/"
+cd "$view"
+```
+
+In a monorepo, change into the mobile app inside the copy. For the default split under `ios/fastlane` and `android/fastlane`, assemble the conventional tree as follows. Copy only the stores and directories you use. Substitute the plan's source paths for any overrides. If `trees.storeAssets` is set, copy that directory to `store-assets/` too.
+
+```sh
+mkdir -p fastlane/metadata
+cp -R ios/fastlane/metadata/. fastlane/metadata/
+cp -R ios/fastlane/screenshots fastlane/screenshots
+cp -R android/fastlane/metadata/android fastlane/metadata/android
+```
+
+Run `listing-kit validate` in the copy. Supply the submission date and iOS SDK when relevant. Run `listing-kit review` and `listing-kit handoff` there. Make edits in the source app and export a fresh copy after staging changes.

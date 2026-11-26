@@ -39,4 +39,6 @@ After a successful flow, capture sanitizes the status bar and reads the display 
 
 ## Manual navigation
 
-Use `listing-kit capture --manual --target ID --screen ID` when a screen cannot be reached through the accessibility tree. Capture still requires the installed app and the selected flow file. Navigate to the populated state, then press Enter at the prompt. Skip manual jobs in unattended runs and report the missing images.
+Run `listing-kit capture --manual --target ID --screen ID` in an attended session. The app must be installed and the selected flow file must exist. Capture skips Maestro for the selected jobs. Navigate to each requested state and press Enter to take its screenshot. End of input fails the job.
+
+The plan has no manual flag. An unfiltered capture tries every flow. For unattended runs, select only automated screens with `listing-kit capture --target ID --screen ID`. Repeat the screen option to select more screens on that target. Report the manual images still needed.

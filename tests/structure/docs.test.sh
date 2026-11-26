@@ -18,8 +18,8 @@ skill = root / "skills/listing-kit"
 cli = skill / "bin/listing-kit"
 errors = []
 
-def run(*args):
-    return subprocess.run([str(cli), *args], cwd=app, text=True,
+def run(*args, cwd=app):
+    return subprocess.run([str(cli), *args], cwd=cwd, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 # Parse the dispatcher's usage, including e.g. "plan check|manifest|outputs".
@@ -34,10 +34,20 @@ flag = re.compile(r"(?<![\w-])--[a-zA-Z][\w-]*")
 
 @lru_cache(None)
 def options(command):
-    help_text = run(*command, "--help")
-    if help_text.returncode:
-        errors.append(f"{' '.join(command)} --help failed: {help_text.stdout.strip()}")
-    return set(flag.findall(help_text.stdout))
+    for switch in ("--help", "-h"):
+        result = run(*command, switch)
+        if result.returncode or not re.search(r"^usage:", result.stdout, re.I | re.M):
+            errors.append(f"{' '.join((*command, switch))}: expected usage and exit 0, "
+                          f"got {result.returncode}: {result.stdout.strip()}")
+        if switch == "--help":
+            available = set(flag.findall(result.stdout))
+    return available
+
+# Exercise the whole launcher, including commands with no flags in the docs.
+for name, children in commands.items():
+    options((name,))
+    for child in children:
+        options((name, child))
 
 def headings(path):
     ids = set()
@@ -141,20 +151,39 @@ if result.returncode:
 # preview so missing fonts or colors fail here without a simulator or browser.
 guide = (root / "docs/GUIDE.md").read_text()
 recipe, = re.findall(r"^```json\n(.*?)^```$", guide, re.M | re.S)
-listing.write_text(recipe)
 source = root / "examples/expo-recipe-box"
-shutil.copytree(source / ".listing-kit/flows", listing.parent / "flows")
-plan_check = run("plan", "check", "--for", "capture")
+copy = app / "recipe-box"
+copy.mkdir()
+for name in (".gitignore", "app.json"):
+    shutil.copyfile(source / name, copy / name)
+for name in ("fastlane", ".listing-kit/flows"):
+    shutil.copytree(source / name, copy / name)
+subprocess.run(["git", "init", "-q", str(copy)], check=True)
+for cmd, status, evidence in [
+    (("validate",), 1, "no iPhone Dynamic Island (medium display) screenshots"),
+    (("review",), 0, "listing-review.html"),
+    (("hook", "install"), 0, "Installed"),
+    (("hook", "status"), 0, "active"),
+]:
+    result = run(*cmd, cwd=copy)
+    if result.returncode != status or evidence not in result.stdout:
+        errors.append(f"Recipe Box {' '.join(cmd)}: {result.stdout}")
+for path in ("local.json", "upload/INDEX.html", "logs/flow.log", "compose.flock", "secrets.local"):
+    if subprocess.run(["git", "check-ignore", "-q", f".listing-kit/{path}"], cwd=copy).returncode:
+        errors.append(f"Recipe Box should ignore .listing-kit/{path}")
+
+(copy / ".listing-kit/listing.json").write_text(recipe)
+plan_check = run("plan", "check", "--for", "capture", cwd=copy)
 if plan_check.returncode:
     errors.append(plan_check.stdout)
 else:
-    manifest = json.loads(run("plan", "manifest").stdout)
+    manifest = json.loads(run("plan", "manifest", cwd=copy).stdout)
     for job in manifest["captures"]:
-        path = app / job["rawPath"]
+        path = copy / job["rawPath"]
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / "fastlane/screenshots/en-US/01_recipes.png", path)
-    preview = run("compose", "--preview")
-    if preview.returncode or not (listing.parent / "preview.html").is_file():
+    preview = run("compose", "--preview", cwd=copy)
+    if preview.returncode or not (copy / ".listing-kit/preview.html").is_file():
         errors.append("guide preview failed: " + preview.stdout)
 if errors:
     sys.exit("\n".join(errors))

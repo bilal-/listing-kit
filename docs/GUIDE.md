@@ -1,25 +1,42 @@
 # First run with Recipe Box
 
-The [bundled Expo app](../examples/expo-recipe-box) has sample recipes, four saved Maestro flows and a historical listing. You can inspect that listing before installing a simulator. Work in a disposable copy of the app for this walkthrough.
+The [bundled Expo app](../examples/expo-recipe-box) has seeded recipes, four Maestro flows and a historical listing. You can inspect the listing without a simulator.
 
-## Inspect what is there
+## Inspect the example
 
-[Install the launcher](INSTALL.md), change into your copy of `examples/expo-recipe-box`, and run:
+[Install the launcher](INSTALL.md). From the root of the kit checkout, copy the app outside the checkout. Initialize the copy as its own Git repository. Never install the review hook in the kit repository.
+
+```sh
+app=$(mktemp -d /tmp/recipe-box.XXXXXX)
+cp -R examples/expo-recipe-box/. "$app/"
+cd "$app"
+git init
+```
 
 ```sh
 listing-kit doctor
 listing-kit detect
+```
+
+Doctor exits 0 when Python 3.8+ and the bundled store rules pass their checks. It exits 3 if either check fails. Missing tools, a missing or invalid plan and an inactive hook appear in the report. They do not change the exit status. Detect exits 0 and prints the evidence for each platform condition.
+
+```sh
 listing-kit validate
+```
+
+On the untouched example, validation exits **1**. The older iPhone screenshots do not cover the required Dynamic Island medium display. Run review as a separate command even when validation fails.
+
+```sh
 listing-kit review
 ```
 
-Doctor reports tools, the plan and the hook. On this first run the plan and hook can be missing. Detect prints each platform condition and its evidence. Open `listing-review.html` to read the existing copy and see the galleries. The example's older iPhone shots leave the Dynamic Island medium set missing. The validator reports that failure.
+Review exits **0** and writes `listing-review.html`. Open it to see the saved copy, galleries and validation result.
 
 ## Plan a new set
 
 Ask the agent to “prepare my store listing.” Read the routes and the flows together. The recipe list shows seeded recipes and the detail flow checks an ingredient. Start with these two screens for the missing iPhone slot. Agree on the captions and device before building.
 
-Save the following as `.listing-kit/listing.json` in your copy. It adds one target to exercise the pipeline. The existing iPad and Play assets remain part of the listing you review.
+Save this plan as `.listing-kit/listing.json` in the copy. It captures two iPhone screens. Standalone review and handoff still show the existing iPad and Play assets. After composing only this target, the Apple publish preview exits 1. It checks planned screenshots, and Recipe Box declares iPad support. Add an active `ipad-13` target and compose its images before previewing an Apple submission.
 
 ```json
 {
@@ -52,11 +69,18 @@ Run `listing-kit plan check --for capture` to check the plan and flow paths. Run
 
 ## Build and capture
 
-On a Mac with the matching simulator installed, use the [Expo stack instructions](../skills/listing-kit/references/stacks/react-native-expo.md) to build and install the app. The rule for this target selects an iPhone 17 Pro. The example's flows clear app state on launch, so embed the JS bundle in a Release build.
+Use a Mac with Node.js and npm, CocoaPods, and Xcode 26 or later. Select that Xcode as the developer directory. Install a compatible iOS runtime and create an iPhone 17 Pro simulator (1206 × 2622). Automated capture needs Maestro, JDK 17+ and ImageMagick. Framed composition also needs a Chromium browser. See the [Expo build instructions](../skills/listing-kit/references/stacks/react-native-expo.md).
+
+Build and install the Release app. Its JS bundle survives the flows' app-state reset.
 
 ```sh
 npm ci
 npx expo run:ios --configuration Release --device "iPhone 17 Pro"
+```
+
+If Expo leaves an “Open in Recipe Box?” alert on screen, shut down that simulator before capture. Capture boots it again.
+
+```sh
 listing-kit capture --dry-run
 listing-kit capture
 ```
@@ -69,6 +93,11 @@ Dry run checks device selection. Capture runs the saved flows, sanitizes the sta
 listing-kit compose --preview
 listing-kit compose
 listing-kit validate
+```
+
+Run review even if validation reports a failure.
+
+```sh
 listing-kit review
 ```
 
@@ -78,10 +107,26 @@ When extending the plan to existing galleries, compare `listing-kit plan outputs
 
 Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
 
-In your app's Git worktree, run `listing-kit hook install` and check `listing-kit hook status`. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
+In the initialized copy, run `listing-kit hook install`, then `listing-kit hook status`. Status exits 2 before installation and 0 when the hook is active. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 
 ## Hand over
 
 Run `listing-kit handoff --open` to open the upload index. Use its text and ordered assets in the named store destinations.
 
-For an app you own on the store, `listing-kit fastlane setup` checks download access using a credential path. Use `listing-kit pull` to import existing text and review conflicts. Run `listing-kit publish` for a change summary and the proposed fastlane command. Publishing does not upload by default. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch. [Credentials](CREDENTIALS.md) · [Troubleshooting](TROUBLESHOOTING.md)
+## Sync an app you own
+
+Skip store sync for the bundled example. For your own app, install fastlane (2.242.0 uses Ruby 3.2+). Apple needs an editable App Store Connect version. Play needs a first build already uploaded in Play Console. Keep the key file outside the repository. [Credentials](CREDENTIALS.md)
+
+Choose the commands for your store. Replace the ID and path with your own. These examples work before a plan exists. Setup checks download access and saves the supplied key path. Pull uses it to import store text. Review conflicts before editing.
+
+```sh
+listing-kit fastlane setup --store apple --app-identifier YOUR_BUNDLE_ID --apple-api-key-path /path/to/apple-key.json
+listing-kit pull --store apple --app-identifier YOUR_BUNDLE_ID
+```
+
+```sh
+listing-kit fastlane setup --store play --package-name YOUR_PACKAGE --play-json-key-path /path/to/play-key.json
+listing-kit pull --store play --package-name YOUR_PACKAGE
+```
+
+With the store ID in your plan and all required targets composed, preview that store's changes with `listing-kit publish --store apple` or `listing-kit publish --store play`. The preview validates the planned listing. It prints the proposed fastlane command when there are comparable changes. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch. [Troubleshooting](TROUBLESHOOTING.md)

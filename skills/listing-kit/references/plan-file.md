@@ -1,6 +1,6 @@
 # The listing plan
 
-Save UTF-8 JSON at `.listing-kit/listing.json` in the app root. Format 2 requires `format`, `app`, `locales`, `targets` and `screens`. Run `listing-kit plan check` before building. Missing source files can produce warnings during planning. Use `listing-kit plan check --for capture` once the active flows exist. Use `listing-kit plan check --for publish` to catch drafts and stale outputs.
+Save UTF-8 JSON at `.listing-kit/listing.json` in the app root. Format 2 requires `format`, `app`, `locales`, `targets` and `screens`. Run `listing-kit plan check` before building. Missing source files can produce warnings during planning. Choose the style before capture. Raw jobs require the exact upload size. Use `listing-kit plan check --for capture` once the active flows exist. Use `listing-kit plan check --for publish` to catch drafts and stale outputs.
 
 ## Example
 
@@ -233,7 +233,7 @@ This is the [test fixture](../../../tests/fixtures/plan-example.json). The annot
 | Target `locales`, `captureLocales` | Limit a target to selected locale IDs, and choose whether captures use the first applicable locale (primary) or each locale (all). |
 | `capture` | `deviceType` selects the simulator type or emulator profile. `display` selects the Apple display. `orientation` is portrait or landscape. Optional `runtime`, `nativeSize` and `appId` refine the device, expected capture dimensions and installed app. |
 | `screens` | Order the screens as they should appear in the gallery and give each a unique `id`. Filenames get numeric prefixes. |
-| `flow`, `flows` | Give a capture screen one Maestro file. An entry in `flows` keyed by target ID takes precedence over a store override and then the base flow. |
+| `flow`, `flows` | Give a capture screen one Maestro file. An entry in `flows` keyed by target ID takes precedence over a store override and then the base flow. The selected file must exist even for [manual capture](driving/maestro.md#manual-navigation). |
 | `route`, screen `state` | These record where the screen lives and what should be visible. Put navigation and assertions in the flow. |
 | `caption`, `detail`, `altText` | These hold headline, supporting copy and alternative text keyed by locale ID. A missing translation falls back to the primary locale or empty text with a warning. |
 | `only`, `except` | Choose one list to include or exclude specific target IDs for this screen. |

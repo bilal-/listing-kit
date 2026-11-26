@@ -33,6 +33,7 @@ Usage: listing-kit <command> [arguments]
 HELP
 }
 
+command_usage() { printf 'Usage: listing-kit %s\n' "$1"; exit 0; }
 invalid() { usage >&2; exit 2; }
 optional() {
   [ -f "$scripts/$1" ] || { echo 'this command is not part of this build of listing-kit' >&2; exit 3; }
@@ -67,13 +68,18 @@ case "$cmd" in
     if needs_root "$@"; then set -- "$@" .; fi
     exec python3 "$scripts/capture/capture.py" "$@" ;;
   plan)
-    case "${1:-}" in check|manifest|outputs) ;; *) invalid ;; esac
+    case "${1:-}" in
+      -h|--help) command_usage 'plan check|manifest|outputs [args]' ;;
+      check|manifest|outputs) ;;
+      *) invalid ;;
+    esac
     if needs_root "${@:2}"; then set -- "$@" .; fi
     exec python3 "$scripts/lib/plan.py" "$@" ;;
   detect) [ "$#" -le 1 ] || invalid; exec python3 "$scripts/lib/detect.py" "${1:-.}" ;;
   hook)
     operation="${1:-}"; [ "$#" -gt 0 ] && shift
     case "$operation" in
+      -h|--help) command_usage 'hook install|status [app-root]' ;;
       install) exec bash "$scripts/package/install-review-hook.sh" "$@" ;;
       status) exec bash "$scripts/package/install-review-hook.sh" --status "$@" ;;
       *) invalid ;;
@@ -84,14 +90,21 @@ case "$cmd" in
     exec python3 "$scripts/compose/compose.py" "$@" ;;
   fastlane|pull|publish)
     if [ "$cmd" != fastlane ]; then set -- "$cmd" "$@"; fi
-    case "${1:-}" in setup|pull|publish) ;; *) invalid ;; esac
+    case "${1:-}" in
+      -h|--help) command_usage 'fastlane setup|pull|publish [args]' ;;
+      setup|pull|publish) ;;
+      *) invalid ;;
+    esac
     optional fastlane/lk_fastlane.py
     exec python3 -IB "$scripts/fastlane/lk_fastlane.py" "$@" ;;
   doctor) [ "$#" -le 1 ] || invalid; exec bash "$scripts/doctor/doctor.sh" "${1:-.}" ;;
   version)
+    case "${1:-}" in -h|--help) command_usage 'version' ;; esac
     date="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["verified"])' "$kit/specs/stores.json")"
     printf 'listing-kit %s (store rules verified %s)\n' "$(cat "$kit/VERSION")" "$date" ;;
   link) exec python3 -I -B "$scripts/package/link.py" "$@" ;;
-  ci) [ "${1:-}" = init ] || invalid; shift; exec python3 -I -B "$scripts/package/ci_init.py" "$@" ;;
+  ci)
+    case "${1:-}" in -h|--help) command_usage 'ci init --provider github|gitlab --kit-ref REF [args]' ;; esac
+    [ "${1:-}" = init ] || invalid; shift; exec python3 -I -B "$scripts/package/ci_init.py" "$@" ;;
   *) invalid ;;
 esac

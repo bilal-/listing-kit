@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 unset CDPATH
+case "${1:-}" in
+  -h|--help)
+    echo 'Usage: listing-kit doctor [app-root]'
+    echo 'Exit 3 if Python 3.8+ or the bundled store rules fail their check. Other missing tools are reported only.'
+    exit 0 ;;
+esac
 scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$scripts/lib/imagemagick.sh"
 root=${1:-.}
