@@ -217,8 +217,9 @@ def extract(source, text):
         try:
             page.feed(text)
             page.close()
-        except AssertionError as exc:
-            # Some Python versions reject malformed HTML marked sections here.
+        except (AssertionError, NotImplementedError) as exc:
+            # Python rejects malformed marked sections here: AssertionError on newer
+            # versions, NotImplementedError from _markupbase on 3.8 and 3.9.
             raise ValueError("invalid HTML: " + str(exc)) from exc
         page.flush()
         facts = {"pixel-sizes": pixel_sizes, "limits": limits, "dated-list": dated_list}[extractor](page.events)
