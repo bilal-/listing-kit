@@ -25,7 +25,10 @@ jobs:
         run: |
           rc=0
           python3 -I skills/listing-kit/scripts/specs/drift.py check --fetch > "$RUNNER_TEMP/drift.txt" 2>&1 || rc=$?
+          token="$(openssl rand -hex 32)"
+          printf '::stop-commands::%s\n' "$token"
           cat "$RUNNER_TEMP/drift.txt"
+          printf '::%s::\n' "$token"
           echo "status=$rc" >> "$GITHUB_OUTPUT"
           case "$rc" in 0|1|2) ;; *) exit "$rc" ;; esac
       - name: Report changes or source problems

@@ -6,3 +6,4 @@ SCREENSHOT_TYPES = %w[
   sevenInchScreenshots
 ].freeze
 OTHER = ["ignored"]
+IMAGE_TYPES = %w|icon featureGraphic|

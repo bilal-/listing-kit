@@ -8,3 +8,4 @@ sizes = {
 }
 lookup = { [1024, 768] => DisplayType::IPAD }
 IOS_55 = [[1242, 2208]]
+sizes = { IOS_61: [[1170,2532], [2532,1170]] }
