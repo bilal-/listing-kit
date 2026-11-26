@@ -38,13 +38,66 @@ LIMIT = re.compile(rf"\b(?:(?:between |from )?{NUMBER}(?: {UNIT})?\s*{RANGE}\s*{
 HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
 
+LIMIT_HEADER = re.compile(r"\b(?:characters?|limits?|maximum|minimum|max|min|sizes?|lengths?|bytes?|counts?)\b", re.I)
+PIXEL_HEADER = re.compile(r"\b(?:devices?|phones?|iphones?|ipads?|tablets?|watches|watch|tvs?|"
+                          r"sizes?|dimensions?|resolutions?|width|height|portrait|landscape|pixels?)\b", re.I)
+
+
+class Table:
+    """Read column labels from the first row and keep each value with its row label."""
+
+    def __init__(self, extractor):
+        self.extractor = extractor
+        self.headers = None
+        self.cells = []
+        self.cell_start = None
+
+    def finish_cell(self, events, tag):
+        if self.cell_start is None:
+            return
+        start, self.cell_start = self.cell_start, None
+        blocks = events[start:]
+        text = " ".join(value for role, value in blocks if role in {"text", "label"} or role in HEADINGS)
+        column = len(self.cells)
+        self.cells.append(text)
+        if self.headers is None:
+            # A first row can already be data (e.g. <th>App name</th><td>30 characters</td>).
+            matches = limit_matches if self.extractor == "limits" else pixel_matches
+            if tag == "td" and (re.fullmatch(NUMBER, text) or any(matches(text))):
+                self.headers = []
+            return
+        if column >= len(self.headers) or any(role == "column" for role, _ in blocks):
+            return
+
+        header = self.headers[column]
+        if self.extractor == "limits" and LIMIT_HEADER.search(header) and re.search(r"\d", text):
+            values = [("", re.sub(NUMBER, lambda m: m[0].replace(",", ""), text))]
+        elif self.extractor == "pixel-sizes" and PIXEL_HEADER.search(header):
+            values = inline_facts(text, pixel_matches)
+        else:
+            return
+        facts = [("column", (self.cells[0], inline, header, value)) for inline, value in values]
+        if facts:
+            if column == 0:
+                facts.append(("row", text))
+            events[start:] = facts
+
+    def finish_row(self):
+        if self.headers is None and self.cells:
+            self.headers = [text.strip(" *†‡") for text in self.cells]
+        self.cells = []
+        self.cell_start = None
+
+
 class Page(HTMLParser):
     """Emit visible text blocks, retaining heading, table and item boundaries."""
 
     blocks = HEADINGS | set("article section li ul ol div p dt dd table tr td th caption br".split())
 
-    def __init__(self):
+    def __init__(self, extractor):
         super().__init__()
+        self.extractor = extractor
+        self.tables = []
         self.events = []
         self.stack = []
         self.text = []
@@ -69,13 +122,17 @@ class Page(HTMLParser):
         self.flush()
         role = None
         if tag in HEADINGS:
-            role = "heading"
+            role = tag
         elif tag in ("article", "li"):
             self.events.append(("start", tag))
+        elif tag == "table" and self.extractor in ("limits", "pixel-sizes"):
+            self.tables.append(Table(self.extractor))
         elif tag == "tr":
             self.first_cell = True
             self.events.append(("row", ""))
         elif tag in ("td", "th", "dt", "caption"):
+            if self.tables and tag in ("td", "th"):
+                self.tables[-1].cell_start = len(self.events)
             if tag != "td" or self.first_cell:
                 role = "label"
             self.first_cell = False
@@ -89,6 +146,13 @@ class Page(HTMLParser):
         if tag == "br" or tag not in self.blocks:
             return
         self.flush()
+        if self.tables:
+            if tag in ("td", "th"):
+                self.tables[-1].finish_cell(self.events, tag)
+            elif tag == "tr":
+                self.tables[-1].finish_row()
+            elif tag == "table":
+                self.tables.pop()
         for i in range(len(self.stack) - 1, -1, -1):
             if self.stack[i][0] == tag:
                 del self.stack[i:]
@@ -124,38 +188,53 @@ def limit_matches(text):
         yield match, match.group().lower().replace(",", "")
 
 
+def inline_facts(text, find_matches):
+    end = 0
+    inline = ""
+    for match, value in find_matches(text):
+        gap = text[end:match.start()].strip(" (),.;–—-")
+        # A conjunction can introduce another label or just another value.
+        gap = re.sub(r"^(?:(?:and|or)\b[\s,]*)+", "", gap, flags=re.I)
+        if re.search(r"\w", gap):
+            field = re.search(r"(?:^|[;.])\s*([^:;]+?)\s*:(?:\s|$)", gap)
+            inline = (field[1] if field else gap).strip()
+        yield inline, value
+        end = match.end()
+
+
 def labelled_facts(events, find_matches):
-    heading = row = item = outer_item = container = ""
+    row = item = outer_item = container = ""
     parents = []
+    heading_path = []
     for role, text in events:
         if role == "start":
-            parents.append((heading, row, item, outer_item, container))
+            parents.append((heading_path, row, item, outer_item, container))
             container, outer_item, item = text, item or outer_item, ""
         elif role == "end":
             if parents:
-                heading, row, item, outer_item, container = parents.pop()
+                heading_path, row, item, outer_item, container = parents.pop()
         elif role == "row":
-            row = ""
+            row = text
+        elif role == "column":
+            field, inline, header, value = text
+            labels = [title for _, title in heading_path] + [field, inline]
+            context = " / ".join(part for part in labels if part)
+            yield f"{context or 'Page'} :: {header} = {value}"
         else:
-            if role == "heading":
-                heading = row = item = outer_item = ""
+            if role in HEADINGS:
+                row = item = outer_item = ""
             elif role == "label":
                 row = ""
-            end = 0
-            inline = ""
-            for match, value in find_matches(text):
-                gap = text[end:match.start()].strip(" (),.;–—-")
-                # A conjunction can introduce another label or just another value.
-                gap = re.sub(r"^(?:(?:and|or)\b[\s,]*)+", "", gap, flags=re.I)
-                if re.search(r"\w", gap):
-                    field = re.search(r"(?:^|[;.])\s*([^:;]+?)\s*:(?:\s|$)", gap)
-                    inline = (field[1] if field else gap).strip()
+            heading = heading_path[-1][1] if heading_path and role not in HEADINGS else ""
+            label = text
+            for inline, value in inline_facts(text, find_matches):
                 context = " / ".join(part for part in (heading, row or item or outer_item, inline) if part)
                 yield (context or "Page") + " :: " + value
-                end = match.end()
-            label = inline if end else text
-            if role == "heading":
+                label = inline
+            if role in HEADINGS:
                 heading = label or text
+                heading_path = [(level, title) for level, title in heading_path if level < role]
+                heading_path.append((role, heading))
             elif role == "label":
                 row = label
             elif container == "li" and not item:
@@ -175,7 +254,7 @@ def dated_items(blocks):
     heading = ""
     body = []
     for role, text in blocks:
-        if role == "heading" and not DATE.fullmatch(text):
+        if role in HEADINGS and not DATE.fullmatch(text):
             if heading:
                 yield from dated_entry(heading, body)
                 body = []
@@ -351,7 +430,7 @@ def extract(source, text):
     if extractor == "ruby-constants":
         facts = ruby_constants(Path(urlsplit(source["url"]).path).name, text)
     else:
-        page = Page()
+        page = Page(extractor)
         try:
             page.feed(text)
             page.close()

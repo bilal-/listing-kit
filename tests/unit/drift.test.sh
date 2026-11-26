@@ -39,7 +39,7 @@ PY
 
 expect_digest() {
   it "extracts sorted, unique facts from $1"
-  run_drift extract "${1%.*}" "$pages/$1"
+  run_drift extract "${3:-${1%.*}}" "$pages/$1"
   assert_eq 0 "$rc"
   if [ "$rc" = 0 ]; then
     python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]) != json.loads(sys.argv[2]))' "$out" "$2" && pass || fail "$out"
@@ -58,6 +58,31 @@ expect_digest fastlane-languages.rb '["ALL_LANGUAGES :: [\"en-US\",\"de-DE\"]"]'
 
 check_pages() { run_drift check --pages "$pages" --digests "$digests"; }
 update_pages() { run_drift update --pages "$pages" --digests "$digests"; }
+
+table="$pages/play-listing-table.html"
+table_facts='["Store listing / App name :: Character limit = 30","Store listing / Full description :: Character limit = 4000","Store listing / Short description :: Character limit = 80"]'
+expect_digest play-listing-table.html "$table_facts" play-store-listing-fields
+sed -e 's/<th>/<td><p>/g' -e 's#</th>#</p></td>#g' \
+  -e 's/limit\*/<b>limit<\/b><sup>*<\/sup>/' -e 's/>80</><p><b>80<\/b><\/p></' \
+  "$table" > "$pages/nested-table.html"
+expect_digest nested-table.html "$table_facts" play-store-listing-fields
+
+it "bare numbers in a table without a limit header are ignored"
+sed 's/Character limit\*/Example/' "$table" > "$pages/no-limit.html"
+run_drift extract play-store-listing-fields "$pages/no-limit.html"
+assert_eq 2 "$rc"
+assert_contains "$out" 'zero facts'
+
+cat > "$pages/device-columns.html" <<'HTML'
+<h1>Artwork</h1><h2>Screenshots</h2><table>
+<tr><th>Orientation</th><th>Phone</th><th>Tablet</th></tr>
+<tr><td>Portrait</td><td>1170 x 2532</td><td>2048 x 2732</td></tr></table>
+HTML
+expect_digest device-columns.html '["Artwork / Screenshots / Portrait :: Phone = 1170x2532","Artwork / Screenshots / Portrait :: Tablet = 2048x2732"]' apple-screenshots
+
+# Keep the prose facts in the baseline so check can run even if it misses the table.
+listing_page="$pages/play-store-listing-fields.html"
+cat "$table" >> "$listing_page"
 it "check identifies unseeded sources"
 check_pages
 assert_eq 2 "$rc"
@@ -94,6 +119,20 @@ PYEDIT
   assert_contains "$out" "${file%.*}: changed"
   cp "$ROOT/tests/fixtures/drift/$file" "$pages/$file"
 }
+
+it "check detects a changed bare limit"
+cp "$listing_page" "$area/listing-baseline.html"
+sed 's/>80</>90</' "$area/listing-baseline.html" > "$listing_page"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" 'play-store-listing-fields: changed'
+
+it "check detects two rows exchanging their bare limits"
+sed -e 's/>30</>SWAP</g' -e 's/>80</>30</g' -e 's/>SWAP</>80</g' "$area/listing-baseline.html" > "$listing_page"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" 'play-store-listing-fields: changed'
+cp "$area/listing-baseline.html" "$listing_page"
 changed_rule apple-screenshots.html '<h2>Phone A</h2><p>Portrait: 1170x2532' '<h2>Phone A</h2><p>Portrait: not accepted' 'one heading loses a shared portrait size'
 changed_rule apple-app-info.html '<p>Name: 30 characters</p><h2>Bundle</h2><p>Name: 50 characters' '<p>Name: 50 characters</p><h2>Bundle</h2><p>Name: 30 characters' 'identically named fields swap limits across headings'
 changed_rule apple-app-info.html '(30 characters)<br><b>Subtitle</b> (50 characters)' '(50 characters)<br><b>Subtitle</b> (30 characters)' 'inline fields swap limits across a line break'
@@ -221,7 +260,9 @@ assert_not_contains "$out" 'Traceback'
 cp "$area/first/apple-screenshots.json" "$digests/"
 
 it "check and update confine digests to the kit or explicit test directory"
-cp -R "$SKILL_DIR" "$area/kit"
+mkdir -p "$area/kit/specs"
+cp -R "$SKILL_DIR/bin" "$SCRIPTS" "$area/kit/"
+cp "$SKILL_DIR/specs/stores.json" "$area/kit/specs/"
 outside="$area/outside"
 cp -R "$digests" "$outside"
 ln -s "$outside" "$LK_DRIFT_TEST_ROOT/link"
