@@ -6,10 +6,13 @@ export PYTHONDONTWRITEBYTECODE=1
 
 # Git opens inherited trace destinations even for read-only commands.
 for git_var in ${!GIT_TRACE@}; do unset "$git_var"; done
+# Neutralise the developer's Git config BEFORE the first Git call: trace2 targets set in
+# global or system config would otherwise make even this read-only call write a file.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset XDG_CONFIG_HOME
 # rev-parse emits Git's own list of repository-local variable names.
 git_vars="$(git -C / rev-parse --local-env-vars)" || exit 1
 for git_var in $git_vars; do unset "$git_var"; done
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export PYTHONDONTWRITEBYTECODE=1
 
 # The suite owns one private temporary directory. Standalone tests own theirs.

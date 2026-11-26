@@ -64,4 +64,10 @@ it "unsets every repository-local variable advertised by this Git"
 )
 assert_eq 0 "$?"
 
+it "a trace target in the developer's Git config cannot make the helper write outside the suite"
+TRACE_DIR="$(new_tempdir)"
+printf '[trace2]\n\teventTarget = %s/trace.json\n' "$TRACE_DIR" > "$TRACE_DIR/gitconfig"
+( GIT_CONFIG_GLOBAL="$TRACE_DIR/gitconfig" bash -c '. "$0/tests/helpers.sh" >/dev/null 2>&1; git -C / rev-parse --local-env-vars >/dev/null 2>&1' "$ROOT" )
+if [ -e "$TRACE_DIR/trace.json" ]; then fail "git wrote a trace file through the inherited config"; else pass "no trace file"; fi
+
 summary
