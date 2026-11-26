@@ -53,7 +53,7 @@ expect_digest play-preview-assets.html '["Artwork / Feature graphic :: 1024x500"
 expect_digest play-store-listing-fields.html '["Store listing / App name :: 30 characters","Store listing / Full description :: up to 4000 characters","Store listing / Short description :: 80 characters","Tags / Select :: up to 5"]'
 expect_digest apple-upcoming-requirements.html '["App icon requirements :: May 2027","Icon updates :: June 2027 :: Explanatory copy goes here. June 2027","SDK :: April 2027 :: Beta April 2027, mandatory June 2027","SDK :: June 2027 :: Beta April 2027, mandatory June 2027","SDK requirements :: September 9, 2026","Screenshot requirements :: April 2027"]'
 expect_digest fastlane-screenshots.rb '["DisplayType::APPLE_TV :: [[1920,1080]]","DisplayType::IOS_65 :: [[1284,2778],[2778,1284]]","DisplayType::IPAD :: [1024,768]","IOS_55 :: [[1242,2208]]","IOS_61 :: [[1170,2532],[2532,1170]]"]'
-expect_digest fastlane-supply.rb '["IMAGES_TYPES :: [\"icon\",\"featureGraphic\"]","IMAGE_TYPES :: [\"icon\",\"featureGraphic\"]","METADATA_UPLOAD_FIELDS :: [\"title\",\"short_description\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\"]"]'
+expect_digest fastlane-supply.rb '["AVAILABLE_METADATA_FIELDS :: [\"title\",\"short_description\",\"full_description\",\"video\"]","IMAGES_TYPES :: [\"featureGraphic\",\"icon\",\"tvBanner\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\",\"tenInchScreenshots\",\"tvScreenshots\",\"wearScreenshots\"]"]'
 expect_digest fastlane-languages.rb '["ALL_LANGUAGES :: [\"en-US\",\"de-DE\"]"]'
 
 check_pages() { run_drift check --pages "$pages" --digests "$digests"; }
@@ -154,8 +154,78 @@ changed_rule apple-version-info.html 'Caption: Between 2 and 30 characters</td>
 changed_rule apple-upcoming-requirements.html 'mandatory June' 'mandatory July' 'second deadline changes under the same heading'
 changed_rule apple-upcoming-requirements.html 'mandatory June' 'optional June' 'milestone wording changes'
 changed_rule fastlane-screenshots.rb '[1170,2532]' '[1179,2556]' 'symbol-label display changes size'
-changed_rule fastlane-supply.rb '%w|icon featureGraphic|' '%w|icon|' 'pipe-delimited Ruby list changes'
-changed_rule fastlane-supply.rb '%w(title short_description)' '%w(short_description title)' 'constant retains complete ordered value'
+changed_rule fastlane-supply.rb 'title short_description' 'short_description title' 'Play metadata fields retain their complete ordered value'
+
+it "alternate Ruby literal and constant spellings still work"
+cat > "$pages/alternate.rb" <<'RB'
+METADATA_UPLOAD_FIELDS = ["title", "short_description"].freeze
+IMAGE_TYPES = %w|featureGraphic icon tvBanner|
+SCREENSHOT_TYPES = %w[
+  phoneScreenshots
+  sevenInchScreenshots
+].freeze
+OTHER = ["ignored"]
+RB
+expect_digest alternate.rb '["IMAGE_TYPES :: [\"featureGraphic\",\"icon\",\"tvBanner\"]","METADATA_UPLOAD_FIELDS :: [\"title\",\"short_description\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\"]"]' fastlane-supply
+
+it "Apple sizes retain display classes, panel labels, and Watch model groups"
+# Give the two real Play panels the same dimensions to exercise deduplication.
+cp "$pages/apple-display-cards.html" "$pages/apple-screenshots.html"
+sed 's/1280px by 720px/512px by 512px/' "$pages/play-asset-panels.html" > "$pages/play-preview-assets.html"
+update_pages
+assert_eq 0 "$rc"
+run_drift extract apple-screenshots "$pages/apple-screenshots.html"
+for fact in '13\" display :: 2048x2732' '12.9\" display :: 2048x2732' \
+            'iPhone Duo / outer display :: 1398x2034' 'iPhone Duo / inner display :: 2853x2007' \
+            'Apple Watch / Ultra 4, Ultra 3 :: 422x514' 'Apple Watch / Series 12, Series 11, Series 10 :: 416x496'; do
+  assert_contains "$out" "$fact"
+done
+it "removing the shared size from only the 13-inch display changes its digest"
+sed '1,/12.9" display/{ /2048 x 2732 pixels/d; }' "$pages/apple-display-cards.html" > "$pages/apple-screenshots.html"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" '- iPad / 13" display :: 2048x2732'
+assert_not_contains "$out" '- iPad / 12.9" display'
+cp "$pages/apple-display-cards.html" "$pages/apple-screenshots.html"
+it "removing shared dimensions from one asset changes only that panel"
+sed '/tv_banner_requirements/,$s/512px by 512px/not required/' "$pages/play-preview-assets.html" > "$area/edited.html"
+cp "$area/edited.html" "$pages/play-preview-assets.html"
+check_pages
+assert_eq 1 "$rc"
+assert_contains "$out" '- Preview assets / TV banner / Content guidelines / Requirements / Dimensions :: 512x512'
+assert_not_contains "$out" '- Preview assets / App icon'
+cp "$ROOT/tests/fixtures/drift/apple-screenshots.html" "$ROOT/tests/fixtures/drift/play-preview-assets.html" "$pages/"
+cp "$area/first/"*.json "$digests/"
+
+it "prose facts retain each parent heading"
+echo '<h2>App icon</h2><h3>Requirements</h3><p>Dimensions: 512x512</p>
+<h2>TV banner</h2><h3>Requirements</h3><p>Dimensions: 512x512</p>' > "$area/headings.html"
+run_drift extract play-preview-assets "$area/headings.html"
+assert_contains "$out" 'App icon / Requirements / Dimensions :: 512x512'
+assert_contains "$out" 'TV banner / Requirements / Dimensions :: 512x512'
+
+for pair in 'AVAILABLE_METADATA_FIELDS:metadata fields' 'IMAGES_TYPES:image types' 'SCREENSHOT_TYPES:screenshot types'; do
+  it "missing or empty ${pair#*:} reports a supply source problem"
+  for replacement in '' "${pair%%:*} = []"; do
+    sed "/${pair%%:*}/s/.*/$replacement/" "$ROOT/tests/fixtures/drift/fastlane-supply.rb" > "$pages/fastlane-supply.rb"
+    check_pages
+    assert_eq 2 "$rc"
+    assert_contains "$out" "fastlane-supply: problem"
+    assert_contains "$out" "${pair#*:}"
+  done
+done
+cp "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
+it "display names alone cannot mask missing display sizes"
+echo 'IOS_35 = "iOS-3.5-in"' > "$area/names-only.rb"
+run_drift extract fastlane-screenshots "$area/names-only.rb"
+assert_eq 2 "$rc"
+assert_contains "$out" 'display sizes'
+it "an empty language list reports a languages source problem"
+echo 'ALL_LANGUAGES = %w[]' > "$area/empty.rb"
+run_drift extract fastlane-languages "$area/empty.rb"
+assert_eq 2 "$rc"
+assert_contains "$out" 'languages: problem'
+assert_contains "$out" 'languages'
 
 it "a device heading survives prose inside an article or a labelled list item"
 cat > "$area/contexts.html" <<'HTML'
@@ -212,11 +282,12 @@ assert_contains "$out" 'Beta starts'
 it "display names and constant-keyed hash values are facts"
 cat > "$pages/fastlane-screenshots.rb" <<'RB'
 IOS_35 = "iOS-3.5-in"
+IOS_35_SIZES = [[640,960]]
 IOS_40 = 'iOS-4-in'.freeze
 WATCH = 'Series #3' # device name
 display_names = { DisplayType::IOS_35 => "iPhone 3.5", DisplayType::IOS_40 => IOS_40, DisplayType::WATCH => ["watch", "watchOS"] }
 RB
-expect_digest fastlane-screenshots.rb '["DisplayType::IOS_35 :: \"iPhone 3.5\"","DisplayType::IOS_40 :: IOS_40","DisplayType::WATCH :: [\"watch\",\"watchOS\"]","IOS_35 :: \"iOS-3.5-in\"","IOS_40 :: \"iOS-4-in\"","WATCH :: \"Series #3\""]'
+expect_digest fastlane-screenshots.rb '["DisplayType::IOS_35 :: \"iPhone 3.5\"","DisplayType::IOS_40 :: IOS_40","DisplayType::WATCH :: [\"watch\",\"watchOS\"]","IOS_35 :: \"iOS-3.5-in\"","IOS_35_SIZES :: [[640,960]]","IOS_40 :: \"iOS-4-in\"","WATCH :: \"Series #3\""]'
 cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$pages/"
 
 it "unsupported Ruby declarations leave other literal facts available"
@@ -227,19 +298,23 @@ check_pages
 assert_eq 0 "$rc"
 cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
 
-it "dated facts include at most eight words on either side across paragraph boundaries"
+it "dated facts retain the rest of the sentence across paragraph boundaries"
 cat > "$area/window.html" <<'HTML'
 <li><h3>SDK</h3><p>Before one two three four five six seven eight</p><time>June 2027</time>
-<p>nine ten eleven twelve thirteen fourteen fifteen sixteen After</p></li>
+<p>nine ten eleven twelve thirteen fourteen fifteen sixteen must be built with SDK 26.1. After</p></li>
 HTML
 run_drift extract apple-upcoming-requirements "$area/window.html"
 assert_contains "$out" 'SDK :: June 2027'
 assert_contains "$out" 'one two three four five six seven eight'
-assert_contains "$out" 'nine ten eleven twelve thirteen fourteen fifteen sixteen'
+assert_contains "$out" 'nine ten eleven twelve thirteen fourteen fifteen sixteen must be built with SDK 26.1.'
 before="$out"
 sed -e 's/Before/Changed introduction/' -e 's/After/Changed ending/' "$area/window.html" > "$area/edited.html"
 run_drift extract apple-upcoming-requirements "$area/edited.html"
 assert_eq "$before" "$out"
+
+sed 's/SDK 26\.1/SDK 26.2/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_ne "$before" "$out" "editing the required SDK after the date changes the fact"
 
 it "distant edits in a dated paragraph without a heading leave the digest unchanged"
 echo '<li>Old one two three four five six seven eight June 2027 nine ten eleven twelve thirteen fourteen fifteen sixteen End</li>' > "$area/window.html"
@@ -375,7 +450,7 @@ assert_contains "$out" 'fastlane-languages: problem'
 it "weekly workflow can update one issue with only its built-in token"
 workflow="$ROOT/.github/workflows/drift.yml"
 out="$(cat "$workflow" 2>/dev/null)"
-for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' "--author 'github-actions[bot]'" 'gh issue create' 'gh issue edit' '.title == "Store rules drift detected"' '--body-file'; do
+for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' '--state open --author app/github-actions --search "\"$title\" in:title"' 'gh issue create' 'gh issue edit' '.title == "Store rules drift detected"' '--body-file'; do
   assert_contains "$out" "$literal"
 done
 pin="$(sed -n 's/.*uses: \(actions\/checkout@[0-9a-f]*\).*/\1/p' "$ROOT/.github/workflows/tests.yml")"

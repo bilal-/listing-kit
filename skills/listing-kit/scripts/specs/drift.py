@@ -89,6 +89,36 @@ class Table:
         self.cell_start = None
 
 
+DEVICE_LABELS = {"device-title", "device-name", "device-card-body", "device-card-subbody"}
+
+
+def device_section(events):
+    """Apple puts the class above a card and may caption several sizes together."""
+    title = next((text for role, text in events if role == "device-title"), "")
+    if not title:
+        title = next((text for role, text in events if role == "device-name"), "")
+    yield "scope", title
+    bodies = []
+    for role, text in events + [("end", "device-section")]:
+        if role == "device-card-body":
+            bodies.append(text)
+            continue
+        caption = re.fullmatch(r"\(([^()]+ display)\)", text, re.I) if role == "device-card-subbody" else None
+        for body in bodies:
+            # Watch model groups follow their size in the same paragraph.
+            size = SIZE.match(body)
+            models = re.fullmatch(r"\s*\(([^()]+)\)", body[size.end():]) if size else None
+            if models or caption:
+                yield "scope", (models or caption)[1]
+                yield "text", body[:size.end()] if models else body
+                yield "end", "size"
+            else:
+                yield "text", body
+        bodies.clear()
+        if role not in ("device-title", "device-name"):
+            yield role, text
+
+
 class Page(HTMLParser):
     """Emit visible text blocks, retaining heading, table and item boundaries."""
 
@@ -107,21 +137,33 @@ class Page(HTMLParser):
     def flush(self):
         value = " ".join("".join(self.text).split())
         if value:
-            role = next((role for _, role in reversed(self.stack) if role), "text")
+            role = next((role for _, role, _ in reversed(self.stack) if role), "text")
             self.events.append((role, value))
         self.text.clear()
 
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style", "template", "head", "noscript"):
             self.hidden.append(tag)
-        if self.hidden or tag not in self.blocks:
+        classes = (dict(attrs).get("class") or "").split() if self.extractor == "pixel-sizes" else []
+        panel_title = tag == "a" and "zippy" in classes
+        if self.hidden or (tag not in self.blocks and not panel_title):
             return
         if tag == "br":
             self.text.append(" ")
             return
         self.flush()
         role = None
-        if tag in HEADINGS:
+        start = len(self.events)
+        if panel_title:
+            role = "panel-title"
+        elif tag == "div" and self.events and self.events[-1][0] == "panel-title":
+            self.events[-1] = ("scope", self.events[-1][1])
+            role = "panel"
+        elif tag == "div" and "device-section" in classes:
+            role = "device-section"
+        elif tag == "p" and classes:
+            role = next((c for c in classes if c in DEVICE_LABELS), None)
+        elif tag in HEADINGS:
             role = tag
         elif tag in ("article", "li"):
             self.events.append(("start", tag))
@@ -136,14 +178,15 @@ class Page(HTMLParser):
             if tag != "td" or self.first_cell:
                 role = "label"
             self.first_cell = False
-        self.stack.append((tag, role))
+        self.stack.append((tag, role, start))
 
     def handle_endtag(self, tag):
         if self.hidden:
             if tag == self.hidden[-1]:
                 self.hidden.pop()
             return
-        if tag == "br" or tag not in self.blocks:
+        panel_title = tag == "a" and self.stack and self.stack[-1][0] == "a"
+        if tag == "br" or (tag not in self.blocks and not panel_title):
             return
         self.flush()
         if self.tables:
@@ -155,6 +198,11 @@ class Page(HTMLParser):
                 self.tables.pop()
         for i in range(len(self.stack) - 1, -1, -1):
             if self.stack[i][0] == tag:
+                _, role, start = self.stack[i]
+                if role == "device-section":
+                    self.events[start:] = device_section(self.events[start:])
+                elif role == "panel":
+                    self.events.append(("end", "panel"))
                 del self.stack[i:]
                 break
         if tag in ("article", "li"):
@@ -207,9 +255,17 @@ def labelled_facts(events, find_matches):
     parents = []
     heading_path = []
     for role, text in events:
-        if role == "start":
+        if role in ("start", "scope"):
             parents.append((heading_path, row, item, outer_item, container))
-            container, outer_item, item = text, item or outer_item, ""
+            if role == "scope":
+                # Headings inside an asset panel are relative to its title,
+                # even when the HTML reuses the enclosing heading's level.
+                heading_path = [("", title) for _, title in heading_path]
+                if text and (not heading_path or heading_path[-1][1] != text):
+                    heading_path.append(("", text))
+                row = item = outer_item = container = ""
+            else:
+                container, outer_item, item = text, item or outer_item, ""
         elif role == "end":
             if parents:
                 heading_path, row, item, outer_item, container = parents.pop()
@@ -223,9 +279,10 @@ def labelled_facts(events, find_matches):
         else:
             if role in HEADINGS:
                 row = item = outer_item = ""
+                heading_path = [(level, title) for level, title in heading_path if level < role]
             elif role == "label":
                 row = ""
-            heading = heading_path[-1][1] if heading_path and role not in HEADINGS else ""
+            heading = " / ".join(title for _, title in heading_path)
             label = text
             for inline, value in inline_facts(text, find_matches):
                 context = " / ".join(part for part in (heading, row or item or outer_item, inline) if part)
@@ -233,7 +290,6 @@ def labelled_facts(events, find_matches):
                 label = inline
             if role in HEADINGS:
                 heading = label or text
-                heading_path = [(level, title) for level, title in heading_path if level < role]
                 heading_path.append((role, heading))
             elif role == "label":
                 row = label
@@ -265,6 +321,9 @@ def dated_items(blocks):
     yield from dated_entry(heading, body)
 
 
+SENTENCE_END = re.compile(r"""[.!?]["'”’)]*(?=\s|$)""")
+
+
 def dated_entry(title, body):
     if not body:
         return
@@ -281,11 +340,11 @@ def dated_entry(title, body):
     words = [word.start() for word in re.finditer(r"\S+", text)]
     words.append(len(text))
     for match in DATE.finditer(text):
-        # Select the date's words plus up to eight on either side in this item.
+        # Keep a short lead-in and the complete rule that follows the date.
         first = bisect_right(words, match.start()) - 1
-        last = bisect_right(words, match.end() - 1) - 1
         start = words[max(0, first - 8)]
-        stop = words[min(last + 9, len(words) - 1)]
+        sentence_end = SENTENCE_END.search(text, match.end())
+        stop = sentence_end.end() if sentence_end else len(text)
         excerpt = text[start:stop].strip()
         fact = (title or "Page") + " :: " + match.group()
         if excerpt != match.group():
@@ -318,10 +377,13 @@ CONSTANT = re.compile(r"(?:[A-Z]\w*::)*[A-Z]\w*")
 # Preserve hashes within strings when removing Ruby line comments.
 STRING_OR_COMMENT = re.compile(r"""'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|#[^\n]*""")
 DISPLAY_VALUE = re.compile(r"""'[^'\\\n]*'|"(?:[^"#\\\n]|#(?![{@$]))*"|""" + CONSTANT.pattern + r"|:\w+|[0-9]+")
-LIST_NAMES = {
-    "languages.rb": ("ALL_LANGUAGES",),
-    "supply.rb": ("METADATA_UPLOAD_FIELDS", "METADATA_FIELDS", "IMAGES_TYPES",
-                  "IMAGE_TYPES", "SCREENSHOT_TYPES"),
+LIST_GROUPS = {
+    "languages.rb": {"languages": ("ALL_LANGUAGES",)},
+    "supply.rb": {
+        "metadata fields": ("AVAILABLE_METADATA_FIELDS", "METADATA_UPLOAD_FIELDS", "METADATA_FIELDS"),
+        "image types": ("IMAGES_TYPES", "IMAGE_TYPES"),
+        "screenshot types": ("SCREENSHOT_TYPES",),
+    },
 }
 ASSIGNMENT = re.compile(r"^[ \t]*([A-Z][A-Z_0-9]*)[ \t]*=(?!=)\s*", re.M)
 SPACE = re.compile(r"(?:\s+|\#[^\n]*)*")
@@ -336,6 +398,7 @@ def display_fact(name, literal):
 
 
 def display_sizes(text):
+    found_sizes = False
     text = STRING_OR_COMMENT.sub(lambda m: "" if m[0].startswith("#") else m[0], text)
     for row in FORWARD.finditer(text):
         name = row["display"]
@@ -343,6 +406,7 @@ def display_sizes(text):
         terminator = LIST_END if row["operator"] == "=" else ROW_END
         sizes = SIZES.match(text, start)
         if sizes and terminator.match(text, sizes.end()):
+            found_sizes = True
             yield display_fact(name, sizes.group())
             continue
         # Display type constants name the devices, and literal hash entries
@@ -365,7 +429,10 @@ def display_sizes(text):
             yield name + " :: " + literal
     for row in REVERSE.finditer(text):
         if ROW_END.match(text, row.end()):
+            found_sizes = True
             yield display_fact(row["display"], row["sizes"])
+    if not found_sizes:
+        raise ValueError("zero facts for display sizes")
 
 
 def literal_list(text, pos):
@@ -407,18 +474,24 @@ def ruby_constants(filename, text):
     if filename == "app_screenshot.rb":
         yield from display_sizes(text)
         return
-    if filename not in LIST_NAMES:
+    if filename not in LIST_GROUPS:
         raise ValueError("unknown fastlane source file: " + filename)
+    groups = LIST_GROUPS[filename]
+    group_for = {name: group for group, names in groups.items() for name in names}
+    missing = set(groups)
     for declaration in ASSIGNMENT.finditer(text):
         name = declaration[1]
-        if name in LIST_NAMES[filename]:
+        if name in group_for:
             try:
                 items, end = literal_list(text, declaration.end())
-                if not LIST_END.match(text, end):
+                if not items or not LIST_END.match(text, end):
                     continue
             except ValueError:
                 continue
+            missing.discard(group_for[name])
             yield name + " :: [" + ",".join(items) + "]"
+    if missing:
+        raise ValueError("zero facts for " + ", ".join(sorted(missing)))
 
 
 def clean_fact(fact):

@@ -1,9 +1,6 @@
-# Hand-written fixture of supply metadata and image lists.
-METADATA_UPLOAD_FIELDS = %w(title short_description)
-IMAGES_TYPES = ["icon", "featureGraphic"].freeze
-SCREENSHOT_TYPES = %w[
-  phoneScreenshots
-  sevenInchScreenshots
-].freeze
-OTHER = ["ignored"]
-IMAGE_TYPES = %w|icon featureGraphic|
+# Trimmed fixture from fastlane supply/lib/supply.rb.
+module Supply
+  AVAILABLE_METADATA_FIELDS = %w(title short_description full_description video)
+  IMAGES_TYPES = %w(featureGraphic icon tvBanner)
+  SCREENSHOT_TYPES = %w(phoneScreenshots sevenInchScreenshots tenInchScreenshots tvScreenshots wearScreenshots)
+end
