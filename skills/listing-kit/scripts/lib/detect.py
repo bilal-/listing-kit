@@ -15,10 +15,9 @@ import layout
 import plan
 import specs
 
-from project_files import project_files
+from project_files import ANDROID, app_manifest, project_files
 from xcode_project import application_settings
 
-ANDROID = "{http://schemas.android.com/apk/res/android}"
 UNKNOWN = (None, "no static evidence")
 
 
@@ -56,31 +55,6 @@ def expo_families(ios):
     tablet = ios.get("supportsTablet", False)
     return (not tablet_only if type(tablet_only) is bool else None,
             tablet if type(tablet) is bool else None)
-
-
-ANDROID_PLUGIN = re.compile(
-    r"""(?:\bid\s*\(?|\bapply\s*\(?\s*plugin\s*[:=])\s*["']com\.android\."""
-    r"""(application|library|dynamic-feature|test)["'][ \t]*\)?"""
-    r"""(?:[ \t]+version[ \t]+[^\s}]+)?(?:[ \t]+apply[ \t]+(false))?"""
-)
-
-
-def app_manifest(path, doc):
-    if doc.getroot().tag != "manifest":
-        return False
-    module = path.parents[2]
-    for gradle in (module / "build.gradle", module / "build.gradle.kts"):
-        if gradle.is_file():
-            source = re.sub(r"/\*.*?\*/|//[^\n]*", "", gradle.read_text(encoding="utf-8"), flags=re.S)
-            plugins = list(ANDROID_PLUGIN.finditer(source))
-            if plugins:
-                return any(match[1] == "application" and not match[2] for match in plugins)
-    for tag in ("activity", "activity-alias"):
-        for category in doc.findall("application/" + tag + "/intent-filter/category"):
-            if category.get(ANDROID + "name") in ("android.intent.category.LAUNCHER",
-                                                  "android.intent.category.LEANBACK_LAUNCHER"):
-                return True
-    return False
 
 
 def device_families(config, directory):

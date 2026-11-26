@@ -8,16 +8,16 @@ it "supply counts the original text and rejects invalid changelog filenames"
 mkdir -p "$T/changelogs"
 printf '%030d\n' 0 > "$T/title.txt"
 printf entry > "$T/changelogs/latest.txt"
-OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" play "$T")"
+OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" play "$T" --app-root "$T")"
 assert_contains "$OUT" "31/30 chars OVER LIMIT"
 assert_contains "$OUT" "remove the trailing newline"
 assert_contains "$OUT" $'FAIL\tchangelogs/latest: invalid'
 it "deliver strips whitespace and requires keywords and app metadata"
 printf '   ab   ' > "$T/name.txt"
-OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" apple "$T")"
+OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" apple "$T" --app-root "$T")"
 assert_contains "$OUT" "name: 2/30"
 assert_contains "$OUT" $'FAIL\tkeywords: REQUIRED'
-OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" apple-app "$T")"
+OUT="$(python3 -I -B "$SCRIPTS/lib/fields.py" apple-app "$T" --app-root "$T")"
 assert_contains "$OUT" $'FAIL\tcopyright: REQUIRED'
 assert_contains "$OUT" $'FAIL\tprimary_category: REQUIRED'
 summary

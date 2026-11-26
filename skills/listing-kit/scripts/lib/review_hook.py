@@ -343,14 +343,9 @@ def staged_layout(prefix, view, ignorecase, scanner, persist=True):
     import layout
     import plan
     magic = b":(icase,literal)" if ignorecase else b":(literal)"
-    inputs = (*DISCOVERY_DIRS, b".listing-kit", b"package.json")
-    specs = [magic + prefix + path for path in inputs]
-    glob = b":(icase,glob)" if ignorecase else b":(glob)"
-    escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
-    specs.extend(glob + escaped + pattern for pattern in (
-        b"**/app.json", b"**/app.config.*", b"**/lib/main.dart", b"**/app/build.gradle*",
-        b"**/*.xcodeproj/project.pbxproj", b"**/*.xcworkspace/contents.xcworkspacedata",
-        b"**/.listing-kit/listing.json"))
+    # Hook registration already selects the app. Child workspace declarations
+    # cannot change its staged listing paths.
+    specs = [magic + prefix + path for path in (*DISCOVERY_DIRS, b".listing-kit")]
     entries = list(index_records(specs))
     config = (b".listing-kit",)
     # Scan public config blobs before interpreting the plan. Links are checked
@@ -374,14 +369,6 @@ def staged_layout(prefix, view, ignorecase, scanner, persist=True):
             dest = view / plan.LISTING
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(git("cat-file", "blob", oid))
-        elif lookup == Path("package.json"):
-            if mode in (b"100644", b"100755"):
-                (view / "package.json").write_bytes(git("cat-file", "blob", oid))
-        elif not any(base in lookup.parents for base in (layout.SHARED, *layout.NATIVE.values())):
-            # Only app-evidence globs (above) reach this branch.
-            if mode != b"160000":
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.touch()
         else:
             for store, native in layout.NATIVE.items():
                 for candidate in (layout.SHARED, native):

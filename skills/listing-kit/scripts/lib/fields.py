@@ -2,7 +2,7 @@
 """Store copy fields (limits, units, required flags), shared by validate-listing.sh
 and build-review.sh so the two never disagree. Source: specs/stores.json.
 
-CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>] [--app-root <app-dir>]
+CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>] --app-root <app-dir>
 Prints one "LEVEL<TAB>message" line per field, LEVEL in PASS / WARN / FAIL. A field
 missing from the locale is read from <fallback-dir> (fastlane's metadata/default/).
 """
@@ -65,11 +65,7 @@ def _fields(rules, store, directory):
                        error=None if re.fullmatch(logs["names"], path.stem) else "invalid changelog name")
 
 
-def rows(store, locale_dir, fallback_dir=None, rules=None, requirements=None):
-    if rules is None or requirements is None:
-        root = next((p.parent for p in Path(locale_dir).resolve().parents if p.name == "fastlane"), Path.cwd())
-        rules = specs.load(root) if rules is None else rules
-        requirements = requirements or detect.Requirements(root, rules)
+def rows(store, locale_dir, fallback_dir, rules, requirements):
     out = []
     for field in _fields(rules, store, locale_dir):
         stem, unit = field["stem"], field["unit"]
@@ -127,9 +123,9 @@ if __name__ == "__main__":
     parser.add_argument("store", choices=("apple", "apple-app", "play"))
     parser.add_argument("metadata")
     parser.add_argument("fallback", nargs="?")
-    parser.add_argument("--app-root", type=Path)
+    parser.add_argument("--app-root", type=Path, required=True)
     args = parser.parse_args()
-    rules = specs.load(args.app_root) if args.app_root else None
-    requirements = detect.Requirements(args.app_root, rules) if args.app_root else None
+    rules = specs.load(args.app_root)
+    requirements = detect.Requirements(args.app_root, rules)
     for r in rows(args.store, args.metadata, args.fallback, rules, requirements):
         print("\t".join(check(r)))

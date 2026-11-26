@@ -6,8 +6,9 @@ Resolve these paths from the app root. In a monorepo, each mobile app can have i
 
 Run `listing-kit detect <app-root>` before reading or writing a listing. It prints
 app-relative `fastlaneDir`, `metadata`, `screenshots`, and `storeAssets` paths
-for each store. At a workspace root, select one of the reported app candidates
-and run detect there.
+for each store. If the root has no listing content or explicit `trees` and detect finds child
+apps, select one of the reported candidates and run detect there. To keep the
+listing at the workspace root, set `trees` in its plan.
 
 The fastlane directories below are relative to the selected app. A dash means
 the platform is absent or the app still needs to be selected.
@@ -39,6 +40,7 @@ for Apple or `android/fastlane` for Play.
 | --- | --- |
 | Listing text or screenshots in one candidate | The directory containing the files |
 | Listing content in both candidates | Stop and set `trees.apple.fastlaneDir` or `trees.play.fastlaneDir` |
+| Neither has content for this store, root has listing content for the other store | `fastlane` |
 | Neither has content, root has a Fastfile | `fastlane` |
 | Neither has content, only the native candidate has a Fastfile | That store's native fastlane directory |
 | Neither has content or a Fastfile | `fastlane` |

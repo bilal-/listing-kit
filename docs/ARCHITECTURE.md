@@ -6,7 +6,7 @@ An agent selects screens and writes copy with the user. The [launcher](../skills
 
 [stores.json](../skills/listing-kit/specs/stores.json) defines store fields, limits, screenshot slots, accepted sizes, graphics, upload routes and conditional requirements. The rules loader merges an app's `.listing-kit/specs.override.json` before checking the result. Record the source URL for a local difference. The [Apple](../skills/listing-kit/references/stores/apple-app-store.md) and [Play](../skills/listing-kit/references/stores/google-play.md) reference tables are rendered from the bundled file.
 
-`listing-kit detect` reads app-owned native declarations and static Expo settings and reports yes, no or unknown with evidence. A valid plan's explicit `platforms` flags take precedence. For validation, the iPhone and iPad environment overrides can supply facts, and the build SDK can resolve a dated rule's exception. Ask about an unknown capability.
+`listing-kit detect` reads app-owned native declarations and static Expo settings and reports yes, no or unknown with evidence. It also prints the Apple and Play paths used for metadata, screenshots and graphics. A valid plan's explicit `platforms` flags take precedence. For validation, the iPhone and iPad environment overrides can supply facts, and the build SDK can resolve a dated rule's exception. Ask about an unknown capability.
 
 ## Plan and capture
 
@@ -24,9 +24,9 @@ The composer compares content and style keys, tracks renderer details and checks
 
 ## Validation, review and handoff
 
-`listing-kit validate` scans listing inputs for secrets, checks copy and images and prints failures and warnings. `listing-kit review` builds a static page from the listing and the validation report. The Git hook checks inputs from the index, blocks credentials and updates the page for staged listing changes. It watches staged changes under `fastlane/`, `store-assets/` and `.listing-kit/`, plus root Expo config and app-owned Xcode project and Info.plist files. Staging private local settings or an incomplete secret scan blocks the commit. If page generation fails after a clean scan, the hook warns. Use `listing-kit hook status` to check the registration after updating the kit.
+`listing-kit validate` scans listing inputs for secrets, checks copy and images and prints failures and warnings. `listing-kit review` builds a static page from the listing and the validation report. The Git hook checks inputs from the index, blocks credentials and updates the page for staged listing changes. It watches staged changes in the resolved store directories and `.listing-kit/`, plus root Expo config and app-owned Xcode project and Info.plist files. Staging private local settings or an incomplete secret scan blocks the commit. If page generation fails after a clean scan, the hook warns. Use `listing-kit hook status` to check the registration after updating the kit.
 
-`listing-kit handoff` reads the conventional listing trees and builds a disposable folder with console destinations. It records file hashes to protect local edits during a rebuild. The folder includes its own ignore file. The builder does not read split root settings from the format-2 plan.
+`listing-kit handoff` reads the resolved Apple and Play listing trees and builds a disposable folder with console destinations. It records file hashes to protect local edits during a rebuild. The folder includes its own ignore file.
 
 ## Fastlane and CI
 

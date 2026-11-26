@@ -2,7 +2,7 @@
 """Where things are in a fastlane listing tree. Shared by validate-listing.sh,
 apple_assets.py, and build-review.sh so all three see the same stores, locales, and images.
 
-CLI:    listing.py {apple-locales|play-locales} <fastlane-dir>
+CLI:    listing.py {apple-locales|play-locales} [<fastlane-dir>] --app-root <app-dir>
 Prints one locale directory per line (apple-locales: metadata/<locale> paths, some
 of which may not exist yet when a locale only has screenshots).
 """
@@ -124,17 +124,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kind", choices=("apple-locales", "play-locales"))
     parser.add_argument("fastlane", nargs="?", type=Path, help="legacy fastlane directory")
-    parser.add_argument("--app-root", type=Path)
+    parser.add_argument("--app-root", type=Path, required=True)
     args = parser.parse_args()
-    if args.app_root:
-        root = args.app_root.resolve()
-        trees = paths(root)
-    elif args.fastlane:
-        root = args.fastlane.parent
+    root = args.app_root.resolve()
+    if args.fastlane:
         trees = {"apple": {"metadata": args.fastlane / "metadata", "screenshots": args.fastlane / "screenshots"},
                  "play": {"metadata": args.fastlane / "metadata/android"}}
     else:
-        parser.error("provide --app-root or a fastlane directory")
+        trees = paths(root)
     if args.kind == "apple-locales":
         locales = apple_locales(trees["apple"], specs.load(root))
     else:

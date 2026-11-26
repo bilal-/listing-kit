@@ -18,7 +18,7 @@ listing-kit doctor
 listing-kit detect
 ```
 
-Doctor exits 0 when Python 3.8+ and the bundled store rules pass their checks. It exits 3 if either check fails. Missing tools, a missing or invalid plan and an inactive hook appear in the report. They do not change the exit status. Detect exits 0 and prints the evidence for each platform condition.
+Doctor exits 0 when Python 3.8+ and the bundled store rules pass their checks. It exits 3 if either check fails. Missing tools, a missing or invalid plan and an inactive hook appear in the report. They do not change the exit status. For this app, detect exits 0 and prints the Apple and Play paths along with the evidence for each platform condition. Use the paths relative to the app directory.
 
 ```sh
 listing-kit validate
@@ -105,7 +105,7 @@ Inspect `.listing-kit/preview.html` for the planned appearance and `listing-revi
 
 When extending the plan to existing galleries, compare `listing-kit plan outputs` with the committed files. A Play output such as `01_recipes.png` can collide with an existing file. Use `listing-kit compose --adopt` only with approval to replace the named files. Apple output names include a target suffix. Review the old and new images side by side, then get approval to move superseded images out of the gallery before validation.
 
-Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
+Run `listing-kit detect` and put approved copy changes under the printed `apple.metadata` or `play.metadata` directory for that locale. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
 
 In the initialized copy, run `listing-kit hook install`, then `listing-kit hook status`. Status exits 1 before installation and 0 when the hook is active. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 

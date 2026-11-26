@@ -50,6 +50,44 @@ class LayoutTest(unittest.TestCase):
         self.fixture("root-listing-build-ios")
         self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
 
+    def test_play_only_root_and_build_only_ios(self):
+        self.fixture("play-root-build-ios")
+        self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
+        self.listing(trees={"apple": {"fastlaneDir": "ios/fastlane"}})
+        self.assertEqual(self.dirs(), ["ios/fastlane", "fastlane"])
+
+    def test_apple_only_root_and_build_only_android(self):
+        self.fixture("apple-root-build-android")
+        self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
+
+    def test_root_listing_in_workspace(self):
+        self.fixture("monorepo-js")
+        self.fixture("play-root-build-ios")
+        # This package uses app.json as a directory. Root resolution should
+        # finish before inspecting any child configuration.
+        (self.root / "packages/shared/app.json").mkdir()
+        self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
+
+    def test_native_listing_in_workspace(self):
+        self.fixture("monorepo-js")
+        self.write("ios/fastlane/screenshots/en-US/01.png", "screenshot")
+        self.assertEqual(self.dirs(), ["ios/fastlane", "fastlane"])
+
+    def test_child_needs_app_evidence(self):
+        self.write("packages/data/app.json", '{"name":"data"}')
+        self.write("packages/data/app.config.backup", "old config")
+        self.write("packages/widgetbook/lib/main.dart", "void main() {}")
+        self.write("packages/library/app/build.gradle", "plugins { id 'com.android.library' }")
+        self.write("packages/sdk/SDK.xcodeproj/project.pbxproj", '{"objects":{}}')
+        self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
+
+    def test_flutter_app_in_workspace(self):
+        self.write("packages/client/pubspec.yaml", "name: client\ndependencies:\n  flutter:\n    sdk: flutter\n")
+        self.write("packages/client/lib/main.dart", "void main() {}")
+        output = self.run_cmd(CLI, "detect", ".", success=False)
+        self.assertIn("packages/client", output)
+        self.assertIn("trees", output)
+
     def test_duplicate(self):
         self.fixture("duplicate-apple")
         with self.assertRaisesRegex(ValueError, r"fastlane.*ios/fastlane.*trees"):
@@ -136,6 +174,21 @@ class LayoutTest(unittest.TestCase):
         self.write("copy/en-US/name.txt", "Name")
         output = self.run_cmd(sys.executable, LIB / "listing.py", "apple-locales", "--app-root", ".")
         self.assertIn("copy/en-US", output)
+
+    def test_metadata_commands_require_app_root(self):
+        self.write("ios/fastlane/metadata/en-US/name.txt", "Name")
+        for script, args in (("fields.py", ["apple", "ios/fastlane/metadata/en-US"]),
+                             ("listing.py", ["apple-locales", "ios/fastlane"])):
+            with self.subTest(script=script):
+                out = self.run_cmd(sys.executable, LIB / script, *args, success=False)
+                self.assertIn("--app-root", out)
+                self.assertIn("required", out)
+
+    def test_legacy_locale_directory_with_explicit_app_root(self):
+        self.write("legacy/lanes/metadata/en-US/name.txt", "Name")
+        out = self.run_cmd(sys.executable, LIB / "listing.py", "apple-locales",
+                           "legacy/lanes", "--app-root", ".")
+        self.assertIn("legacy/lanes/metadata/en-US", out)
 
     def test_plan_secret(self):
         self.listing(**{TOKEN: "oops"})
@@ -247,6 +300,24 @@ class LayoutTest(unittest.TestCase):
         self.run_cmd("git", "add", "-f", ".")
         self.run_cmd("git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture")
         self.install()
+
+    def test_workspace_hook_allows_unrelated_build_change(self):
+        self.fixture("monorepo-js")
+        self.commit_fixture()
+        self.write("packages/tools/build.gradle", "// build configuration")
+        self.run_cmd("git", "add", "packages/tools")
+        self.run_cmd("git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-qm", "edit tools")
+        self.assertFalse((self.root / "listing-review.html").exists())
+
+    def test_workspace_hook_refreshes_root_listing(self):
+        self.fixture("monorepo-js")
+        self.fixture("play-root-build-ios")
+        self.commit_fixture()
+        self.write("fastlane/metadata/android/en-US/title.txt", "Updated root title")
+        self.run_cmd("git", "add", "fastlane")
+        self.run_cmd("bash", ".git/hooks/pre-commit")
+        self.assertIn("Updated root title", self.run_cmd("git", "show", ":listing-review.html"))
 
     def test_unselected_native_lane_does_not_refresh(self):
         self.listing(trees={"apple": {"fastlaneDir": "apple-lanes"}})
