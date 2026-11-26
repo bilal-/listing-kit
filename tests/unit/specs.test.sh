@@ -13,20 +13,30 @@ assert_file "$SKILL_DIR/specs/stores.json"
 if json_valid "$SKILL_DIR/specs/stores.json"; then pass "valid JSON"; else fail "invalid stores.json"; fi
 assert_contains "$(python3 "$SPECS" verified)" "20"
 
-it "every size in the old Apple size table maps to a slot with the same label"
-OUT="$(cd "$SCRIPTS/lib" && py <<'PY'
-import specs, os
-d = specs.load()
-bad = []
-for line in open("apple-screenshot-sizes.tsv", encoding="utf-8"):
-    if not line.strip() or line.startswith("#"): continue
-    dims, label = line.rstrip("\n").split("\t")
-    w, h = (int(x) for x in dims.split("x"))
-    s = specs.apple_slot_for_size(d, w, h)
-    ok = s and (s["label"] == label or label in s.get("legacyLabels", []))
-    if not ok: bad.append("%s %s -> %s" % (dims, label, s and s["label"]))
-print("BAD: " + "; ".join(bad) if bad else "ALL MAPPED")
-PY
+it "previously supported capture sizes print their console labels"
+OUT="$(cd "$SCRIPTS/lib" && py <<'PYTEST'
+from imginfo import apple_class
+from specs import load
+
+rules = load()
+accepted = {
+    "iPhone Dynamic Island (large display)": [(1320,2868), (1290,2796), (1260,2736)],
+    "iPhone Face ID (large display)": [(1284,2778), (1242,2688)],
+    "iPhone Dynamic Island (medium display)": [(1206,2622), (1179,2556)],
+    "iPhone Face ID (medium display)": [(1170,2532), (1125,2436), (1080,2340)],
+    "iPhone Home Button (large display)": [(1242,2208)],
+    "iPhone Home Button (medium display)": [(750,1334)],
+    'iPad 13"': [(2064,2752), (2048,2732)],
+    'iPad 11"': [(1668,2420), (1668,2388), (1640,2360), (1488,2266)],
+    'iPad 10.5"': [(1668,2224)],
+    "iPhone Duo (outer display)": [(1398,2034)],
+    "iPhone Duo (inner display)": [(2007,2853)],
+}
+for label, sizes in accepted.items():
+    for w, h in sizes:
+        assert apple_class(w, h, rules=rules) == label, (label, w, h)
+print("ALL MAPPED")
+PYTEST
 )"
 assert_eq "ALL MAPPED" "$OUT"
 

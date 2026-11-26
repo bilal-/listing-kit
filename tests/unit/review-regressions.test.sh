@@ -203,7 +203,7 @@ for loc in en-US de-DE fr-FR; do
   fake_png "$app/fastlane/screenshots/$loc/01.png" 1206 2622
 done
 out="$(LK_PYTHON="$py" LK_CALLS="$STUB_LOG" PATH="$STUB_BIN:$PATH" bash "$SCRIPTS/validate/validate-listing.sh" "$app" 2>&1)"
-assert_contains "$out" 'iPhone screenshots present'
+assert_contains "$out" 'iPhone Dynamic Island (medium display) screenshots present'
 for script in fields imginfo; do
   count="$(grep -c "/$script.py" "$STUB_LOG")"
   [ "$count" -le 1 ] && pass || fail "$count $script processes for three locales"

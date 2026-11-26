@@ -20,7 +20,7 @@ mkdir -p "$(dirname "$out")"
 tmp="$(mktemp -d "$(dirname "$out")/.listing-capture.XXXXXX")"
 trap 'rm -r "$tmp"' EXIT
 xcrun simctl io "$device" screenshot --type=png --display "$display" "$tmp/raw.png"
-info="$(python3 "$here/../lib/imginfo.py" "$tmp/raw.png")"
+info="$(python3 -I -B "$here/../lib/imginfo.py" "$tmp/raw.png")"
 IFS=$'\t' read -r width height rest <<< "$info"
 if [ "${width}x${height}" != "$size" ]; then
   if [ "${height}x${width}" = "$size" ]; then

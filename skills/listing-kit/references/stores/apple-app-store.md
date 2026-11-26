@@ -1,80 +1,71 @@
 # Apple App Store — requirements reference
 
-> **Snapshot, not gospel** (verified against App Store Connect docs, 2026-10).
-> Apple changes which sizes are required vs. derived fairly often. **Re-verify
-> against the current
-> [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications)
-> at runtime** and prefer live docs over this table when they disagree.
+The tables below are generated from `specs/stores.json`. Record app-specific differences and their source URLs in `.listing-kit/specs.override.json`.
 
 ## Screenshots
 
-1–10 screenshots per display class, per locale.
+Use the console upload slot to choose a capture device. Capture at an accepted native resolution for that class.
 
-| App Store Connect upload slot | Coverage | Accepted portrait sizes (landscape = swapped) |
-|---|---|---|
-| iPhone Dynamic Island (medium display) | **Required** by the current Required device sizes section | 1206×2622, 1179×2556 |
-| iPhone Dynamic Island (large display) | Additional slot; does not fill medium | 1320×2868, 1290×2796, 1260×2736 |
-| iPhone Face ID (large display) | Check the console's requirements for this slot | 1284×2778, 1242×2688 |
-| iPhone Face ID (medium display) | Additional slot | 1170×2532, 1125×2436, 1080×2340 |
-| iPhone Home Button (large / medium display) | Additional slots | large: 1242×2208 · medium: 750×1334 |
-| iPhone Duo | Capture when selected; do not silently add it to launch scope | outer: 1398×2034 · inner: 2007×2853 |
-| iPad 13" | **Required iff** app runs on iPad | 2064×2752, 2048×2732 |
-| iPad 11" / 10.5" | Additional slots | 11": 1668×2420, 1668×2388, 1640×2360, 1488×2266 · 10.5": 1668×2224 |
-| Apple Watch | Only if watchOS app | See live specs |
+<!-- rules:begin screenshots -->
 
-Use the console's **upload slot**, not just a device's marketing diagonal.
-A 1320×2868 capture is valid for Dynamic Island large but is rejected in the
-medium slot. Capture medium at native resolution; do not stretch a large capture.
-Persist the selected sets/counts in the [asset plan](../metadata/fastlane-layout.md#apple-asset-plan).
-The validator checks current minimums plus that plan; a valid unrelated set cannot
-satisfy a missing planned class. Its size table is
-`scripts/lib/apple-screenshot-sizes.tsv`, shared with the review page.
+| Display class | Requirement | Count per locale | Accepted size or bounds | Format | Delivery and notes |
+| --- | --- | --- | --- | --- | --- |
+| iPhone Dynamic Island (medium display) | Required if the app runs on iPhone (not iPad-only) | 1–10 | 1206×2622, 1179×2556 | PNG/JPEG, no alpha | fastlane |
+| iPhone Dynamic Island (large display) | Optional | 1–10 | 1320×2868, 1290×2796, 1260×2736 | PNG/JPEG, no alpha | fastlane |
+| iPhone Face ID (large display) | Optional | 1–10 | 1284×2778, 1242×2688 | PNG/JPEG, no alpha | fastlane |
+| iPhone Face ID (medium display) | Optional | 1–10 | 1170×2532, 1125×2436, 1080×2340 | PNG/JPEG, no alpha | fastlane |
+| iPhone Home Button (large display) | Optional | 1–10 | 1242×2208 | PNG/JPEG, no alpha | fastlane |
+| iPhone Home Button (medium display) | Optional | 1–10 | 750×1334 | PNG/JPEG, no alpha | fastlane |
+| iPhone Home Button (4" display) | Optional | 1–10 | 640×1136, 1136×640, 640×1096, 1136×600, fixed orientation | PNG/JPEG, no alpha | fastlane |
+| iPhone Home Button (3.5" display) | Optional | 1–10 | 640×960, 960×640, 640×920, 960×600, fixed orientation | PNG/JPEG, no alpha | fastlane |
+| iPhone Duo (outer display) | Required if the app runs on iPhone (not iPad-only) from 2027-04-01 unless the app is built with an iOS SDK older than 27.1 | 1–10 | 1398×2034 | PNG/JPEG, no alpha | fastlane |
+| iPhone Duo (inner display) | Required if the app runs on iPhone (not iPad-only) from 2027-04-01 unless the app is built with an iOS SDK older than 27.1 | 1–10 | 2007×2853 | PNG/JPEG, no alpha | fastlane |
+| iPad 13" | Required if the app runs on iPad | 1–10 | 2064×2752, 2048×2732 | PNG/JPEG, no alpha | fastlane |
+| iPad 12.9" | Optional | 1–10 | 2048×2732 | PNG/JPEG, no alpha | fastlane |
+| iPad 11" | Optional | 1–10 | 1668×2420, 1668×2388, 1640×2360, 1512×2316, 1488×2266 | PNG/JPEG, no alpha | fastlane |
+| iPad 10.5" | Optional | 1–10 | 1668×2224 | PNG/JPEG, no alpha | fastlane |
+| iPad 9.7" | Optional | 1–10 | 1536×2048, 2048×1536, 1536×2008, 2048×1496, 768×1024, 1024×768, 768×1004, 1024×748, fixed orientation | PNG/JPEG, no alpha | fastlane |
+| Apple Watch | Required if the app has a watchOS app | 1–10 | 422×514, 410×502, 416×496, 396×484, 368×448, 312×390, fixed orientation | PNG/JPEG, no alpha | Framing forbidden. fastlane |
+| Apple TV | Required if the app has a tvOS app | 1–10 | 1920×1080, 3840×2160, fixed orientation | PNG/JPEG, no alpha | appleTV |
+| Apple Vision Pro | Required if the app has a visionOS app | 1–10 | 3840×2160, fixed orientation | PNG/JPEG, no alpha | console |
+| Mac | Required if the app has a macOS app | 1–10 | 1280×800, 1440×900, 2560×1600, 2880×1800, fixed orientation | PNG/JPEG, no alpha | fastlane |
 
-For Duo, check that Xcode and the installed runtime actually provide its device
-type before building (Xcode 27.1 / iOS 27.1 at this snapshot). See the
-[native capture guidance](../stacks/ios-native.md#capture) for multiple displays.
-Keep deferred targets out of active screenshot counts and record them in
-`deferredScreenshots` with a reason. The [Duo preflight](../stacks/ios-native.md#optional-duo-capture)
-lets other targets and creative assets proceed when compatible tooling is absent.
-Deferral does not waive store requirements: Apple has announced Duo screenshots
-will become required starting April 2027; recheck the linked specifications for
-the intended submission date.
+At least 1 screenshot across primary device families per locale.
 
-**Format (Validate must enforce):** PNG or JPEG, **RGB, flattened, no alpha/
-transparency**. Raw `xcrun simctl … screenshot` output is **32-bit RGBA** and must
-be flattened before upload:
-`scripts/capture/normalize-screenshot.sh in.png out.png`.
-No rounded corners/device frame needed (raw screen content is preferred for
-regeneration). Max ~500 MB/file (not a practical concern).
+Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
 
-## Detecting iPad support (whether iPad screenshots are REQUIRED)
+<!-- rules:end screenshots -->
 
-If the app runs on iPad, **iPad 13"/12.9" screenshots are required to submit** — a
-common, easy-to-miss rejection. Detect it before deciding to capture:
-- **Expo / React Native:** `ios.supportsTablet: true` in `app.json`/`app.config`.
-- **Native iOS:** `TARGETED_DEVICE_FAMILY` includes `2` (1=iPhone, 2=iPad), or
-  `UIDeviceFamily` in `Info.plist` includes `2`. "Designed for iPad" / universal.
-- **Flutter:** iOS runner's `TARGETED_DEVICE_FAMILY` (same as native).
+Record the selected sets and counts in the [asset plan](../metadata/fastlane-layout.md#apple-asset-plan). For Duo, use the [native capture preflight](../stacks/ios-native.md#optional-duo-capture) to check the installed devices and runtimes. Record a deferred target with its reason in `deferredScreenshots`. Check the dated requirements above for the intended submission date and build SDK.
 
-When supported, install the same build on the newest **iPad Pro 13-inch** simulator
-(names carry a chip suffix, e.g. `iPad Pro 13-inch (M5)`; list them with
-`xcrun simctl list devicetypes`) and capture at **2064×2752**. An 11" iPad set does
-**not** satisfy the requirement. Place under the same
-`fastlane/screenshots/<locale>/` with an iPad-distinct filename prefix; deliver
-assigns device by image dimensions.
+Run `scripts/capture/normalize-screenshot.sh in.png out.png` on raw captures before validation.
 
-## Metadata fields (per locale)
+## Detecting iPad support
 
-| Field | Limit | Notes |
-|---|---|---|
-| App name | 2–30 chars | |
-| Subtitle | 30 chars | |
-| Promotional text | 170 chars | updatable without review |
-| Description | 4000 chars | |
-| Keywords | 100 **bytes** | comma-separated, no spaces needed. Bytes, not characters: CJK text hits the limit sooner |
-| Support URL | — | required |
-| Marketing URL | — | optional |
-| Privacy policy URL | — | required for iOS apps (`privacy_url.txt`) |
+The validator reads the native target device family, Info.plist and static Expo configuration. Use the iPad slot above to select a simulator. Place captures in the locale screenshot directory with an iPad-specific filename prefix.
+
+## Metadata fields
+
+<!-- rules:begin fields -->
+
+| Field | File stem | Scope | Limit or unit | Requirement |
+| --- | --- | --- | --- | --- |
+| Name | name | locale | 2–30 chars | Required |
+| Subtitle | subtitle | locale | 30 chars | Optional |
+| Promotional text | promotional_text | locale | 170 chars | Optional |
+| Description | description | locale | 4000 chars | Required |
+| Keywords | keywords | locale | 100 bytes | Required |
+| Support URL | support_url | locale | url | Required |
+| Marketing URL | marketing_url | locale | url | Optional |
+| Privacy policy URL | privacy_url | locale | url | Required |
+| What's new | release_notes | locale | 4000 chars | Required if this listing is for an update, not the first version |
+| Copyright | copyright | app | chars | Required |
+| Primary category | primary_category | app | enum | Required |
+| Secondary category | secondary_category | app | enum | Optional |
+
+Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/) · [Store reference 2](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/)
+
+<!-- rules:end fields -->
 
 ## App-level (not per-locale)
 
@@ -90,12 +81,18 @@ See `../metadata/fastlane-layout.md`. Each field maps to a `.txt` file under
 
 Header artwork is a separate creative asset, not an app screenshot or the Play
 feature graphic. Confirm whether it is part of the requested listing.
-[Apple's creative asset specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications)
-accept 5244×2950 **PNG** (16:9), or 3840×1646 PNG/JPEG (21:9), without alpha.
-Generate 8-bit RGB assets. Do not swap width/height or enlarge the 1024×500 Play
-feature graphic; compose the artwork for the selected canvas.
+<!-- rules:begin graphics -->
 
-Follow [Apple's header templates and best practices](https://developer.apple.com/app-store/asset-best-practices/):
+| Graphic | File stem | Size | Format | Requirement | Upload |
+| --- | --- | --- | --- | --- | --- |
+| Header Asset 16:9 | header-16x9 | 5244×2950 | PNG, 8 bits/channel, no alpha | Optional | console |
+| Header Asset 21:9 | header-21x9 | 3840×1646 | PNG/JPEG, 8 bits/channel, no alpha | Optional | console |
+
+Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications)
+
+<!-- rules:end graphics -->
+
+Compose the artwork on the canvas for the selected header. Follow [Apple's header templates and best practices](https://developer.apple.com/app-store/asset-best-practices/):
 one clear idea, a centered focal point, short readable text, and enough room for
 placement crops. Use the app's approved brand assets and verified claims. Avoid
 URLs, copyright symbols, pricing and other platforms' logos. Review each finished

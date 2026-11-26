@@ -9,14 +9,27 @@
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
-ROOT="${1:-.}"
+ROOT=; prepared=0; options=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --prepared) prepared=1 ;;
+    --verbose) options+=("$1") ;;
+    --as-of|--ios-sdk)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "$1 needs a value" >&2; exit 2; }
+      options+=("$1" "$2"); shift ;;
+    -*) echo "Unknown option: $1" >&2; exit 2 ;;
+    *) [ -z "$ROOT" ] || { echo "Expected one app root" >&2; exit 2; }; ROOT="$1" ;;
+  esac
+  shift
+done
+ROOT="${ROOT:-.}"
 [ -d "$ROOT" ] || { echo "Not a directory: $ROOT" >&2; exit 2; }
 [ -d "$ROOT/fastlane" ] || { echo "No fastlane/ tree under: $ROOT (run Assemble first)." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review page." >&2; exit 2; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ "${2:-}" != --prepared ]; then
-  exec python3 -I -B "$SELF_DIR/../lib/review_inputs.py" "$SELF_DIR/${BASH_SOURCE[0]##*/}" "$ROOT" "${@:2}"
+if [ "$prepared" = 0 ]; then
+  exec python3 -I -B "$SELF_DIR/../lib/review_inputs.py" "$SELF_DIR/${BASH_SOURCE[0]##*/}" "$ROOT" ${options[@]+"${options[@]}"}
 fi
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
@@ -28,7 +41,7 @@ if [ ! -f "$VALIDATOR" ]; then
   exit 1
 fi
 val_rc=0
-bash "$VALIDATOR" "$ROOT" --prepared --review >"$VAL_RAW" 2>&1 || val_rc=$?
+bash "$VALIDATOR" "$ROOT" --prepared --review ${options[@]+"${options[@]}"} >"$VAL_RAW" 2>&1 || val_rc=$?
 case "$val_rc" in
   3|4) cat "$VAL_RAW" >&2; [ "$val_rc" = 3 ] && exit 3; exit 2 ;;
 esac
@@ -54,28 +67,34 @@ import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
 sys.path.insert(0, lib_dir)
-from imginfo import image_info, apple_class
+from imginfo import image_info
 import fields as store_fields
 import listing
-import apple_assets
 import specs
+import detect
+import apple_assets
+import screenshots
 from secret_scan import secret_text
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
+try:
+    rules = specs.load(root)
+except specs.SpecsError:
+    rules = specs.load()  # Keep the review available when local rules cannot be read.
+requirements = detect.Requirements(root, rules)
 read = store_fields.read
+
+
+def field_rows(store, directory, fallback=None):
+    return store_fields.rows(store, directory, fallback, rules, requirements)
 
 def dims(p):
     w, h = image_info(p)[:2]
     return (w, h) if w else None
 
 images = listing.images
-
-def devclass(wh):
-    if not wh:
-        return "?"
-    return apple_class(*wh) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
     s = s or ""
@@ -86,40 +105,45 @@ def esc(s):
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
-    apple_plan = apple_assets.load_plan(root)
+    apple_plan = apple_assets.load_plan(root, rules)
 except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
+def screenshot_groups(store, locale, deferred=()):
+    groups = {}
+    for shot in screenshots.active(root, store, locale, rules, deferred):
+        if shot.manual and shot.error:
+            sys.exit(shot.error)
+        label = shot.slot["label"] if shot.slot else "{}×{}".format(*shot.size)
+        if shot.platform == "iMessage":
+            label = "iMessage " + label
+        groups.setdefault(label, []).append(os.path.relpath(shot.path, root))
+    return groups
+
 # ---- iOS (deliver) ----
-try:
-    rules = specs.load(root)
-except specs.SpecsError:
-    rules = specs.load()  # Keep the review available when local rules cannot be read.
 ios_locs = apple_assets.apple_locales(root, rules, apple_plan)
 apple_default = listing.apple_default(FL, rules)
-if apple_assets.has_apple_listing(root, ios_locs, rules):
+if apple_assets.has_apple_listing(root, rules, ios_locs):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
-        fields = store_fields.rows("apple", ld, apple_default)
-        shots = {}
+        fields = field_rows("apple", ld, apple_default)
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        for platform, f in apple_assets.active_screenshots(root, loc, deferred):
-            cls = devclass(dims(f))
-            if platform == "iMessage":
-                cls = "iMessage " + cls
-            shots.setdefault(cls, []).append(os.path.relpath(f, root))
-        for slot_id, f in listing.manual_screenshots(root, "apple", loc):
-            slot = specs.slot(rules, "apple", slot_id)
-            if slot and not apple_assets.is_deferred(f, deferred):
-                shots.setdefault(slot["label"], []).append(os.path.relpath(f, root))
-        graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
-                    for f in images(apple_assets.header_dir(root, loc))]
+        deferred_ids = apple_assets.deferred_slots(rules, deferred)
+        shots = screenshot_groups("apple", loc, deferred_ids)
+        graphics = []
+        for f in images(apple_assets.header_dir(root, loc)):
+            info = image_info(f)
+            graphic = apple_assets.header_rule(f, info, rules)
+            label = "Header Asset (manual console upload)"
+            if graphic:
+                label += " · " + graphic["label"]
+            graphics.append((label, os.path.relpath(f, root), info[:2] if info[0] else None))
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
     if not locs and apple_default:
-        locs.append(dict(locale="default", fields=store_fields.rows("apple", apple_default),
+        locs.append(dict(locale="default", fields=field_rows("apple", apple_default),
                          shots={}, graphics=[], deferred={}))
-    applevel = store_fields.rows("apple-app", os.path.join(FL, "metadata"))
+    applevel = field_rows("apple-app", os.path.join(FL, "metadata"))
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
 # ---- Android (supply) ----
@@ -128,17 +152,12 @@ if os.path.isdir(A):
     locs = []
     for ld in listing.play_locales(FL):
         loc = os.path.basename(ld)
-        fields = store_fields.rows("play", ld)
-        shots = {}
-        for sub, lbl in [("phoneScreenshots", "Phone"), ("sevenInchScreenshots", '7" tablet'),
-                         ("tenInchScreenshots", '10" tablet'), ("tvScreenshots", "TV"),
-                         ("wearScreenshots", "Wear")]:
-            fs = images(os.path.join(ld, "images", sub))
-            if fs:
-                shots[lbl] = [os.path.relpath(f, root) for f in fs]
+        fields = field_rows("play", ld)
+        shots = screenshot_groups("play", loc)
         graphics = []
         # supply reads the graphics directly from the locale images directory.
-        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon"), ("tvBanner", "TV banner")]:
+        for graphic in rules["stores"]["play"]["graphics"]:
+            name, lbl = graphic["file"], graphic["label"]
             for f in images(os.path.join(ld, "images")):
                 if os.path.splitext(os.path.basename(f))[0].lower() == name.lower():
                     graphics.append((lbl, os.path.relpath(f, root), dims(f)))

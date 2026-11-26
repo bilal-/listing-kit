@@ -19,7 +19,7 @@ color_type follows PNG numbering: 2 = RGB (no alpha), 6 = RGBA, 0 = grayscale,
 4 = grayscale+alpha, 3 = palette; a PNG with a tRNS (transparency) chunk reports
 e.g. "2+tRNS", so it never passes as "2". JPEGs report 2 (3 channels), 0 (1
 channel), or 99 (CMYK/other). Unreadable or invalid files report "0 0 0 99".
-apple_class is the App Store display class from apple-screenshot-sizes.tsv, or "-".
+apple_class is the App Store display class from the effective store rules, or "-".
 
 Also imported by build-review.sh and apple_assets.py.
 """
@@ -32,7 +32,9 @@ import zlib
 
 UNKNOWN = (0, 0, 0, 99)
 EXTENSIONS = (".png", ".jpg", ".jpeg")  # deliver/supply upload these (lower-case only on Linux)
-SIZES_TSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apple-screenshot-sizes.tsv")
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import specs
 CHUNK = 65536
 MAX_PIXELS = 64_000_000
 PNG_FORMATS = {
@@ -553,24 +555,25 @@ def is_image(path):
     return path.lower().endswith(EXTENSIONS)
 
 
-def _load_apple_sizes():
-    sizes = {}
-    with open(SIZES_TSV, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip() or line.startswith("#"):
-                continue
-            dims, label = line.rstrip("\n").split("\t")
-            w, h = (int(x) for x in dims.split("x"))
-            sizes[(min(w, h), max(w, h))] = label
-    return sizes
+def apple_class(w, h, path="", rules=None):
+    slot = specs.apple_slot_for_file(rules if rules is not None else specs.load("."), w, h, str(path))
+    return slot["label"] if slot else None
 
 
-APPLE_SIZES = _load_apple_sizes()
+def image_format(path):
+    with open(path, "rb") as source:
+        signature = source.read(8)
+    if signature == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if signature.startswith(b"\xff\xd8"):
+        return "jpeg"
+    return None
 
 
-def apple_class(w, h):
-    """App Store display class for a screenshot size (either orientation), or None."""
-    return APPLE_SIZES.get((min(w, h), max(w, h)))
+def format_allowed(path, formats):
+    ext = os.path.splitext(path)[1][1:].lower()
+    actual = image_format(path)
+    return actual in formats and actual == ("jpeg" if ext == "jpg" else ext)
 
 
 def image_bytes(path):
@@ -578,13 +581,15 @@ def image_bytes(path):
     return entry[1] if entry else (os.path.getsize(path) if os.path.exists(path) else 0)
 
 
-def validation_rows(paths):
+def validation_rows(paths, rules=None):
+    rules = rules if rules is not None else specs.load(".")
     for p, (info, status) in zip(paths, validate_many(paths)):
         w, h, depth, ct = info
-        yield "\t".join(map(str, (w, h, depth, ct, image_bytes(p), apple_class(w, h) or "-", status, p)))
+        yield "\t".join(map(str, (w, h, depth, ct, image_bytes(p), apple_class(w, h, p, rules) or "-", status, p)))
 
 
 if __name__ == "__main__":
+    rules = specs.load(".")
     if len(sys.argv) > 1 and sys.argv[1] == "--decode":
         paths = sys.argv[2:]
         for p, st in zip(paths, decode_many(paths)):
@@ -597,4 +602,4 @@ if __name__ == "__main__":
         for p in sys.argv[1:]:
             w, h, depth, ct = image_info(p)
             size = image_bytes(p)
-            print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", p))))
+            print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h, p, rules) or "-", p))))

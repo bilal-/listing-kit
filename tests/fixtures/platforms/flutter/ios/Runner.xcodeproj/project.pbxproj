@@ -1,0 +1,6 @@
+// !$*UTF8*$!
+{ objects = {
+Runner /* Runner */ = {isa = PBXNativeTarget; buildConfigurationList = LRunner; productType = "com.apple.product-type.application";};
+LRunner = {isa = XCConfigurationList; buildConfigurations = (CRunner /* Release */,);};
+CRunner = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; TARGETED_DEVICE_FAMILY = "1,2";}; name = Release;};
+}; }

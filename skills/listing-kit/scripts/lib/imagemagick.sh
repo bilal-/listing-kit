@@ -19,3 +19,12 @@ im_resolve(){
     *)       command -v convert >/dev/null 2>&1 ;;
   esac
 }
+
+
+im_channels(){
+  if [ "$1" = on ]; then
+    CHANNELS=(-alpha on)
+  else
+    CHANNELS=(-background white -alpha remove -alpha off)
+  fi
+}

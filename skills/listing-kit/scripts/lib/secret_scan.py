@@ -209,6 +209,11 @@ def scan(path, base, ignored, roots):
             report(relative)
             yield 1
         elif path.is_symlink():
+            # Non-strict resolve and is_file suppress ELOOP on recent Python.
+            try:
+                path.stat()
+            except FileNotFoundError:
+                pass
             target = Path(os.readlink(path))
             if secret_text(os.fsencode(target)):
                 report(relative)

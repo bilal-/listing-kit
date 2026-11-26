@@ -68,4 +68,12 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "Not a PNG/JPEG"
 assert_eq "" "$(stub_log)" "ImageMagick never ran"
 
+it "Play normalization uses the active promotion ratios"
+mkdir -p "$TMP/.listing-kit"
+echo '{"stores":{"play":{"screenshots":{"slots":[{"id":"phone","alpha":true,"bitDepth":16,"formats":["png"],"promotion":{"ratios":["3:4"]}}]}}}}' > "$TMP/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+(cd "$TMP" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/tall.png" "$TMP/out.png" --play) >/dev/null
+assert_contains "$(stub_log)" "-crop 1080x1440+0+0"
+assert_contains "$(stub_log)" "PNG64:"
+assert_contains "$(stub_log)" "-alpha on"
 summary
