@@ -5,11 +5,39 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ## Unreleased
 
-- README shows the real version, and a test keeps it in step with the manifest.
-- The bundled example is validated as committed, and `examples/README.md` must
-  agree with the validator's result. It currently fails one check: the iPhone
-  Dynamic Island (medium display) set has not been recaptured.
-- The guide's output tree lists `store-assets/` and the asset plan.
+### Rules and validation
+
+- Store fields, locales, slot sizes, upload routes and dated requirements live in one rules file. It supplies validation and the generated reference tables and supports app-local overrides.
+- Validation reports platform evidence, supports submission-date and iOS SDK checks, and checks image structure and decoding when ImageMagick is available. A weekly drift check reports changed upstream facts or unreadable sources.
+
+### Plan and capture
+
+- Format 2 records targets, ordered screens, locales, flow overrides and split fastlane roots. Plan commands check it and print capture jobs and output paths.
+- Capture selects simulators or emulators, runs Maestro flows and saves checked raw PNGs. It supports manual navigation, device pins, job selection and a dry run.
+
+### Marketing screenshots
+
+- Compose renders framed shots, bands, panels and store graphics from local assets. It can preview the plan in HTML. Content and style keys avoid unnecessary redraws. A style-only redraw requires explicit approval.
+
+### Hand-upload folder
+
+- Handoff builds an indexed Apple and Play upload folder with text, ordered screenshots, graphics and console destinations. Rebuilds check for changed files before replacing the folder.
+
+### Fastlane commands
+
+- Setup checks read access using external credential paths. Pull merges downloaded text against a baseline and saves remote screenshot references.
+- Publish validates a scratch copy, compares listings and previews the proposed command and gallery replacements. Uploads are disabled for both stores pending live tests.
+
+### Command and CI
+
+- The launcher exposes plan, capture, compose, validation, review, hook and delivery commands. CI templates generate listing checks, review artifacts and manual store jobs for GitHub or GitLab.
+- The marketplace metadata and Gemini manifest come from the plugin manifest. Gemini uses on-demand skill loading. Contributor instructions and installation instructions now have separate homes.
+- Tests check the version badge, the example's validation status, documented commands and the plan example.
+
+### Safety fixes
+
+- The review hook scans staged inputs and blocks credential findings and incomplete scans. Fixture Git commands run with isolated configuration.
+- Compose checks ownership and content hashes before replacing files, recovers interrupted writes and moves unchanged stale outputs to the held directory.
 
 ## 0.5.0 (2026-10-07)
 

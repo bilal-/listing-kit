@@ -19,11 +19,15 @@ Keep both credential files outside the checkout and outside synced project folde
 | Apple | `APP_STORE_CONNECT_API_KEY_PATH` | `fastlane.appleApiKeyPath` |
 | Play | `SUPPLY_JSON_KEY` | `fastlane.playJsonKeyPath` |
 
-The fields belong inside a JSON object named `fastlane`. Store only paths there. The environment variable overrides the saved path. An explicit `--apple-api-key-path` or `--play-json-key-path` on `listing-kit fastlane setup` takes precedence over both and saves the resolved path. Add `.listing-kit/local.json` to the app's `.gitignore`. Check with `git check-ignore .listing-kit/local.json` and confirm that `git ls-files -- .listing-kit/local.json` prints nothing. Never put key material in the app repo, plan, launcher or shell history.
+The fields belong inside a JSON object named `fastlane`. Store only paths there. The environment variable overrides the saved path. Use `listing-kit fastlane setup --apple-api-key-path PATH` or `listing-kit fastlane setup --play-json-key-path PATH` to select a path explicitly. An explicit path takes precedence during setup. Store only the path. Never ask an agent to open, paste or print a store credential. Add `.listing-kit/local.json` to the app's `.gitignore`. Check with `git check-ignore .listing-kit/local.json` and confirm that `git ls-files -- .listing-kit/local.json` prints nothing. Never put key material in the app repo, plan, launcher or shell history.
+
+For a demo login used during capture, have the user export a `MAESTRO_` variable in their shell or source it from git-ignored `.listing-kit/secrets.local`. Use the variable reference in the YAML. [Maestro flow example](../skills/listing-kit/references/driving/maestro.md#write-a-flow)
 
 ## CI use
 
 Enter credentials yourself using the provider’s secure settings. Scope `APP_STORE_CONNECT_API_KEY_JSON` to `store-listing-apple` and `PLAY_SERVICE_ACCOUNT_JSON` to `store-listing-play`. On GitHub, store the complete JSON as an environment secret. On GitLab, use protected **File** variables with variable expansion disabled. The job prepares a private file for the selected store and gives fastlane its path. [CI setup and approvals](CI.md).
+
+Store access alone does not enable uploads. Agents must never pass `--yes` to publish or set the maintainers' live-test switch, `LK_PUBLISH_UNVERIFIED`.
 
 ## Rotate or revoke
 
