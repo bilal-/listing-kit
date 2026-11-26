@@ -67,7 +67,7 @@ remove the deferral and add the approved count back to `screenshots` before capt
 ```sh
 # Pick a simulator matching the required device class (see ../stores/apple-app-store.md).
 # Dynamic Island medium is currently required; list installed types with `xcrun simctl list devicetypes`.
-xcrun simctl boot "iPhone 17 Pro"        # 1206×2622
+xcrun simctl boot "iPhone 17 Pro"        # verify the native size against the Apple screenshot table
 xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -derivedDataPath build build
@@ -94,7 +94,8 @@ For devices with multiple displays, enumerate them first:
 
 ```sh
 xcrun simctl io "$DEVICE_UDID" enumerate
-bash scripts/capture/capture-ios.sh "$DEVICE_UDID" "$DISPLAY_NAME" 1398x2034 output.png
+# Set EXPECTED_SIZE to WIDTHxHEIGHT from the selected Apple screenshot slot.
+bash scripts/capture/capture-ios.sh "$DEVICE_UDID" "$DISPLAY_NAME" "$EXPECTED_SIZE" output.png
 ```
 
 Select the screen showing the app, using the enumerated screen ID/name. Do not

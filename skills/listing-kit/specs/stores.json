@@ -29,6 +29,7 @@
   "apple": {
    "label": "Apple App Store",
    "screenshots": {
+    "minTotal": 1,
     "formats": [
      "png",
      "jpeg"
@@ -733,6 +734,7 @@
      "formats": [
       "png"
      ],
+     "bitDepth": 8,
      "alpha": false,
      "upload": "console",
      "file": "header-16x9",
@@ -751,6 +753,7 @@
       "png",
       "jpeg"
      ],
+     "bitDepth": 8,
      "alpha": false,
      "upload": "console",
      "file": "header-21x9",
@@ -1190,6 +1193,7 @@
       "jpeg"
      ],
      "alpha": false,
+     "grayscaleJpeg": true,
      "bitDepth": 8,
      "required": {
       "rule": "if",

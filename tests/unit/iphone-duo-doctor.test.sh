@@ -73,5 +73,11 @@ for malformed in broken '{"runtimes":[1]}'; do
   assert_not_contains "$OUT" Traceback
 done
 
-rm -r "$T"
+it "doctor takes the minimum SDK and simulator device type from the slot"
+types; runtimes
+mkdir -p "$T/.listing-kit"
+echo '{"conditions":{"iosSdkBelow:26.0":"Older SDK"},"stores":{"apple":{"screenshots":{"slots":[{"id":"iphone-duo-outer","required":{"rule":"if","condition":"supportsIphone","from":"2027-04-01","unless":"iosSdkBelow:26.0"},"capture":{"deviceType":"Custom Duo"}}]}}}}' > "$T/.listing-kit/specs.override.json"
+sed 's/iPhone-Duo/Custom-Duo/' "$T/types.json" > "$T/types.new"; mv "$T/types.new" "$T/types.json"
+OUT="$(cd "$T" && DUO_SDK=26.0 probe)"; assert_eq 0 "$?"
+assert_contains "$OUT" "SimDeviceType.Custom-Duo"
 summary

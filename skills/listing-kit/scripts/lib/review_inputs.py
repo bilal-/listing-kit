@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from project_files import project_files
 from secret_scan import credential_file, file_secret, ignored_private_files, private_local, sensitive_name, tracked
 
 TREES = ("fastlane", "store-assets", ".listing-kit")
@@ -71,21 +72,12 @@ def run(script, root, args):
                 shutil.copytree(root / tree, view / tree, symlinks=True, copy_function=link_file,
                                 ignore=lambda d, names: [n for n in names
                                     if (Path(d) / n).relative_to(root) in skip])
-        for directory, dirs, files in os.walk(root):
-            rel = Path(directory).relative_to(root)
-            dirs[:] = [d for d in dirs if d not in (".git", "Pods", "node_modules", "build",
-                       "DerivedData", ".expo", "dist", ".dart_tool")
-                       and rel / d not in skip and not d.endswith((".framework", ".xcframework"))
-                       and (rel / d).parts[0] not in TREES
-                       and Path(directory) / d != Path(tmp)]
-            for name in files:
-                path = rel / name
-                if path in skip:
-                    continue
-                if ((rel == Path(".") and (name == "app.json" or name.startswith("app.config.")))
-                        or name.endswith(".pbxproj") or name == "Info.plist"):
-                    (view / rel).mkdir(exist_ok=True, parents=True)
-                    link_file(root / path, view / path)
+        for source in project_files(root):
+            path = source.relative_to(root)
+            if path in skip or path.parts[0] in TREES or Path(tmp) in source.parents:
+                continue
+            (view / path.parent).mkdir(exist_ok=True, parents=True)
+            link_file(source, view / path)
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():

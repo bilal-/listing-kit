@@ -67,8 +67,18 @@ def find_kit(recorded, channel):
 
 
 LISTING_DIRS = (b"fastlane/", b"store-assets/", b".listing-kit/")
-VENDOR_DIRS = {b"node_modules", b".git", b"Pods", b"build", b"DerivedData", b".expo", b"dist", b".dart_tool"}
-VENDOR_LOWER = {part.lower() for part in VENDOR_DIRS}
+SKIP = {".git", ".gradle", "build", "DerivedData", "node_modules", "Pods", ".expo",
+        ".dart_tool", "dist", "vendor", "Carthage", ".build", ".swiftpm", "out", ".cxx"}
+SKIP_SUFFIXES = (".framework", ".xcframework", ".xcarchive")
+
+
+SKIP_LOWER = {name.lower() for name in SKIP}
+
+
+def skipped_directory(name, ignorecase=False):
+    if ignorecase:
+        return name.lower() in SKIP_LOWER or name.lower().endswith(SKIP_SUFFIXES)
+    return name in SKIP or name.endswith(SKIP_SUFFIXES)
 
 
 def listing_input(path, prefix, ignorecase=False):
@@ -82,10 +92,10 @@ def listing_input(path, prefix, ignorecase=False):
     if rel.startswith(b"app.config.") and b"/" not in rel:
         return True
     parts = rel.split(b"/")
-    if parts[-1] != (b"info.plist" if ignorecase else b"Info.plist") and not rel.endswith(b".pbxproj"):
+    native_files = (b"Info.plist", b"AndroidManifest.xml", b"build.gradle", b"build.gradle.kts")
+    if parts[-1] not in (tuple(n.lower() for n in native_files) if ignorecase else native_files) and not rel.endswith(b".pbxproj"):
         return False
-    vendor = VENDOR_LOWER if ignorecase else VENDOR_DIRS
-    return not any(part in vendor or part.endswith((b".framework", b".xcframework")) for part in parts[:-1])
+    return not any(skipped_directory(os.fsdecode(part), ignorecase) for part in parts[:-1])
 
 
 def pathspecs(prefixes, ignorecase=False):
@@ -96,7 +106,7 @@ def pathspecs(prefixes, ignorecase=False):
                      (b"fastlane", b"store-assets", b".listing-kit", b"app.json"))
         escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
         specs.extend(magic + b"glob)" + escaped + pattern for pattern in
-                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist"))
+                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist", b"**/AndroidManifest.xml", b"**/build.gradle", b"**/build.gradle.kts"))
     return specs
 
 

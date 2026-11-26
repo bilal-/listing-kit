@@ -1,40 +1,43 @@
 # Google Play — requirements reference
 
-> **Snapshot, not gospel** (verified against Play Console help, 2026-10). Play
-> Console requirements change. **Re-verify against the current
-> [preview assets guide](https://support.google.com/googleplay/android-developer/answer/9866151)
-> at runtime** and prefer live docs when they disagree with this table.
+The tables below are generated from `specs/stores.json`. Record app-specific differences and their source URLs in `.listing-kit/specs.override.json`.
 
-## Graphics & screenshots
+## Screenshots
 
-| Asset | Required? | Spec |
-|---|---|---|
-| Screenshots (all device types) | **≥2 in total** across device types | Up to 8 per device type. Use JPEG or 24-bit PNG without alpha. Device-specific dimensions appear below. |
-| Phone screenshots | If targeting phones | 2–8 images, 320–3840 px per side, up to 8 MB each. The long side can be up to 2.3× the short side. For promotion use at least four 1080 px or larger 9:16 or 16:9 screenshots for apps. |
-| 7" / 10" tablet screenshots | If targeting tablets | up to 8 each; for tablet/Chromebook featuring, ≥4 at 1080–7680 px, 16:9 or 9:16 |
-| Wear OS screenshots | If Wear OS app | up to 8 |
-| Android XR screenshots | If XR app | 4–8, 8:5 aspect, ≥1920×1200 (3840×2400 recommended), ≤8 MB. No fastlane `supply` folder yet: upload in Play Console |
-| **Feature graphic** | **Yes — required to publish** | exactly **1024×500**, JPEG or 24-bit PNG (**no alpha**) |
-| App icon | Yes | 512×512, 32-bit PNG (alpha allowed), ≤1 MB, no badges or rank/price text |
+<!-- rules:begin screenshots -->
 
-> The **feature graphic is not a screenshot** and cannot be produced by
-> capturing the app. listing-kit generates an icon-on-gradient placeholder via
-> `scripts/generate/feature-graphic.sh` (ImageMagick), falling back to prompting
-> the user to supply one if ImageMagick is absent.
+| Display class | Requirement | Count per locale | Accepted size or bounds | Format | Delivery and notes |
+| --- | --- | --- | --- | --- | --- |
+| Phone | Required if the app runs on Android phones | 2–8 | sides 320–3840 px, up to 2.3:1 | PNG/JPEG, 8 bits/channel, no alpha, ≤8,388,608 bytes | Promotion: 4 at ≥1080 px, 9:16 or 16:9. phoneScreenshots |
+| 7-inch tablet | Optional | 0–8 | sides 320–7680 px, up to 2.3:1 | PNG/JPEG, 8 bits/channel, no alpha | Promotion: 4 at 1080–7680 px, 16:9 or 9:16. sevenInchScreenshots |
+| 10-inch tablet | Optional | 0–8 | sides 320–7680 px, up to 2.3:1 | PNG/JPEG, 8 bits/channel, no alpha | Promotion: 4 at 1080–7680 px, 16:9 or 9:16. tenInchScreenshots |
+| Chromebook | Optional | 0–8 | sides 320–7680 px, up to 2.3:1 | PNG/JPEG, 8 bits/channel, no alpha | Promotion: 4 at 1080–7680 px, 16:9 or 9:16. console |
+| Android TV | Required if the app is distributed to Android TV | 1–8 | — | PNG/JPEG, 8 bits/channel, no alpha | tvScreenshots |
+| Wear OS | Required if the app is distributed to Wear OS | 1–8 | sides 384 px minimum, 1:1 | PNG/JPEG, 8 bits/channel, no alpha | Framing forbidden. wearScreenshots |
+| Android XR | Required if the app is distributed to Android XR | 4–8 | minimum 1920×1200, 8:5 | PNG/JPEG, 8 bits/channel, no alpha, ≤8,388,608 bytes | console |
+| Android Automotive OS | Optional | 0–8 | 800×1280, 1024×768, at least 2 per size | PNG/JPEG, 8 bits/channel, no alpha | console |
 
-## File & format rules (the easy-to-miss ones — Validate must check these)
+At least 2 screenshots across all device types per locale.
 
-Raw `adb exec-out screencap` output is a **32-bit RGBA** PNG, which Play **rejects**
-for screenshots/feature graphic. Every image must be normalized before it is written:
+Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay/android-developer/answer/9866151)
 
-| Rule | Detail | How to enforce |
-|---|---|---|
-| **No alpha** (screenshots + feature graphic) | Play wants **JPEG or 24-bit PNG**. 32-bit RGBA is non-compliant. | screenshots: `scripts/capture/normalize-screenshot.sh in.png out.png --play`; feature graphic: same **without** `--play` (it would crop 1024×500) |
-| **8-bit depth** | "24-bit PNG" = 8 bits × 3 channels. A 16-bit-depth PNG is 48-bit and non-compliant. | include `-depth 8` (and `PNG24:`) |
-| **Phone and standard tablet aspect ratio** | Long side ≤2.3× short side. A 1080×2400 capture fits. | The current normalization script crops to 9:16 for promotion. |
-| **Phone side length 320–3840 px** | Applies to both dimensions. | Check the slot rules for other devices. |
-| **File size** | Phone and XR screenshots allow up to 8 MB each. | Check the encoded file size. |
-| **App icon is the exception** | the Play **icon** is a **32-bit PNG (alpha allowed)** — do *not* flatten it. | leave icon as RGBA |
+<!-- rules:end screenshots -->
+
+## Graphics
+
+<!-- rules:begin graphics -->
+
+| Graphic | File stem | Size | Format | Requirement | Upload |
+| --- | --- | --- | --- | --- | --- |
+| App icon | icon | 512×512 | PNG, 8 bits/channel, alpha allowed, ≤1,048,576 bytes | Required | fastlane |
+| Feature graphic | featureGraphic | 1024×500 | PNG/JPEG, 8 bits/channel, no alpha | Required | fastlane |
+| TV banner | tvBanner | 1280×720 | PNG/JPEG, 8 bits/channel, no alpha, grayscale JPEG accepted | Required if the app is distributed to Android TV | fastlane |
+
+Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay/android-developer/answer/9866151)
+
+<!-- rules:end graphics -->
+
+Generate an icon-on-gradient feature graphic with `scripts/generate/feature-graphic.sh` or supply the finished artwork. Keep feature graphics separate from screenshots.
 
 ## Detecting tablet support (decide whether to capture tablet sets)
 
@@ -53,13 +56,21 @@ won't produce tablet-sized images. If none exists, create one
 downloading a system image, so ask first; in a non-interactive run, don't create
 one: report the tablet set as missing instead.
 
-## Metadata fields (per locale)
+## Metadata fields
 
-| Field | Limit |
-|---|---|
-| Title | 30 chars |
-| Short description | 80 chars |
-| Full description | 4000 chars |
+<!-- rules:begin fields -->
+
+| Field | File stem | Scope | Limit or unit | Requirement |
+| --- | --- | --- | --- | --- |
+| Title | title | locale | 30 chars | Required |
+| Short description | short_description | locale | 80 chars | Required |
+| Full description | full_description | locale | 4000 chars | Required |
+| Promo video URL | video | locale | url | Optional |
+| Release notes | changelogs/<name> | locale | 500 chars | Allowed names: `^(default\|[0-9]+)$` |
+
+Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay/android-developer/answer/9859152) · [Store reference 2](https://support.google.com/googleplay/android-developer/answer/9859348)
+
+<!-- rules:end fields -->
 
 ## App-level (not per-locale)
 

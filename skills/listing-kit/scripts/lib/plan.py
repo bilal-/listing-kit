@@ -7,7 +7,6 @@ Usage: plan.py {check [--for capture|publish]|manifest|outputs} <app-root>
 import argparse
 from collections import Counter, defaultdict
 import difflib
-from fractions import Fraction
 from functools import partial
 import json
 import os
@@ -174,21 +173,7 @@ def _size_accepted(rules, store, slot, size):
     if store == "apple":
         return slot in specs.apple_slots_for_size(rules, w, h)
 
-    if "sizes" in slot and list(size) not in slot["sizes"]:
-        return False
-    side = slot.get("side", {})
-    if min(size) < side.get("min", 0) or max(size) > side.get("max", float("inf")):
-        return False
-    if any(n < limit for n, limit in zip(size, slot.get("minSize", []))):
-        return False
-    if "maxRatio" in slot and Fraction(max(size), min(size)) > Fraction(str(slot["maxRatio"])):
-        return False
-    ratios = [slot["ratio"]] if "ratio" in slot else slot.get("ratios", [])
-    for ratio in ratios:
-        rw, rh = map(int, ratio.split(":"))
-        if w * rh == h * rw:
-            return True
-    return not ratios
+    return not any(specs.play_size_errors(slot, w, h))
 
 
 def _key(path, name):

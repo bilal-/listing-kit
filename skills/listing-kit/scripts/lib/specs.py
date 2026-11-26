@@ -5,17 +5,22 @@ Reads skills/listing-kit/specs/stores.json and, when an app root is given, merge
 <app-root>/.listing-kit/specs.override.json over it. Standard library only.
 
 CLI:  specs.py verified [<app-root>]            -> the date the rules were checked
+      specs.py graphic-size <store> <id> [<app-root>]       -> WIDTHxHEIGHT
       specs.py slot <store> <width> <height> [<app-root>]   -> slot id, or "-"
       specs.py slots <store> [<app-root>]       -> id<TAB>label<TAB>lifecycle per slot
 """
 import datetime
+from fractions import Fraction
 import os
+from pathlib import Path
 import re
 import sys
 
 if __package__:
     from . import json_input
 else:
+    if __name__ == "__main__":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import json_input
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -192,13 +197,13 @@ def check(data):
             }, problems)
         if array(st.get("graphics")):
             _entries(st["graphics"], path + ".graphics", "id", ("id", "label", "size", "formats", "file", "upload", "required"), {
-                "id": component, "file": component, "size": _size, "label": _string, "formats": strings,
+                "id": component, "file": component, "size": _size, "label": _string, "formats": strings, "grayscaleJpeg": lambda v: type(v) is bool,
                 "required": _required, "upload": _UPLOAD.__contains__, "bitDepth": _positive,
                 "maxBytes": _positive, "note": _string, "alpha": lambda v: type(v) is bool or v == "required",
             }, problems)
         path += ".screenshots"
         shots = st.get("screenshots")
-        if not _fields_ok(shots, path, ("slots", "minTotal") if store == "play" else ("slots",), {
+        if not _fields_ok(shots, path, ("slots", "minTotal"), {
             "slots": array, "minTotal": _count, "formats": strings, "note": _string,
             "alpha": lambda v: type(v) is bool,
         }, problems) or not array(shots.get("slots")):
@@ -317,7 +322,7 @@ def _norm(w, h):
 
 
 def apple_slots_for_size(data, w, h):
-    """Every Apple slot accepting this size in either orientation (some sizes are shared)."""
+    """Every Apple slot accepting the dimensions in the supplied orientation."""
     want = _norm(w, h)
     out = []
     for s in slots(data, "apple"):
@@ -353,6 +358,26 @@ def apple_slot_for_file(data, w, h, path=""):
         if re.search(r"(?:^|[-_ ])(?:" + re.escape(suffix) + r"|ipad-12\.9)(?:_framed)?$", stem):
             return ids["ipad-12-9"]
     return found[0]
+
+
+def ratio_matches(w, h, ratios):
+    return any(w * int(r.split(":")[1]) == h * int(r.split(":")[0]) for r in ratios)
+
+
+def play_size_errors(slot, w, h):
+    """Dimension checks shared by planned and captured screenshots."""
+    side = slot.get("side", {})
+    if min(w, h) < side.get("min", 0) or max(w, h) > side.get("max", float("inf")):
+        yield "side outside {}–{} ({}x{})".format(side.get("min", 0), side.get("max", "∞"), w, h)
+    if "minSize" in slot and any(n < low for n, low in zip((w, h), slot["minSize"])):
+        yield "below {}x{} minimum".format(*slot["minSize"])
+    if "sizes" in slot and [w, h] not in slot["sizes"]:
+        yield "size {}x{} is outside the accepted sizes".format(w, h)
+    if "maxRatio" in slot and max(w, h) > min(w, h) * Fraction(str(slot["maxRatio"])):
+        yield "aspect {}/{} exceeds {}:1".format(max(w, h), min(w, h), slot["maxRatio"])
+    ratios = [slot["ratio"]] if "ratio" in slot else slot.get("ratios", [])
+    if ratios and not ratio_matches(w, h, ratios):
+        yield "aspect must be " + " or ".join(ratios)
 
 
 def slot_by_label(data, store, label):
@@ -393,7 +418,7 @@ def conditions_from_plan(plan, detected=None, rules=None):
     return facts
 
 
-def requirement(rule, conditions, as_of=None):
+def requirement(rule, conditions, as_of=None, used=None):
     """(level, reason) for a "required" rule: level is "required", "upcoming" or "optional".
 
     conditions maps a condition name to True, False or None (unknown). An unknown
@@ -408,23 +433,34 @@ def requirement(rule, conditions, as_of=None):
         raise SpecsError("expected a mapping of condition names to flags")
     if "from" in rule and (parse_date(rule["from"]) - as_of).days > WARN_DAYS:
         return "optional", ""
+    unknown = None
     kind = rule["rule"]
     if kind == "never":
         return "optional", ""
     if kind == "if":
         name = rule["condition"]
+        if used is not None:
+            used.add(name)
         value = conditions.get(name)
         if value is False:
             return "optional", ""
         if value is None:
-            return "upcoming", "cannot tell whether %r applies; say so with a flag" % name
+            unknown = "cannot tell whether %r applies" % name
     unless = rule.get("unless")
     if unless:
+        if used is not None:
+            used.add(unless)
         value = conditions.get(unless)
         if value is True:
             return "optional", ""
         if value is None:
-            return "upcoming", "cannot tell whether exemption %r applies" % unless
+            unknown = unknown or "cannot tell whether exemption %r applies" % unless
+    if unknown:
+        if "from" in rule:
+            unknown += " (requirement from " + rule["from"] + ")"
+            if unless and unless.startswith("iosSdkBelow:") and conditions.get(unless) is None:
+                unknown += "; pass --ios-sdk X.Y"
+        return "upcoming", unknown
     if "from" in rule:
         start = parse_date(rule["from"])
         if as_of < start:
@@ -441,11 +477,58 @@ def staleness(data, as_of=None):
     return data["verified"], age, age > STALE_DAYS
 
 
+def image_output(rule, output):
+    """ImageMagick encoder, channel depth and alpha policy for a generated asset."""
+    formats = rule.get("formats")
+    if not formats:
+        raise SpecsError("an output format is required to generate an image")
+    extension = Path(output).suffix.lower().lstrip(".")
+    extension = "jpeg" if extension == "jpg" else extension
+    fmt = extension if extension in formats else formats[0]
+    depth = rule.get("bitDepth", 8)
+    alpha = bool(rule.get("alpha"))
+    if fmt == "png" and depth in (8, 16):
+        encoder = "PNG" + str(depth * (4 if alpha else 3))
+    elif fmt == "jpeg" and rule.get("alpha") != "required":
+        encoder = "JPEG"
+        alpha = False
+    else:
+        raise SpecsError(f"unsupported output format, depth or alpha for {fmt}")
+    return encoder, str(depth), "on" if alpha else "off"
+
+
+def promotion_crop(width, height, ratios):
+    # Retain the largest rectangle matching one of the accepted orientations.
+    candidates = []
+    for ratio in ratios:
+        reduced = Fraction(*map(int, ratio.split(":")))
+        x, y = reduced.numerator, reduced.denominator
+        scale = min(width // x, height // y)
+        if scale:
+            candidates.append((scale * x, scale * y))
+    if not candidates:
+        raise SpecsError("capture is too small for the promotion ratios")
+    return max(candidates, key=lambda size: size[0] * size[1])
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     try:
         if a[:1] == ["verified"]:
             print(load(a[1] if len(a) > 1 else None)["verified"])
+        elif a[:1] == ["play-crop"] and len(a) == 4:
+            phone = slot(load("."), "play", "phone")
+            w, h = promotion_crop(int(a[1]), int(a[2]), phone["promotion"]["ratios"])
+            print("\t".join((f"{w}x{h}", *image_output(phone, a[3]))))
+        elif a[:1] == ["feature-graphic"] and len(a) == 2:
+            graphic = next(g for g in load(".")["stores"]["play"]["graphics"] if g["id"] == "featureGraphic")
+            print("\t".join(("{}x{}".format(*graphic["size"]), *image_output(graphic, a[1]))))
+        elif a[:1] == ["graphic-size"] and len(a) in (3, 4):
+            store = load(a[3] if len(a) == 4 else None)["stores"].get(a[1], {})
+            graphic = next((g for g in store.get("graphics", []) if g["id"] == a[2]), None)
+            if graphic is None:
+                raise SpecsError("unknown graphic: " + a[2])
+            print("{}x{}".format(*graphic["size"]))
         elif a[:1] == ["slot"] and len(a) >= 4:
             d = load(a[4] if len(a) > 4 else None)
             s = apple_slot_for_size(d, int(a[2]), int(a[3])) if a[1] == "apple" else None
