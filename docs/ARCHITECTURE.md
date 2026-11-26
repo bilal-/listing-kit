@@ -20,6 +20,10 @@ An agent selects screens and writes copy with the user. The [launcher](../skills
 
 For template output, the renderer starts a Chromium-family browser over a debugging pipe. It intercepts page requests and serves the template and allowed assets from memory. Requests outside the allow-list fail the render. ImageMagick produces the final RGB screenshot. Preview writes a self-contained HTML page.
 
+App templates resolve under `.listing-kit/templates/`. The loader opens regular files through directory descriptors with symlink following disabled, checks declarative HTML and CSS references, and builds an in-memory asset map. The style key includes the source HTML, sidecar CSS and each referenced asset digest. Bundled layouts retain their existing fingerprints.
+
+Both layout sources use the same disposable browser profile and made-up HTTPS origin. CDP intercepts requests, including requests from attached targets. It serves allow-listed bytes and fails other requests. The response CSP includes `script-src 'none'` and disables frames, workers, objects and connections. The kit measures text and pixels through the debugging pipe. App templates cannot supply a page script, event handler, navigation or external URL. For an app template, preview runs the same checked render and embeds only its PNG in the gallery. [Template interface](../skills/listing-kit/references/templates.md)
+
 The composer compares content and style keys, tracks renderer details and checks the existing output hash. The [ownership code](../skills/listing-kit/scripts/compose/ownership.py) serializes writes, records pending replacements and recovers them on rerun. A style-only redraw needs explicit approval. An unowned or edited destination is a conflict unless the user authorizes adoption. Unchanged stale files move to the held directory. See the [lock, inventory and tree layout](../skills/listing-kit/references/metadata/fastlane-layout.md).
 
 ## Validation, review and handoff

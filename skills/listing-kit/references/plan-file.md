@@ -247,6 +247,8 @@ This is the [test fixture](../../../tests/fixtures/plan-example.json). The annot
 | `platforms` | Set a rule condition such as `supportsIpad` to true or false to override detection. Ask about unknown support before setting a flag. |
 | `trees` | Set each store's `fastlaneDir` and optional `metadata`, Apple's `screenshots`, and the shared `storeAssets` directory as app-relative paths. See the [split fixture](../../../tests/fixtures/plan-split.json). |
 
+For an app-owned layout, set `style.template` to its name. Targets and screens also accept a direct `template` key. Screen settings take precedence over target settings. [Template names, files and values](templates.md)
+
 ## Inspect the manifest
 
 `listing-kit plan manifest` prints JSON with manifest version 1, resolved app IDs and trees, capture jobs, screenshot and graphic outputs, and stale paths from the output inventory. Multiple localized outputs can share a raw capture. Each output gives its store, slot, locale, size, route and destination. `listing-kit plan outputs` prints four tab-separated columns per output: target (or store), screen (or graphic ID), raw path if present, and output path.

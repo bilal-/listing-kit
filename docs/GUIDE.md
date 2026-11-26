@@ -109,6 +109,10 @@ Run `listing-kit detect` and put approved copy changes under the printed `apple.
 
 In the initialized copy, run `listing-kit hook install`, then `listing-kit hook status`. Status exits 1 before installation and 0 when the hook is active. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 
+## Use your own screenshot layout
+
+Run `listing-kit template new acorn` in the app root. Edit `.listing-kit/templates/acorn.html`, add an optional `acorn.css`, and select `acorn` in the framed plan's `style.template`. A target or screen can select a different layout with its `template` key. Use `user:band` to select an app layout named `band`. Check the plan, then inspect `listing-kit compose --preview`. The gallery embeds a PNG of each app layout. [Template values and working example](../skills/listing-kit/references/templates.md)
+
 ## Hand over
 
 Run `listing-kit handoff --open` to open the upload index. Use its text and ordered assets in the named store destinations.
