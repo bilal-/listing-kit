@@ -309,6 +309,27 @@ def apple_slot_for_size(data, w, h):
     return found[0] if found else None
 
 
+def apple_slot_for_file(data, w, h, path=""):
+    """The slot for a screenshot file, resolving shared sizes the way fastlane deliver does
+    (deliver/lib/deliver/app_screenshot.rb, 2.242.0): 3840x2160 is Vision Pro only when the
+    path contains "vision"; 2048x2732 is the 12.9-inch class only when the path contains
+    "app_ipad_pro_129", or both "12.9" and "2nd generation". Otherwise the first listed wins.
+    """
+    found = apple_slots_for_size(data, w, h)
+    if len(found) < 2:
+        return found[0] if found else None
+    low = path.lower()
+    ids = {s["id"]: s for s in found}
+    if "vision-pro" in ids and "vision" in low:
+        return ids["vision-pro"]
+    if "ipad-12-9" in ids and ("app_ipad_pro_129" in low or ("12.9" in low and "2nd generation" in low)):
+        return ids["ipad-12-9"]
+    for s in found:
+        if s["id"] not in ("vision-pro", "ipad-12-9"):
+            return s
+    return found[0]
+
+
 def slot_by_label(data, store, label):
     """Slots matching a console label, including labels used by older plan files."""
     return [s for s in slots(data, store) if s["label"] == label or label in s.get("legacyLabels", [])]

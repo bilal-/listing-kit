@@ -6,7 +6,8 @@
   "appleVersionInfo": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information/",
   "appleAppInfo": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/",
   "appleCreativeAssets": "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
-  "playPreviewAssets": "https://support.google.com/googleplay/android-developer/answer/9866151"
+  "playPreviewAssets": "https://support.google.com/googleplay/android-developer/answer/9866151",
+  "appleLocales": "https://github.com/fastlane/fastlane/blob/2.242.0/fastlane_core/lib/fastlane_core/languages.rb"
  },
  "conditions": {
   "supportsIphone": "The app runs on iPhone (not iPad-only).",
@@ -19,7 +20,8 @@
   "hasAndroidTv": "The app is distributed to Android TV.",
   "hasWearOs": "The app is distributed to Wear OS.",
   "hasAndroidXr": "The app is distributed to Android XR.",
-  "isUpdate": "This listing is for an update, not the first version."
+  "isUpdate": "This listing is for an update, not the first version.",
+  "iosSdkBelow:27.1": "The app is built with an iOS SDK older than 27.1 (pass --ios-sdk)."
  },
  "stores": {
   "apple": {
@@ -118,7 +120,8 @@
       "framing": "allowed",
       "lifecycle": "active",
       "upload": "fastlane",
-      "suffix": "iphone-faceid-large"
+      "suffix": "iphone-faceid-large",
+      "note": "Apple's table: required if the app runs on iPhone and Dynamic Island (large display) screenshots aren't provided. The page's list of required sizes names only Dynamic Island (medium). The kit warns, it does not fail."
      },
      {
       "id": "iphone-faceid-medium",
@@ -194,12 +197,16 @@
         1136
        ],
        [
+        1136,
+        640
+       ],
+       [
         640,
         1096
        ],
        [
-        600,
-        1136
+        1136,
+        600
        ]
       ],
       "min": 1,
@@ -211,7 +218,7 @@
       "lifecycle": "legacy",
       "upload": "fastlane",
       "suffix": "iphone-4in",
-      "note": "Landscape without status bar is 1136x600."
+      "orientation": "fixed"
      },
      {
       "id": "iphone-home-3-5",
@@ -222,12 +229,16 @@
         960
        ],
        [
+        960,
+        640
+       ],
+       [
         640,
         920
        ],
        [
-        600,
-        960
+        960,
+        600
        ]
       ],
       "min": 1,
@@ -238,7 +249,8 @@
       "framing": "allowed",
       "lifecycle": "legacy",
       "upload": "fastlane",
-      "suffix": "iphone-3-5in"
+      "suffix": "iphone-3-5in",
+      "orientation": "fixed"
      },
      {
       "id": "iphone-duo-outer",
@@ -256,7 +268,7 @@
        "condition": "supportsIphone",
        "from": "2027-04-01",
        "unless": "iosSdkBelow:27.1",
-       "note": "Apple: starting in April 2027, required for any app using the iOS 27.1 SDK or later."
+       "note": "Apple: starting in April 2027 (no day given; the kit uses the 1st), required for any app using the iOS 27.1 SDK or later."
       },
       "framing": "allowed",
       "lifecycle": "active",
@@ -290,7 +302,7 @@
        "condition": "supportsIphone",
        "from": "2027-04-01",
        "unless": "iosSdkBelow:27.1",
-       "note": "Apple: starting in April 2027, required for any app using the iOS 27.1 SDK or later."
+       "note": "Apple: starting in April 2027 (no day given; the kit uses the 1st), required for any app using the iOS 27.1 SDK or later."
       },
       "framing": "allowed",
       "lifecycle": "active",
@@ -403,24 +415,32 @@
         2048
        ],
        [
+        2048,
+        1536
+       ],
+       [
         1536,
         2008
        ],
        [
-        1496,
-        2048
+        2048,
+        1496
        ],
        [
         768,
         1024
+       ],
+       [
+        1024,
+        768
        ],
        [
         768,
         1004
        ],
        [
-        748,
-        1024
+        1024,
+        748
        ]
       ],
       "min": 1,
@@ -431,7 +451,8 @@
       "framing": "allowed",
       "lifecycle": "legacy",
       "upload": "fastlane",
-      "suffix": "ipad97"
+      "suffix": "ipad97",
+      "orientation": "fixed"
      },
      {
       "id": "watch",
@@ -500,7 +521,7 @@
       "orientation": "fixed",
       "suffix": "tv",
       "folder": "appleTV",
-      "note": "deliver reads these from an appleTV/ subfolder."
+      "note": "deliver reads these from an appleTV/ subfolder. 3840x2160 is Apple TV unless the file path contains 'vision' (deliver's own rule)."
      },
      {
       "id": "vision-pro",
@@ -719,6 +740,7 @@
    ],
    "locales": [
     "ar-SA",
+    "bn-BD",
     "ca",
     "cs",
     "da",
@@ -733,6 +755,7 @@
     "fi",
     "fr-CA",
     "fr-FR",
+    "gu-IN",
     "he",
     "hi",
     "hr",
@@ -740,34 +763,32 @@
     "id",
     "it",
     "ja",
+    "kn-IN",
     "ko",
+    "ml-IN",
+    "mr-IN",
     "ms",
     "nl-NL",
     "no",
+    "or-IN",
+    "pa-IN",
     "pl",
     "pt-BR",
     "pt-PT",
     "ro",
     "ru",
     "sk",
+    "sl-SI",
     "sv",
+    "ta-IN",
+    "te-IN",
     "th",
     "tr",
     "uk",
+    "ur-PK",
     "vi",
     "zh-Hans",
-    "zh-Hant",
-    "bn",
-    "gu",
-    "kn",
-    "ml",
-    "mr",
-    "or",
-    "pa",
-    "sl",
-    "ta",
-    "te",
-    "ur"
+    "zh-Hant"
    ]
   },
   "play": {
@@ -1183,7 +1204,6 @@
   "WEATHER"
  ],
  "unverified": [
-  "stores.apple.locales (from memory; check against App Store Connect before relying on it to reject a locale)",
   "appleCategories (from memory of fastlane's category list)",
   "capture.deviceType names (must match what `xcrun simctl list devicetypes` and `avdmanager list device` print)",
   "play changelogs limit 500 (not on the preview-assets page)",
