@@ -14,9 +14,9 @@ OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "clean"
 
-it "exits 0 (not an error) when the directory does not exist"
+it "returns a scan error for a missing explicitly named directory"
 OUT="$(bash "$SUT" /no/such/dir 2>&1)"; RC=$?
-assert_eq 0 "$RC"
+assert_eq 2 "$RC"
 
 it "fails on an AWS access key id"
 mktree; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$TREE/en-US/keywords.txt"

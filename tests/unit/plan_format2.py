@@ -157,8 +157,10 @@ class FormatTwo(unittest.TestCase):
         rule = specs.slot(self.rules, "apple", "iphone-duo-outer")["required"]
         self.assertEqual(specs.requirement(rule, {"supportsIphone": True}, datetime.date(2026, 1, 1)), ("optional", ""))
         self.data["style"] = {"fonts": {"de": {"headline": ["bundled:Other"]}}}
-        self.assertEqual(self.check(), [("ERROR", "style.fonts.de", "unknown locale 'de'"),
-                                        ("ERROR", "style.fonts.de.headline[0]", "unknown bundled font 'Other'")])
+        self.assertEqual(self.check(), [("ERROR", "style.fonts", "unknown locale key")])
+        self.data["style"]["fonts"]["default"] = self.data["style"]["fonts"].pop("de")
+        self.assertEqual(self.check(), [
+            ("ERROR", "style.fonts.default.headline[0]", "unknown bundled font 'Other'")])
 
     def test_split_locale_manifest(self):
         self.data = json.loads((FIXTURES / "plan-split.json").read_text())
@@ -195,7 +197,7 @@ class FormatTwo(unittest.TestCase):
         self.data["platforms"] = {"typo": True}
         self.target["capture"] = dict(deviceType="watch", display="internal", orientation="portrait",
                                       nativeSize=[True, 2], runtime=5, appId=[])
-        self.assertCountEqual(self.check(), [("ERROR", "platforms.typo", "unknown condition 'typo'"),
+        self.assertCountEqual(self.check(), [("ERROR", "platforms", "unknown condition key"),
                                             ("ERROR", "targets[0].capture.nativeSize", "expected two positive integers"),
                                             ("ERROR", "targets[0].capture.runtime", "expected a non-empty string"),
                                             ("ERROR", "targets[0].capture.appId", "expected a non-empty string")])

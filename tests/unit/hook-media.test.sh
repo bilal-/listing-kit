@@ -57,7 +57,8 @@ with patch.object(subprocess, "Popen", popen), patch.object(review_hook, "git", 
     changed_scanner.write_bytes(Path(secret_scan.__file__).read_bytes() + b"\n# scanner update\n")
     with patch.object(secret_scan, "__file__", str(changed_scanner)), patch.object(
             secret_scan, "binary_media", wraps=secret_scan.binary_media) as classify:
-        review_hook.scan_index(review_hook.staged_entries([b""]), [b""], set(), secret_scan)
+        roots = {b"": (b"fastlane", b"store-assets", b".listing-kit")}
+        review_hook.scan_index(review_hook.staged_entries(roots), roots, set(), secret_scan)
         assert classify.call_count == 200, "cache survived a scanner change"
 PY
 assert_eq 0 "$?"

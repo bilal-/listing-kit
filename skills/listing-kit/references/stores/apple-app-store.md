@@ -74,8 +74,9 @@ Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-
 - Content/age rating
 
 ## fastlane `deliver` mapping
-See `../metadata/fastlane-layout.md`. Each field maps to a `.txt` file under
-`fastlane/metadata/<locale>/`; screenshots go under `fastlane/screenshots/<locale>/`.
+Run `listing-kit detect <app-root>`. Write each locale's text files under
+`<apple.metadata>/<locale>/` and its screenshots under `<apple.screenshots>/<locale>/`.
+See `../metadata/fastlane-layout.md` for platform-specific screenshot folders.
 
 ## Product page Header Asset
 
@@ -98,8 +99,8 @@ placement crops. Use the app's approved brand assets and verified claims. Avoid
 URLs, copyright symbols, pricing and other platforms' logos. Review each finished
 size visually; a dimension check cannot catch clipping or an unreadable headline.
 
-Store headers under `store-assets/apple/<locale>/` at the app root. Record expected
+Store headers under `<apple.storeAssets>/<locale>/` from detect. Record expected
 filenames in the asset plan so a missing header fails validation. The review page
 shows these separately as **Header Asset (manual console upload)**. Do not place
-them in `fastlane/screenshots/` or imply `deliver` uploads them. Include this
+them in the Apple screenshots directory or imply `deliver` uploads them. Include this
 folder in the handoff alongside screenshots, with upload slots clearly labeled.

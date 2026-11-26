@@ -1,5 +1,6 @@
 """Prepare manual review inputs when ignored or credential-named files need excluding."""
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -8,9 +9,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import plan
 from plan import PlanError, listing_roots
 from project_files import project_files
-from secret_scan import credential_file, file_secret, ignored_private_files, private_local, sensitive_name, tracked
+from secret_scan import credential_file, file_secret, ignored_private_files, private_local, scan, sensitive_name, tracked
 
 
 def exclusions(root, trees):
@@ -18,8 +20,6 @@ def exclusions(root, trees):
     unsafe = set()
     passwords = set()
     for tree in trees:
-        if (root / tree).is_symlink():
-            continue
         for directory, dirs, files in os.walk(root / tree):
             rel = Path(directory).relative_to(root)
             for name in dirs + files:
@@ -50,17 +50,41 @@ def link_file(source, dest):
         shutil.copyfile(source, dest)
 
 
+def write_view_plan(view, trees, data, preserve_errors=False):
+    """Pin layout and platform inputs for review in a disposable Git-free view."""
+    config = {store: {key: str(tree[key]) for key in ("fastlaneDir", "metadata")}
+              for store, tree in trees.items()}
+    config["apple"]["screenshots"] = str(trees["apple"]["screenshots"])
+    config["storeAssets"] = str(trees["apple"]["storeAssets"].parent)
+    projected = dict(format=plan.FORMAT, app="listing-review", locales=["en-US"], targets=[], screens=[],
+                     platforms=data.get("platforms", {}), trees=config)
+    if preserve_errors:
+        projected = dict(data, trees=config)
+    path = view / plan.LISTING
+    path.parent.mkdir(exist_ok=True, parents=True)
+    # The filtered view may contain a hard link to the real plan.
+    path.unlink(missing_ok=True)
+    path.write_text(json.dumps(projected), encoding="utf-8")
+
+
 def run(script, root, args):
-    trees = listing_roots(root)
-    if Path(script).name == "build-review.sh" and not any(
-            (root / t).is_dir() for t in trees if t != Path(".listing-kit")):
-        print(f"No fastlane/ tree under: {root} (run Assemble first).", file=sys.stderr)
+    config = Path(".listing-kit")
+    plan._inside(root, root / config)
+    ignored, unsafe, passwords = exclusions(root, [config])
+    if (root / config).exists():
+        status = set(scan(root / config, root, ignored | unsafe | passwords, [root], follow_root=True))
+        if status:
+            return (3 if 1 in status else 2) if Path(script).name == "build-review.sh" else 1
+    resolved = plan.listing_trees(root)
+    trees = listing_roots(root, resolved)
+    if Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved):
+        print(f"No listing directories under: {root} (run Assemble first).", file=sys.stderr)
         return 2
     ignored, unsafe, passwords = exclusions(root, trees)
     cmd = ["bash", script, ".", "--prepared", *args]
     env = os.environ.copy()
     env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
-    if not ignored and not unsafe and not passwords:
+    if not (ignored or unsafe or passwords or any((root / tree).is_symlink() for tree in trees)):
         return subprocess.call(cmd, cwd=root, env=env)
 
     # Only these trees and device declarations are consumed by listing tools.
@@ -70,8 +94,6 @@ def run(script, root, args):
         view.mkdir()
         skip = ignored | unsafe | passwords
         for tree in trees:
-            if (root / tree).is_symlink() and Path(tree) not in skip:
-                raise OSError(f"cannot prepare symlinked listing root: {tree}")
             if Path(tree) not in skip and (root / tree).is_dir():
                 shutil.copytree(root / tree, view / tree, symlinks=True, copy_function=link_file,
                                 ignore=lambda d, names: [n for n in names
@@ -82,6 +104,13 @@ def run(script, root, args):
                 continue
             (view / path.parent).mkdir(exist_ok=True, parents=True)
             link_file(source, view / path)
+        try:
+            data = plan.load(root) if (root / plan.LISTING).exists() else {}
+        except PlanError:
+            # Render the same validation errors as the unfiltered listing.
+            write_view_plan(view, resolved, plan.read_listing(root), preserve_errors=True)
+        else:
+            write_view_plan(view, resolved, data)
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():
@@ -101,7 +130,7 @@ if __name__ == "__main__":
     except PlanError as exc:
         print(f"listing.json invalid; platform overrides ignored: {exc}")
         sys.exit(1)
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         sys.exit(str(exc))
     if rc == 0 and Path(script).name == "build-review.sh":
         page = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root)) / "listing-review.html"

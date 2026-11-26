@@ -486,7 +486,7 @@ class HandoffTests(unittest.TestCase):
                      "Play Console > your app > Grow users > Store presence > Main store listing > App name",
                      "choose Food & Drink from the list", "choose Developer Tools from the list",
                      "updates only: not shown for a first version", "pick or add the language", "relative to the folder",
-                     "folder is a copy", "fastlane/", "rerun", "refused", "upload each graphic"):
+                     "folder is a copy", "listing-kit detect", "rerun", "refused", "upload each graphic"):
             with self.subTest(term=term):
                 self.assertIn(term.lower(), index.lower())
 

@@ -6,6 +6,7 @@ CLI:    listing.py {apple-locales|play-locales} <fastlane-dir>
 Prints one locale directory per line (apple-locales: metadata/<locale> paths, some
 of which may not exist yet when a locale only has screenshots).
 """
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -120,14 +121,23 @@ def images(d):
 
 
 if __name__ == "__main__":
-    kind, fl = sys.argv[1], sys.argv[2]
-    tree = Path(fl)
-    if kind == "apple-locales":
-        locales = apple_locales({"metadata": tree / "metadata", "screenshots": tree / "screenshots"},
-                                specs.load(tree.parent))
-    elif kind == "play-locales":
-        locales = play_locales(tree / "metadata/android")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("kind", choices=("apple-locales", "play-locales"))
+    parser.add_argument("fastlane", nargs="?", type=Path, help="legacy fastlane directory")
+    parser.add_argument("--app-root", type=Path)
+    args = parser.parse_args()
+    if args.app_root:
+        root = args.app_root.resolve()
+        trees = paths(root)
+    elif args.fastlane:
+        root = args.fastlane.parent
+        trees = {"apple": {"metadata": args.fastlane / "metadata", "screenshots": args.fastlane / "screenshots"},
+                 "play": {"metadata": args.fastlane / "metadata/android"}}
     else:
-        sys.exit("expected apple-locales or play-locales")
+        parser.error("provide --app-root or a fastlane directory")
+    if args.kind == "apple-locales":
+        locales = apple_locales(trees["apple"], specs.load(root))
+    else:
+        locales = play_locales(trees["play"]["metadata"])
     for loc in locales:
         print(loc)

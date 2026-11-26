@@ -20,7 +20,7 @@ def git(*args, **kwargs):
     return subprocess.check_output(["git", *args], **kwargs)
 
 
-LISTING_DIRS = (b"fastlane/", b"store-assets/", b".listing-kit/")
+DISCOVERY_DIRS = (b"fastlane", b"ios/fastlane", b"android/fastlane")
 SKIP = {".git", ".gradle", "build", "DerivedData", "node_modules", "Pods", ".expo",
         ".dart_tool", "dist", "vendor", "Carthage", ".build", ".swiftpm", "out", ".cxx"}
 SKIP_SUFFIXES = (".framework", ".xcframework", ".xcarchive")
@@ -35,13 +35,23 @@ def skipped_directory(name, ignorecase=False):
     return name in SKIP or name.endswith(SKIP_SUFFIXES)
 
 
-def listing_input(path, prefix, ignorecase=False):
+def in_tree(path, directories, ignorecase):
+    if ignorecase:
+        path = path.lower()
+    for directory in directories:
+        name = directory.lower() if ignorecase else directory
+        if path == name or path.startswith(name + b"/"):
+            return True
+    return False
+
+
+def listing_input(path, prefix, directories, ignorecase=False):
     if ignorecase:
         path, prefix = path.lower(), prefix.lower()
     if not path.startswith(prefix):
         return False
     rel = path[len(prefix):]
-    if rel.startswith(LISTING_DIRS) or rel == b"app.json":
+    if in_tree(rel, directories, ignorecase) or rel == b"app.json":
         return True
     if rel.startswith(b"app.config.") and b"/" not in rel:
         return True
@@ -55,9 +65,9 @@ def listing_input(path, prefix, ignorecase=False):
 def pathspecs(prefixes, ignorecase=False):
     magic = b":(icase," if ignorecase else b":("
     specs = []
-    for prefix in prefixes:
+    for prefix, directories in prefixes.items():
         specs.extend(magic + b"literal)" + prefix + name for name in
-                     (b"fastlane", b"store-assets", b".listing-kit", b"app.json"))
+                     (*directories, b"app.json"))
         escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
         specs.extend(magic + b"glob)" + escaped + pattern for pattern in
                      (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist", b"**/AndroidManifest.xml", b"**/build.gradle", b"**/build.gradle.kts"))
@@ -65,12 +75,17 @@ def pathspecs(prefixes, ignorecase=False):
 
 
 def staged_entries(prefixes, ignorecase=False):
-    for record in git("ls-files", "--stage", "-z", "--", *pathspecs(prefixes, ignorecase)).split(b"\0"):
+    for raw, mode, oid, stage in index_records(pathspecs(prefixes, ignorecase)):
+        if any(listing_input(raw, prefix, dirs, ignorecase) for prefix, dirs in prefixes.items()):
+            yield raw, mode, oid, stage
+
+
+def index_records(specs):
+    for record in git("ls-files", "--stage", "-z", "--", *specs).split(b"\0"):
         if record:
             header, raw = record.split(b"\t", 1)
             mode, oid, stage = header.split()
-            if any(listing_input(raw, prefix, ignorecase) for prefix in prefixes):
-                yield raw, mode, oid, stage
+            yield raw, mode, oid, stage
 
 
 def reviewed_devices():
@@ -83,7 +98,11 @@ def reviewed_devices():
 
 class ScanCache:
     """Only clean results, partitioned by scanner implementation and path policy."""
-    def __init__(self, scanner):
+    def __init__(self, scanner, persist=True):
+        self.db = None
+        self.digest = b""
+        if not persist:
+            return
         digest = hashlib.sha256(Path(scanner.__file__).read_bytes()).hexdigest()
         common = Path(os.fsdecode(git("rev-parse", "--git-common-dir")[:-1]))
         self.db = None
@@ -145,7 +164,7 @@ def path_key(path, ignorecase):
     return Path(os.fsdecode(os.fsencode(path).lower())) if ignorecase else path
 
 
-def check_links(links, ignorecase):
+def check_links(links, roots, ignorecase):
     indexed = {path_key(path, ignorecase): target for path, (_, target) in links.items()}
     for path, (app, target) in links.items():
         current = path.parent
@@ -165,22 +184,22 @@ def check_links(links, ignorecase):
                 current = current.parent
         relative = os.fsencode(current.relative_to(app))
         tree = relative.lower() if ignorecase else relative
-        if tree + b"/" not in LISTING_DIRS and not listing_input(relative, b"", ignorecase):
+        if not listing_input(tree, b"", roots[app], ignorecase):
             raise Blocked(f"cannot scan link outside listing tree: {path}")
         yield path, path_key(current, ignorecase)
 
 
-def scan_index(entries, prefixes, changed, scanner, ignorecase=False):
+def scan_index(entries, prefixes, changed, scanner, ignorecase=False, persist=True):
     paths, media, links, blobs = [], {}, {}, {}
     allowed = reviewed_devices()
-    cache = ScanCache(scanner)
+    cache = ScanCache(scanner, persist)
     try:
         for raw, mode, oid, stage in entries:
             path = Path(os.fsdecode(raw))
-            prefix = max((p for p in prefixes if listing_input(raw, p, ignorecase)), key=len)
+            prefix = max((p for p in prefixes if listing_input(raw, p, prefixes[p], ignorecase)), key=len)
             relative = Path(os.fsdecode(raw[len(prefix):]))
             policy_path = path_key(relative, ignorecase)
-            listing = os.fsencode(policy_path).startswith(LISTING_DIRS)
+            listing = in_tree(os.fsencode(policy_path), prefixes[prefix], ignorecase)
             if scanner.sensitive_name(relative):
                 scanner.report(relative)
                 raise Blocked("remove the credential from [redacted path]")
@@ -209,7 +228,8 @@ def scan_index(entries, prefixes, changed, scanner, ignorecase=False):
             except (OSError, subprocess.SubprocessError, ValueError, RecursionError) as exc:
                 raise Blocked(f"could not scan staged blob: {relative}") from exc
             paths.append(raw)
-        for path, target in check_links(links, ignorecase):
+        roots = {Path(os.fsdecode(prefix)): dirs for prefix, dirs in prefixes.items()}
+        for path, target in check_links(links, roots, ignorecase):
             if target in blobs:
                 # The alias can impose a stronger content policy (e.g. a demo password).
                 cache.media(blobs[target], path.relative_to(links[path][0]), scanner, ignorecase)
@@ -259,7 +279,7 @@ def media_index(media, snap):
     return str(manifest)
 
 
-def refresh(apps, paths, media, kit, snap):
+def refresh(apps, removals, paths, media, kit, snap):
     if paths:
         git("checkout-index", "-z", "--stdin", "--ignore-skip-worktree-bits",
             "--prefix=" + str(snap) + "/", input=b"\0".join(paths) + b"\0")
@@ -276,7 +296,9 @@ def refresh(apps, paths, media, kit, snap):
     build_env["GIT_CEILING_DIRECTORIES"] = str(snap.parent)
     build_env["LK_REVIEW_IMAGE_INFO"] = media_index(media, snap)
     pages = []
-    for app in apps:
+    from plan import LISTING, has_listing_directory, read_listing
+    from review_inputs import write_view_plan
+    for app, trees in apps.items():
         root = snap / app
         page = Path(app) / "listing-review.html"
         ignored = subprocess.run(["git", "check-ignore", "-q", "--", str(page)])
@@ -285,12 +307,16 @@ def refresh(apps, paths, media, kit, snap):
             continue
         if ignored.returncode != 1:
             ignored.check_returncode()
-        if (root / "fastlane").is_dir():
+        if has_listing_directory(root, trees):
+            data = read_listing(root) if (root / LISTING).is_file() else {}
+            write_view_plan(root, trees, data)
             build_env["LK_REVIEW_DISPLAY_ROOT"] = str(Path(app).resolve())
             result = subprocess.run(["bash", kit / BUILDER, root], env=build_env,
                                     stdout=subprocess.DEVNULL)
             if result.returncode or not (snap / page).is_file():
                 raise Blocked("could not safely build the staged review page")
+        elif app not in removals:
+            continue
         pages.append(page)
     for page in pages:
         spec = ":(literal)" + str(page)
@@ -312,22 +338,148 @@ def refresh(apps, paths, media, kit, snap):
             page.unlink(missing_ok=True)
 
 
-def main(recorded, apps, channel=None, base=None):
-    os.chdir(os.fsdecode(git("rev-parse", "--show-toplevel")[:-1]))
-    prefixes = {app: os.fsencode(app + "/" if app else "") for app in apps}
+def staged_layout(prefix, view, ignorecase, scanner, persist=True):
+    """Read layout evidence from the index without checking out screenshot blobs."""
+    import layout
+    import plan
+    magic = b":(icase,literal)" if ignorecase else b":(literal)"
+    inputs = (*DISCOVERY_DIRS, b".listing-kit", b"package.json")
+    specs = [magic + prefix + path for path in inputs]
+    glob = b":(icase,glob)" if ignorecase else b":(glob)"
+    escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
+    specs.extend(glob + escaped + pattern for pattern in (
+        b"**/app.json", b"**/app.config.*", b"**/lib/main.dart", b"**/app/build.gradle*",
+        b"**/*.xcodeproj/project.pbxproj", b"**/*.xcworkspace/contents.xcworkspacedata",
+        b"**/.listing-kit/listing.json"))
+    entries = list(index_records(specs))
+    config = (b".listing-kit",)
+    # Scan public config blobs before interpreting the plan. Links are checked
+    # against all resolved roots in the subsequent full index scan.
+    config_blobs = [entry for entry in entries
+                    if in_tree(entry[0][len(prefix):], config, ignorecase) and entry[1] != b"120000"]
+    if config_blobs:
+        scan_index(config_blobs, {prefix: config}, set(), scanner, ignorecase, persist)
+    view.mkdir()
+    for raw, mode, oid, stage in entries:
+        relative = Path(os.fsdecode(raw[len(prefix):]))
+        # Git's icase matching must also apply when constructing a layout
+        # view on a case-sensitive filesystem.
+        lookup = path_key(relative, ignorecase)
+        dest = view / relative
+        if lookup.parts[:1] == (".listing-kit",):
+            if lookup != plan.LISTING:
+                continue
+            if mode not in (b"100644", b"100755") or stage != b"0":
+                raise Blocked("cannot read staged listing.json")
+            dest = view / plan.LISTING
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(git("cat-file", "blob", oid))
+        elif lookup == Path("package.json"):
+            if mode in (b"100644", b"100755"):
+                (view / "package.json").write_bytes(git("cat-file", "blob", oid))
+        elif not any(base in lookup.parents for base in (layout.SHARED, *layout.NATIVE.values())):
+            # Only app-evidence globs (above) reach this branch.
+            if mode != b"160000":
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.touch()
+        else:
+            for store, native in layout.NATIVE.items():
+                for candidate in (layout.SHARED, native):
+                    if candidate not in lookup.parents:
+                        continue
+                    subpath = lookup.relative_to(candidate)
+                    if str(subpath).lower() == "fastfile" and (ignorecase or subpath.name == "Fastfile"):
+                        dest = view / candidate / "Fastfile"
+                    elif layout.listing_file(store, subpath):
+                        dest = view / lookup
+                    else:
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.touch()
+    trees = plan.listing_trees(view)
+    return trees, tuple(os.fsencode(p) for p in plan.listing_roots(view, trees))
+
+
+def index_ignorecase():
     setting = subprocess.run(["git", "config", "--bool", "--get", "core.ignorecase"], stdout=subprocess.PIPE)
     if setting.returncode not in (0, 1):
         setting.check_returncode()
-    ignorecase = setting.stdout.strip() == b"true"
-    changed = set(git("diff", "--cached", "--name-only", "--no-renames", "-z",
-                      *([base] if base else []), "--", *pathspecs(prefixes.values(), ignorecase)).split(b"\0"))
-    affected = [app for app, prefix in prefixes.items() if any(listing_input(p, prefix, ignorecase) for p in changed)]
-    if not affected:
+    return setting.stdout.strip() == b"true"
+
+
+def scan_staged_listing(root, scanner):
+    """Read-only index scan for the standalone listing scanner."""
+    if not shutil.which("git"):
         return
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, LC_ALL="C"))
+    if result.returncode:
+        if b"not a git repository" in result.stderr:
+            return
+        raise Blocked("cannot locate staged listing")
+    repo = Path(os.fsdecode(result.stdout.rstrip(b"\n"))).resolve()
+    app = root.resolve().relative_to(repo)
+    prefix = os.fsencode(app.as_posix() + "/") if app.parts else b""
+    previous = Path.cwd()
+    try:
+        os.chdir(repo)
+        ignorecase = index_ignorecase()
+        with tempfile.TemporaryDirectory() as temp:
+            _, dirs = staged_layout(prefix, Path(temp) / "app", ignorecase, scanner, persist=False)
+        selected = {prefix: dirs}
+        scan_index(staged_entries(selected, ignorecase), selected, set(), scanner, ignorecase, persist=False)
+    finally:
+        os.chdir(previous)
+
+
+def removed_listing(raw, trees, ignorecase):
+    import layout
+    import plan
+
+    path = path_key(Path(os.fsdecode(raw)), ignorecase)
+    if path == plan.LISTING:
+        return True
+    for store, tree in trees.items():
+        if in_tree(raw, [os.fsencode(folder) for folder in tree.values()], ignorecase):
+            return True
+        # Deleting the last listed file can change the inferred fastlaneDir.
+        # Only a conventional root can have fallen back to its sibling.
+        candidates = (layout.SHARED, layout.NATIVE[store])
+        if tree["fastlaneDir"] in candidates and any(
+                base in path.parents and layout.listing_file(store, path.relative_to(base)) for base in candidates):
+            return True
+    return False
+
+
+def main(recorded, apps, channel=None, base=None):
+    os.chdir(os.fsdecode(git("rev-parse", "--show-toplevel")[:-1]))
+    prefixes = {app: os.fsencode(app + "/" if app else "") for app in apps}
+    ignorecase = index_ignorecase()
+    records = iter(git("diff", "--cached", "--name-status", "--no-renames", "-z",
+                       *([base] if base else []), "--").split(b"\0")[:-1])
+    changes = {path: status for status, path in zip(records, records)}
+    changed = set(changes)
     kit = find_kit(Path(recorded), Path(channel) if channel else None)
     sys.path.insert(0, str(kit / "scripts/lib"))
     import secret_scan
-    selected = [prefixes[app] for app in affected]
+    layouts = {}
+    removals = set()
+    selected = {}
+    with tempfile.TemporaryDirectory() as temp:
+        for index, (app, prefix) in enumerate(prefixes.items()):
+            app_changes = [p for p in changed if (p.lower().startswith(prefix.lower()) if ignorecase
+                                                   else p.startswith(prefix))]
+            if not app_changes:
+                continue
+            trees, dirs = staged_layout(prefix, Path(temp) / str(index), ignorecase, secret_scan)
+            for path in app_changes:
+                if changes[path] == b"D" and removed_listing(path[len(prefix):], trees, ignorecase):
+                    removals.add(app)
+            if app in removals or any(listing_input(p, prefix, dirs, ignorecase) for p in app_changes):
+                layouts[app] = trees
+                selected[prefix] = dirs
+    if not selected:
+        return
     paths, media = scan_index(staged_entries(selected, ignorecase), selected, changed, secret_scan, ignorecase)
     # A pathspec-only commit uses a disposable index. Git restores a second,
     # already locked index afterward, which would stage the old page again.
@@ -337,7 +489,7 @@ def main(recorded, apps, channel=None, base=None):
         return
     try:
         with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as directory:
-            refresh(affected, paths, media, kit, Path(directory).resolve())
+            refresh(layouts, removals, paths, media, kit, Path(directory).resolve())
     except Exception as exc:
         print(f"listing-kit: Warning: scan completed; review refresh failed: {exc}", file=sys.stderr)
 

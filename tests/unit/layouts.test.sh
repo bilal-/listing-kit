@@ -136,14 +136,28 @@ ambiguous monorepo-js apps/mobile
 layout monorepo-js apps/mobile expo-managed 'apple play' fastlane fastlane
 layout existing-root-fastlane . expo-prebuild 'apple play' fastlane fastlane
 
+for name in root-listing-build-ios android-lanes-only; do
+  copy_fixture "$name"
+  out="$("$lk" detect "$repo")" || fail "$out"
+  apple="$(awk -F '\t' '$1=="apple.fastlaneDir" {print $2}' <<< "$out")"
+  play="$(awk -F '\t' '$1=="play.fastlaneDir" {print $2}' <<< "$out")"
+  echo "| $name | . | apple play | $apple | $play |" >> "$area/rows.md"
+done
+copy_fixture duplicate-apple
+it "duplicate Apple content requires a tree selection"
+out="$("$lk" detect "$repo" 2>&1)"
+assert_ne 0 "$?"
+assert_contains "$out" "trees.apple.fastlaneDir"
+echo '| duplicate-apple | . | choose Apple trees | — | — |' >> "$area/rows.md"
+
 it "the complete reference table matches the tested layouts"
 table="$(awk '/^\| Layout \| App directory / { rows=1; next } rows && /^\| ---/ { next }
              rows && /^\|/ { print; next } rows { exit }' "$reference")"
 assert_eq "$(cat "$area/rows.md")" "$table"
 
 # Exercise precedence before the test creates metadata. A Fastfile at the app
-# root wins even when both platform Fastfiles exist. A lone platform directory
-# is enough to select split roots even without a Fastfile.
+# root wins even when both platform Fastfiles exist. Empty platform fastlane directories
+# do not select a native root.
 manifest_dirs() {
   "$lk" plan manifest "$repo" | python3 -c 'import json,sys
 trees=json.load(sys.stdin)["trees"]
@@ -157,11 +171,11 @@ echo '# root lanes' > "$repo/fastlane/Fastfile"
 echo '{"format":2,"app":"org.example.layout","locales":["en-US"],"targets":[],"screens":[]}' > "$repo/.listing-kit/listing.json"
 assert_eq "fastlane fastlane" "$(manifest_dirs)"
 
-it "one native fastlane folder triggers split trees"
+it "empty native folders leave both stores at root"
 copy_fixture flutter
 mkdir -p "$repo/ios/fastlane" "$repo/.listing-kit" "$repo/fastlane"
 echo '{"format":2,"app":"org.example.layout","locales":["en-US"],"targets":[],"screens":[]}' > "$repo/.listing-kit/listing.json"
-assert_eq "ios/fastlane android/fastlane" "$(manifest_dirs)"
+assert_eq "fastlane fastlane" "$(manifest_dirs)"
 
 it "a planless pull creates its downloaded Apple field in the existing platform tree"
 copy_fixture react-native-bare
@@ -194,4 +208,8 @@ out="$("$lk" handoff "$repo" 2>&1)" || fail "$out"
 assert_eq "Layout Apple" "$(cat "$repo/.listing-kit/upload/apple/en-US/text/name.txt")"
 assert_eq "Layout Play" "$(cat "$repo/.listing-kit/upload/play/en-US/text/title.txt")"
 
+shot_dir='apple/en-US/01 iPhone Dynamic Island (medium display)'
+upload="$repo/.listing-kit/upload"
+cmp -s "$repo/apple-shots/en-US/01.png" "$upload/$shot_dir/01-01.png" && pass || fail "exported Apple screenshot differs or is missing"
+assert_contains "$(cat "$upload/INDEX.md")" "$shot_dir/"
 summary

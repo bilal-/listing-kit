@@ -281,11 +281,18 @@ class Requirements:
 if __name__ == "__main__":
     root = Path(sys.argv[1]).resolve()
     try:
-        kind, stores = layout.project(root)
+        trees = plan.listing_trees(root)
+    except plan.PlanError as exc:
+        print(exc, file=sys.stderr)
+        trees = {}
     except ValueError as exc:
         sys.exit(str(exc))
+    kind, stores = layout.stack(root)
     print("stack", kind, sep="\t")
     print("stores", " ".join(stores), sep="\t")
     print("appRoot", root, sep="\t")
+    for store, tree in trees.items():
+        for key, path in tree.items():
+            print(store + "." + key, path, sep="\t")
     for name, (value, source) in resolve(root, specs.load(root)).items():
         print(name, word(value), source, sep="\t")

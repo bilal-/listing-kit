@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import apple_assets
 import imginfo
 import listing
-import layout
 import screenshots as store_shots
 import specs
 
@@ -233,9 +232,8 @@ def play(root, data, plan):
 
 def build(root):
     root = Path(root).resolve()
-    layout.project(root)
+    plan = Plan(root)
     with output.locked_upload(root) as destination:
-        plan = Plan(root)
         check_inputs(root, plan.trees)
         data = specs.load(root)
         try:

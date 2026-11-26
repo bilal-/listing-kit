@@ -56,7 +56,7 @@ case "$val_rc/$verdict" in
      echo "$crash" >&2
      # A crash may precede the validator's scan. Scan before rendering its report.
      scan_rc=0
-     bash "$SELF_DIR/../lib/secret-scan.sh" --listing "$ROOT" >/dev/null || scan_rc=$?
+     bash "$SELF_DIR/../lib/secret-scan.sh" --prepared-listing "$ROOT" >/dev/null || scan_rc=$?
      case "$scan_rc" in 0) ;; 1) exit 3 ;; *) exit 2 ;; esac ;;
 esac
 

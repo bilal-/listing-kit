@@ -6,10 +6,10 @@ notion of "the listing" and write **both** layouts from it.
 
 ## Choosing the app and fastlane directories
 
-Run `listing-kit detect` in the mobile app directory to see its root, stack and
-stores. At a workspace root the command lists candidate folders under `apps/*` and
-`packages/*`. Run it again
-inside the selected app folder.
+Run `listing-kit detect <app-root>` before reading or writing a listing. It prints
+app-relative `fastlaneDir`, `metadata`, `screenshots`, and `storeAssets` paths
+for each store. At a workspace root, select one of the reported app candidates
+and run detect there.
 
 The fastlane directories below are relative to the selected app. A dash means
 the platform is absent or the app still needs to be selected.
@@ -28,13 +28,22 @@ the platform is absent or the app still needs to be selected.
 | monorepo-js | workspace root | choose apps/mobile | — | — |
 | monorepo-js | apps/mobile | apple play | fastlane | fastlane |
 | existing-root-fastlane | . | apple play | fastlane | fastlane |
+| root-listing-build-ios | . | apple play | fastlane | fastlane |
+| android-lanes-only | . | apple play | fastlane | android/fastlane |
+| duplicate-apple | . | choose Apple trees | — | — |
 
-The bare React Native fixture has platform Fastfiles. A root `fastlane/Fastfile`
-takes precedence. Otherwise, when both native folders exist and either has a
-fastlane directory, the kit uses split roots. With no existing fastlane
-directory, both stores use the app root's `fastlane/`. To select directories
-explicitly, set `trees.apple.fastlaneDir` and `trees.play.fastlaneDir` in the
-app's `.listing-kit/listing.json`.
+The selected app's `.listing-kit/listing.json` can specify individual paths in
+`trees`. Explicit paths take precedence, including at a workspace root. For
+each remaining fastlane directory, compare `fastlane` with `ios/fastlane`
+for Apple or `android/fastlane` for Play.
+
+| Evidence for this store | Directory selected |
+| --- | --- |
+| Listing text or screenshots in one candidate | The directory containing the files |
+| Listing content in both candidates | Stop and set `trees.apple.fastlaneDir` or `trees.play.fastlaneDir` |
+| Neither has content, root has a Fastfile | `fastlane` |
+| Neither has content, only the native candidate has a Fastfile | That store's native fastlane directory |
+| Neither has content or a Fastfile | `fastlane` |
 
 Run project fastlane lanes from the directory containing the selected
 `fastlane/`, such as `ios/` for a split Apple tree. The kit's setup, pull and
@@ -44,9 +53,9 @@ supply from a clean temporary directory with explicit paths.
 
 For hand upload, the builder copies listing files to `.listing-kit/upload/`. Open `INDEX.html` there for console instructions.
 
-## iOS — `fastlane/metadata/`
+## Apple metadata and screenshots
 ```
-fastlane/metadata/
+<apple.metadata>/
   copyright.txt
   primary_category.txt  secondary_category.txt
   <locale>/                         # e.g. en-US (or default/ = fallback for all locales)
@@ -54,12 +63,12 @@ fastlane/metadata/
     description.txt  keywords.txt
     marketing_url.txt  support_url.txt  privacy_url.txt
     release_notes.txt
-fastlane/screenshots/<locale>/      # iPhone / iPad / Watch PNGs
+<apple.screenshots>/<locale>/      # iPhone / iPad / Watch PNGs
 ```
 
 ## Apple creative assets
 
-`store-assets/apple/<locale>/` contains Header Asset image variants. This is
+`<apple.storeAssets>/<locale>/` contains Header Asset image variants. This is
 listing-kit's source layout for manual App Store Connect upload, separate from
 Fastlane's screenshot tree. The validator and review page include this folder.
 
@@ -126,9 +135,9 @@ than recursively archiving all hidden files. Reopen the final ZIP and verify the
 actual inventory and bytes after filtering; image validation alone does not
 audit archive metadata.
 
-## Android — `fastlane/metadata/android/`
+## Google Play metadata and images
 ```
-fastlane/metadata/android/
+<play.metadata>/
   <locale>/                         # e.g. en-US
     title.txt  short_description.txt  full_description.txt
     changelogs/<versionCode>.txt    # or changelogs/default.txt
@@ -145,7 +154,7 @@ mapping — a reference, not a dependency.
 Use **lower-case** extensions (`.png`, `.jpg`, `.jpeg`): fastlane globs for those, so on
 a case-sensitive filesystem (Linux CI) `01_home.PNG` is silently never uploaded. The
 validator fails upper-case extensions. Copy files must be UTF-8. Locale values can
-fall back to `metadata/default/` (deliver) for fields a locale doesn't override.
+fall back to `<apple.metadata>/default/` (deliver) for fields a locale doesn't override.
 
 ## Screenshot ordering (important)
 Both `deliver` and `supply` derive on-store display order from the **filename
@@ -165,7 +174,7 @@ The committed tree is the source of truth **for non-secrets only**.
   Do **not** ignore all of `.listing-kit/`: the flows in `.listing-kit/flows/` are
   committed so reruns and CI can replay them, and the secret scan checks them.
 - **Assemble asserts the boundary:** before finishing, run
-  `scripts/lib/secret-scan.sh` over the written `fastlane/` tree and **fail the
+  `scripts/lib/secret-scan.sh --listing <app-root>` over the resolved listing and **fail the
   run** if any credential/high-entropy token leaked into a committed file.
 
 ## Store management

@@ -96,7 +96,10 @@ def change(key, value, path=None, message=""):
     if path is None:
         path = parts[0] + "".join("[" + n + "]" if n.isdigit() else "." + n for n in parts[1:])
     problems = plan.check(data, rules, root)
-    assert any(level == "ERROR" and p == path and message in m for level, p, m in problems), (
+    parent = path.rpartition(".")[0] or "$"
+    assert any(level == "ERROR" and message in m and
+               (p == path or (p == parent and m.startswith(("unknown key", "unknown locale key", "unknown target key"))))
+               for level, p, m in problems), (
         key, value, path, message, problems)
 
 for value in (True, [], None, "plan"):

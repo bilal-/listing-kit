@@ -119,7 +119,7 @@ def guide(plan):
     yield "p", ("Run listing-kit publish first and check its receipt. Then hand upload the remaining items "
                 "below, including Play graphics and console-only screenshots. An Apple gallery replacement "
                 "clears all screenshot sets for the uploaded locale.")
-    yield "p", ("This folder is a copy. Edit the source files under fastlane/ or store-assets/ and rerun. "
+    yield "p", ("This folder is a copy. Edit the source files under the paths printed by listing-kit detect and rerun. "
                 "Rebuilds are refused if you edit files in this folder.")
     yield "p", ("Paths are relative to the folder containing INDEX.md. In the console, pick or add the language "
                 "first. Copy and paste text into the named field. For categories, select the value shown. "

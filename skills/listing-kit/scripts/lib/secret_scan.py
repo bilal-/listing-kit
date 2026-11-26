@@ -195,7 +195,7 @@ def file_secret(path):
         return not binary_media(path, head) and secret_content(path, head + stream.read())
 
 
-def scan(path, base, ignored, roots):
+def scan(path, base, ignored, roots, follow_root=False):
     relative = path.relative_to(base)
     if relative in ignored:
         return
@@ -226,6 +226,9 @@ def scan(path, base, ignored, roots):
                 resolved = path.resolve()
             if target.is_absolute() or not any(root == resolved or root in resolved.parents for root in roots):
                 raise OSError("symbolic link leaves scan root")
+            if follow_root and path.is_dir():
+                for child in path.iterdir():
+                    yield from scan(child, base, ignored, roots)
             if path.is_file() and file_secret(path):
                 report(relative)
                 yield 1
@@ -271,12 +274,35 @@ def check_store_credentials(repo):
                 raise ValueError("Found a store credential; move it outside the repository")
 
 
+def scan_paths(paths, missing_ok=False, app=None, preflight=False):
+    results = set()
+    roots = [Path(p).resolve() for p in paths if app is not None or not Path(p).is_symlink()]
+    if app is not None and any(app.resolve() not in path.parents for path in roots):
+        print("ERROR: listing directory leaves the selected app", file=sys.stderr)
+        return 2
+    if preflight:
+        roots = [app.resolve()]
+    for name in paths:
+        path = Path(name).absolute()
+        if not path.exists() and not path.is_symlink():
+            if not missing_ok:
+                print("ERROR: secret scan path does not exist", file=sys.stderr)
+                results.add(2)
+            continue
+        try:
+            ignored = ignored_private_files(path.parent, ":(literal)" + path.name)
+            results.update(scan(path, path.parent, ignored, roots, follow_root=app is not None))
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            print("ERROR: secret scan could not complete", file=sys.stderr)
+            results.add(2)
+    if 1 in results:
+        return 1
+    if 2 in results:
+        return 2
+    return 0
+
+
 def main(paths):
-    if paths[:1] == ["--listing"] and len(paths) == 2:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from plan import listing_roots
-        root = Path(paths[1])
-        paths = [root / tree for tree in listing_roots(root)]
     if paths[:1] == ["--store-credentials"] and len(paths) == 2:
         try:
             check_store_credentials(Path(paths[1]))
@@ -287,22 +313,35 @@ def main(paths):
             print("Could not complete the repository credential scan", file=sys.stderr)
             return 2
         return 0
-    results = set()
-    roots = [Path(p).resolve() for p in paths if not Path(p).is_symlink()]
-    for name in paths:
-        path = Path(name).absolute()
-        if not path.exists() and not path.is_symlink():
-            continue
+    if not paths:
+        paths = ["--listing", "."]
+    if len(paths) == 2 and paths[0] in ("--listing", "--prepared-listing"):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from plan import listing_roots
+        root = Path(paths[1])
+        if not root.is_dir():
+            print("ERROR: listing app directory does not exist", file=sys.stderr)
+            return 2
+        status = scan_paths([root / ".listing-kit"], missing_ok=True, app=root, preflight=True)
+        if status:
+            return status
         try:
-            ignored = ignored_private_files(path.parent, ":(literal)" + path.name)
-            results.update(scan(path, path.parent, ignored, roots))
-        except (OSError, RuntimeError, subprocess.SubprocessError):
-            print("ERROR: secret scan could not complete", file=sys.stderr)
-            results.add(2)
-    if 1 in results:
-        return 1
-    if 2 in results:
-        return 2
+            if paths[0] == "--listing":
+                from review_hook import Blocked, scan_staged_listing
+                try:
+                    scan_staged_listing(root, sys.modules[__name__])
+                except Blocked as exc:
+                    print(exc, file=sys.stderr)
+                    return 1
+            paths = [root / tree for tree in listing_roots(root)]
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        status = scan_paths(paths, missing_ok=True, app=root)
+    else:
+        status = scan_paths(paths)
+    if status:
+        return status
     print("Secret scan clean: no detected credentials.")
     return 0
 

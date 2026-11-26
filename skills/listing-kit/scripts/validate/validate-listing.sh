@@ -44,7 +44,7 @@ if [ "${LK_REVIEW_DEMO_FAILURES:-0}" -gt 0 ]; then
   fail "demo_password.txt: keep the demo password out of the repo; supply it via the environment at upload"
 fi
 scan_rc=0
-bash "$LIB/secret-scan.sh" --listing "$ROOT" || scan_rc=$?
+bash "$LIB/secret-scan.sh" --prepared-listing "$ROOT" || scan_rc=$?
 if [ "$scan_rc" != 0 ]; then
   echo "LISTING HAS FAILURES"
   # The review builder needs to distinguish unsafe inputs from listing-rule failures.

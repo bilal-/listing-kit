@@ -2,10 +2,11 @@
 """Store copy fields (limits, units, required flags), shared by validate-listing.sh
 and build-review.sh so the two never disagree. Source: specs/stores.json.
 
-CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>]
+CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>] [--app-root <app-dir>]
 Prints one "LEVEL<TAB>message" line per field, LEVEL in PASS / WARN / FAIL. A field
 missing from the locale is read from <fallback-dir> (fastlane's metadata/default/).
 """
+import argparse
 import os
 import re
 from pathlib import Path
@@ -122,5 +123,13 @@ def check(r):
 
 
 if __name__ == "__main__":
-    for r in rows(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("store", choices=("apple", "apple-app", "play"))
+    parser.add_argument("metadata")
+    parser.add_argument("fallback", nargs="?")
+    parser.add_argument("--app-root", type=Path)
+    args = parser.parse_args()
+    rules = specs.load(args.app_root) if args.app_root else None
+    requirements = detect.Requirements(args.app_root, rules) if args.app_root else None
+    for r in rows(args.store, args.metadata, args.fallback, rules, requirements):
         print("\t".join(check(r)))

@@ -12,6 +12,10 @@ from generated_file import write_generated
 KIT = Path(__file__).resolve().parents[2]
 
 
+sys.path.insert(0, str(KIT / "scripts/lib"))
+from plan import listing_roots
+
+
 def repository(app):
     result = subprocess.run(["git", "-C", str(app), "rev-parse", "--show-toplevel"],
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -50,7 +54,18 @@ def main():
     template = (KIT / "templates/ci" / (args.provider + ".yml")).read_text()
     values = {"APP_PREFIX": "" if relative == "." else relative + "/",
               "APP_ROOT": "./" + relative if relative.startswith("-") else relative, "KIT_REF": ref}
-    content = re.sub(r"__(APP_PREFIX|APP_ROOT|KIT_REF)__", lambda m: values[m[1]].replace("'", "''"), template)
+    suffix = "/**" if args.provider == "github" else "/**/*"
+    indent = "      " if args.provider == "github" else "        "
+    filters = []
+    for directory in listing_roots(app):
+        folder = str(directory)
+        if any(char in folder for char in "*?[]!+{}$\\"):
+            parser.error("listing path contains CI expression or glob characters")
+        literal = (values["APP_PREFIX"] + folder + suffix).replace("'", "''")
+        filters.append(indent + "- '" + literal + "'")
+    values = {key: value.replace("'", "''") for key, value in values.items()}
+    values["LISTING_FILTERS"] = "\n".join(filters)
+    content = re.sub(r"__(APP_PREFIX|APP_ROOT|KIT_REF|LISTING_FILTERS)__", lambda m: values[m[1]], template)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         write_generated(path, content, 0o644, args.force)
