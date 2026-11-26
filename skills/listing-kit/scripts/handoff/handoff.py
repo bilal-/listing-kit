@@ -178,10 +178,10 @@ def apple(root, data, plan):
     for locale in sorted(locales):
         base = Path("apple") / locale
         text_fields(plan, data, "apple", meta / locale, base / "text")
-        deferred = targets.get(locale, {}).get("deferredScreenshots", {})
-        for display, reason in deferred.items():
+        entry = targets.get(locale, {})
+        for display, reason in apple_assets.reported_deferrals(entry):
             plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
-        deferred_ids = apple_assets.deferred_slots(data, deferred)
+        deferred_ids = apple_assets.deferred_slots(data, entry.get("deferredScreenshots", {}))
         groups = screenshot_groups(plan, data, "apple", locale, deferred_ids)
         screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]

@@ -16,6 +16,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import plan as listing_plan
 import screenshots
 import specs
 from imginfo import EXTENSIONS, format_allowed, image_info, validate_many
@@ -38,8 +39,30 @@ def header_locales(tree):
                   and (header_files(tree, p.name) or (p / "screenshots").is_dir()))
 
 
+LEGACY = Path(".listing-kit/asset-plan.json")
+
+
+def load_coverage(root, rules=None, view=None):
+    """Read a private view snapshot, the listing plan, or the older Apple-only plan."""
+    rules = rules if rules is not None else specs.load(root)
+    if view:
+        with open(view, encoding="utf-8") as source:
+            snapshot = json.load(source)
+        if snapshot is not None:
+            return snapshot
+    elif (Path(root) / listing_plan.LISTING).is_file():
+        data = listing_plan.read_listing(Path(root).resolve())
+        manifest = listing_plan.manifest(data, rules, root)
+        return listing_plan.coverage(data, rules, manifest["outputs"])
+    return {"apple": load_legacy(root, rules)}
+
+
 def load_plan(root, rules=None):
-    plan_path = os.path.join(root, ".listing-kit", "asset-plan.json")
+    return load_coverage(root, rules)["apple"]
+
+
+def load_legacy(root, rules=None):
+    plan_path = Path(root) / LEGACY
     if not os.path.isfile(plan_path):
         return {}
     rules = rules if rules is not None else specs.load(root)
@@ -78,6 +101,12 @@ def load_plan(root, rules=None):
     return plan["apple"]
 
 
+def reported_deferrals(entry):
+    """Include individual targets whose display still has an active set."""
+    yield from entry.get("deferredScreenshots", {}).items()
+    yield from entry.get("deferredTargets", {}).items()
+
+
 def deferred_slots(rules, displays):
     return {s["id"] for label in displays for s in specs.slot_by_label(rules, "apple", label)}
 
@@ -104,7 +133,7 @@ def has_apple_listing(root, rules=None, locales=None, tree=None):
     return bool(
         (apple_locales(root, rules, tree=tree) if locales is None else locales)
         or has_apple_app_metadata(tree["metadata"], rules)
-        or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
+        or (not (Path(root) / listing_plan.LISTING).is_file() and (Path(root) / LEGACY).is_file())
     )
 
 
@@ -119,7 +148,7 @@ def header_rule(path, info, rules):
     return None
 
 
-def validate(root, required_displays=(), rules=None, requirements=None, tree=None):
+def validate(root, required_displays=(), rules=None, requirements=None, tree=None, coverage=None):
     tree = tree if tree is not None else paths(root)["apple"]
     rules = rules if rules is not None else specs.load(root)
     headers = rules["stores"]["apple"]["graphics"]
@@ -148,7 +177,7 @@ def validate(root, required_displays=(), rules=None, requirements=None, tree=Non
             results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
     if requirements:
-        for locale_path in apple_locales(root, rules, tree=tree):
+        for locale_path in apple_locales(root, rules, coverage, tree):
             locale = os.path.basename(locale_path)
             for graphic in headers:
                 level, reason = requirements.evaluate(graphic["required"])
@@ -158,13 +187,15 @@ def validate(root, required_displays=(), rules=None, requirements=None, tree=Non
                     results.append(("FAIL" if level == "required" else "WARN",
                                     f'{graphic["label"]} MISSING ({locale}) {reason}'.rstrip()))
     try:
-        for locale, target in load_plan(root, rules).items():
+        for locale, target in (load_plan(root, rules) if coverage is None else coverage).items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
             for display, reason in target.get("deferredScreenshots", {}).items():
                 if any(s["label"] in required_displays for s in specs.slot_by_label(rules, "apple", display)):
                     results.append(("FAIL", "cannot defer required screenshot class: {} ({})".format(display, locale)))
                 else:
                     results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
+            for target_id, reason in target.get("deferredTargets", {}).items():
+                results.append(("WARN", f"deferred {locale}/{target_id}: {reason}"))
             deferred = deferred_slots(rules, target.get("deferredScreenshots", {}))
             counts = Counter(shot.slot["label"] for shot in screenshots.active(root, "apple", locale, rules, deferred, tree=tree)
                              if not shot.error and not shot.platform)
@@ -177,7 +208,8 @@ def validate(root, required_displays=(), rules=None, requirements=None, tree=Non
                 results.append(("PASS" if exists else "FAIL", "planned Apple header {}/{}: {}".format(
                     locale, name, "present" if exists else "MISSING")))
     except (OSError, ValueError) as error:
-        results.append(("FAIL", "asset-plan.json: " + str(error)))
+        name = listing_plan.LISTING if (Path(root) / listing_plan.LISTING).is_file() else LEGACY
+        results.append(("FAIL", name.name + ": " + str(error)))
     if saw_unavailable:
         results.append(("IM_UNAVAILABLE", "images were checked structurally only"))
     return results

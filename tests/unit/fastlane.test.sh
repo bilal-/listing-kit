@@ -561,6 +561,27 @@ run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "LISTING HAS FAILURES"
 rm "$app/.listing-kit/asset-plan.json"
+it "publish preview validates derived headers and ignores the obsolete Apple plan"
+cp "$fixture/saved" "$app/.listing-kit/listing.json"
+python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["graphics"] = {"apple": {"header-16x9": {"headline": {"en-US": "Hello"}}}}
+d["platforms"]["hasWatchApp"] = True
+d["targets"].append(dict(id="watch", store="apple", slot="watch", size=[422, 514],
+                         state="deferred", reason="Watch runtime unavailable"))
+p.write_text(json.dumps(d))
+PYPLAN
+fake_png "$shots/en-US/01_one_iphone-medium.png" 1206 2622
+echo 'ignored' > "$app/.listing-kit/asset-plan.json"
+run_lk publish --store apple
+assert_eq "$rc" 1
+assert_contains "$out" "planned Apple header en-US/header-16x9.png: MISSING"
+assert_contains "$out" "cannot defer required screenshot class: Apple Watch"
+rm "$app/.listing-kit/asset-plan.json"
+
 it "active console target protects every Apple set in its locale"
 cp "$fixture/saved" "$app/.listing-kit/listing.json"
 python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'

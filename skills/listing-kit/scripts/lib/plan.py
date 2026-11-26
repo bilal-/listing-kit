@@ -788,10 +788,12 @@ class _Checker:
                         self.error(f"graphics.{store}.{name}.draft", "draft cannot be published")
 
 
-def _inspect(data, rules, app_root, purpose=None, strict=True, capture_filter=None):
+def _inspect(data, rules, app_root, purpose=None, strict=True, capture_filter=None, repo_root=None):
     if purpose not in (None, "capture", "publish"):
         raise ValueError("expected capture or publish")
     checker = _Checker(rules, app_root, purpose)
+    if repo_root is not None:
+        checker.repo_root = repo_root
     checker.problems.extend(specs.check(rules))
     if not checker.problems:
         try:
@@ -817,9 +819,57 @@ def check(data, specs_data, app_root, purpose=None):
     return _inspect(data, specs_data, app_root, purpose, strict=False).problems
 
 
-def manifest(data, rules, app_root):
+def manifest(data, rules, app_root, repo_root=None):
     """Return every planned screenshot and graphic, and stale app-relative paths."""
-    return _inspect(data, rules, app_root).result
+    return _inspect(data, rules, app_root, repo_root=repo_root).result
+
+
+def coverage(data, rules, outputs, publish_store=None):
+    """Expected screenshots, headers and deferrals per store locale for a validated plan."""
+    result = {"apple": {}, "play": {}}
+    locales = [_locale(item) for item in data["locales"]]
+    selected = set()
+    for target in targets(data, publish_store):
+        if publish_store and target.get("status") == "held":
+            continue
+        store = target["store"]
+        slot = specs.slot(rules, store, target["slot"])
+        codes = [loc[store] for loc in _target_locales(locales, target)]
+        selected.update(codes)
+        if publish_store and target.get("upload", slot["upload"]) != "fastlane":
+            continue
+        key = slot["label"] if store == "apple" else slot["id"]
+        count = len(screens_for(data, target["id"]))
+        for code in codes:
+            entry = result[store].setdefault(code, {})
+            counts = entry.setdefault("screenshots", {})
+            counts[key] = counts.get(key, 0) + count
+    for row in outputs:
+        if row["kind"] == "graphic" and row["store"] == "apple":
+            code = row["storeCode"]
+            if publish_store and (publish_store != "apple" or code not in selected):
+                continue
+            entry = result["apple"].setdefault(code, {})
+            entry.setdefault("headers", []).append(Path(row["outputPath"]).name)
+    if publish_store == "play":
+        return result
+    for target in targets(data, "apple", "deferred"):
+        label = specs.slot(rules, "apple", target["slot"])["label"]
+        for loc in _target_locales(locales, target):
+            code = loc["apple"]
+            if publish_store and code not in selected:
+                continue
+            entry = result["apple"].setdefault(code, {})
+            if label in entry.get("screenshots", {}):
+                # Another target still supplies this display in the same locale.
+                entry.setdefault("deferredTargets", {})[target["id"]] = target["reason"]
+            else:
+                reasons = entry.setdefault("deferredScreenshots", {})
+                if label in reasons:
+                    reasons[label] += " / " + target["reason"]
+                else:
+                    reasons[label] = target["reason"]
+    return result
 
 
 def outputs(data, rules, app_root):

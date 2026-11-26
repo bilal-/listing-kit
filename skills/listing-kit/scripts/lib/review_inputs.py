@@ -10,6 +10,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plan
+import specs
 from plan import PlanError, listing_roots
 from project_files import project_files
 from secret_scan import credential_file, file_secret, ignored_private_files, private_local, scan, sensitive_name, tracked
@@ -67,6 +68,24 @@ def write_view_plan(view, trees, data, preserve_errors=False):
     path.write_text(json.dumps(projected), encoding="utf-8")
 
 
+def prepare_view(view, trees, source, coverage_path, repo_root=None):
+    """Keep coverage before replacing the source plan with its Git-free layout."""
+    data = {}
+    coverage = None
+    if (source / plan.LISTING).is_file():
+        data = plan.read_listing(source)
+        try:
+            rules = specs.load(source)
+            manifest = plan.manifest(data, rules, source, repo_root=repo_root)
+            coverage = plan.coverage(data, rules, manifest["outputs"])
+        except (PlanError, specs.SpecsError):
+            write_view_plan(view, trees, data, preserve_errors=True)
+            return []
+    write_view_plan(view, trees, data)
+    coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
+    return ["--coverage-view", str(coverage_path)]
+
+
 def run(script, root, args):
     config = Path(".listing-kit")
     plan._inside(root, root / config)
@@ -104,13 +123,8 @@ def run(script, root, args):
                 continue
             (view / path.parent).mkdir(exist_ok=True, parents=True)
             link_file(source, view / path)
-        try:
-            data = plan.load(root) if (root / plan.LISTING).exists() else {}
-        except PlanError:
-            # Render the same validation errors as the unfiltered listing.
-            write_view_plan(view, resolved, plan.read_listing(root), preserve_errors=True)
-        else:
-            write_view_plan(view, resolved, data)
+        if "--coverage-view" not in args:
+            cmd.extend(prepare_view(view, resolved, root, Path(tmp) / "coverage.json"))
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():

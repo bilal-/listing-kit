@@ -25,6 +25,7 @@ import apple_assets
 import imginfo
 import listing
 import plan
+from review_inputs import write_view_plan
 import secret_scan
 import specs
 
@@ -452,7 +453,7 @@ def target_locales(store, target):
 
 def working_inventory(store, require_outputs=False):
     source = inventory(store, store.trees["metadata"], store.trees["screenshots"])
-    legacy = {}
+    coverage = {}
     if store.data:
         active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
         locales = {loc for target in active for loc in target_locales(store, target)}
@@ -469,17 +470,17 @@ def working_inventory(store, require_outputs=False):
         source.text = {k: p for k, p in source.text.items() if len(k.split("/")) == 2
                        or k.split("/")[1] in locales | {"default"}}
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
+        coverage = plan.coverage(store.data, store.rules, store.manifest["outputs"], publish_store=store.name)
+    elif store.name == "apple":
+        coverage = {"apple": apple_assets.load_legacy(store.root, store.rules)}
     if store.name == "apple":
-        legacy = apple_assets.load_plan(store.root, store.rules)
-        if store.data:
-            legacy = {loc: entry for loc, entry in legacy.items() if loc in locales}
         for key, path in list(source.shots.items()):
-            deferred = legacy.get(path.parent.name, {}).get("deferredScreenshots")
+            deferred = coverage["apple"].get(path.parent.name, {}).get("deferredScreenshots")
             if deferred:
                 slot = specs.apple_slot_for_file(store.rules, *imginfo.image_info(path)[:2], key)
                 if slot and slot["id"] in apple_assets.deferred_slots(store.rules, deferred):
                     del source.shots[key]
-    return source, legacy
+    return source, coverage
 
 
 def checked_copy(path, dest):
@@ -493,14 +494,19 @@ def checked_copy(path, dest):
 
 
 def prepared(store, view):
-    source, legacy = working_inventory(store, require_outputs=True)
+    source, coverage = working_inventory(store, require_outputs=True)
+    options = []
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
     screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
-    if legacy:
+    if store.data:
+        snapshot = view.parent / (view.name + "-coverage.json")
+        write_json(snapshot, coverage)
+        options = ["--coverage-view", str(snapshot)]
+    elif coverage.get("apple"):
         if secret_scan.file_secret(store.state("asset-plan.json")):
             raise ValueError("Credential-like content in asset plan; upload view rejected")
-        write_json(view / ".listing-kit/asset-plan.json", {"apple": legacy})
-    for loc in legacy:
+        write_json(view / apple_assets.LEGACY, coverage)
+    for loc in coverage.get("apple", {}):
         base = store.trees["storeAssets"] / loc
         for header in base.glob("*"):
             if header.is_file() and header.suffix.lower() in IMAGE:
@@ -531,7 +537,10 @@ def prepared(store, view):
                         or name.endswith(".pbxproj") or name == "Info.plist"):
                     dest = view / p.relative_to(store.root)
                     checked_copy(safe(store.root, p), dest)
-    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view)], env=env, check=True)
+    if store.data:
+        # Required deferrals depend on the listing's platform overrides in the isolated view too.
+        write_view_plan(view, plan.listing_trees(view), store.data)
+    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view), *options], env=env, check=True)
     return inventory(store, metadata, screenshots)
 
 

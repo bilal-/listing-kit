@@ -9,11 +9,12 @@
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
-ROOT=; prepared=0; options=()
+ROOT=; prepared=0; coverage_view=; options=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) echo "Usage: listing-kit review [app-root] [--verbose] [--as-of YYYY-MM-DD] [--ios-sdk X.Y]"; exit 0 ;;
     --prepared) prepared=1 ;;
+    --coverage-view) [ "$#" -ge 2 ] || exit 2; coverage_view="$2"; options+=("$1" "$2"); shift ;;
     --verbose) options+=("$1") ;;
     --as-of|--ios-sdk)
       [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "$1 needs a value" >&2; exit 2; }
@@ -62,7 +63,7 @@ case "$val_rc/$verdict" in
 esac
 
 OUT="$ROOT/listing-review.html"
-python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
+python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" "$coverage_view" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -106,7 +107,7 @@ def esc(s):
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
-    apple_plan = apple_assets.load_plan(root, rules)
+    apple_plan = apple_assets.load_coverage(root, rules, sys.argv[6])["apple"]
 except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
@@ -129,8 +130,9 @@ if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
     for ld in ios_locs:
         loc = os.path.basename(ld)
         fields = field_rows("apple", ld, apple_default)
-        deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
-        deferred_ids = apple_assets.deferred_slots(rules, deferred)
+        entry = apple_plan.get(loc, {})
+        deferred = dict(apple_assets.reported_deferrals(entry))
+        deferred_ids = apple_assets.deferred_slots(rules, entry.get("deferredScreenshots", {}))
         shots = screenshot_groups("apple", loc, deferred_ids)
         graphics = []
         for f in images(apple_assets.header_dir(apple_tree, loc)):

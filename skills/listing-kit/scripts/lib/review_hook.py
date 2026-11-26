@@ -296,8 +296,8 @@ def refresh(apps, removals, paths, media, kit, snap):
     build_env["GIT_CEILING_DIRECTORIES"] = str(snap.parent)
     build_env["LK_REVIEW_IMAGE_INFO"] = media_index(media, snap)
     pages = []
-    from plan import LISTING, has_listing_directory, read_listing
-    from review_inputs import write_view_plan
+    from plan import has_listing_directory
+    from review_inputs import prepare_view
     for app, trees in apps.items():
         root = snap / app
         page = Path(app) / "listing-review.html"
@@ -308,11 +308,10 @@ def refresh(apps, removals, paths, media, kit, snap):
         if ignored.returncode != 1:
             ignored.check_returncode()
         if has_listing_directory(root, trees):
-            data = read_listing(root) if (root / LISTING).is_file() else {}
-            write_view_plan(root, trees, data)
             build_env["LK_REVIEW_DISPLAY_ROOT"] = str(Path(app).resolve())
-            result = subprocess.run(["bash", kit / BUILDER, root], env=build_env,
-                                    stdout=subprocess.DEVNULL)
+            with tempfile.TemporaryDirectory() as work:
+                options = prepare_view(root, trees, root, Path(work) / "coverage.json", repo_root=snap)
+                result = subprocess.run(["bash", kit / BUILDER, root, *options], env=build_env, stdout=subprocess.DEVNULL)
             if result.returncode or not (snap / page).is_file():
                 raise Blocked("could not safely build the staged review page")
         elif app not in removals:
