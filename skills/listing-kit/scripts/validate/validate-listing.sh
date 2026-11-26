@@ -14,7 +14,7 @@ while [ "$#" -gt 0 ]; do
     --verbose) options+=("$1") ;;
     --prepared) prepared=1 ;;
     --review) review=1 ;;
-    --as-of|--ios-sdk)
+    --as-of|--ios-sdk|--coverage-view)
       [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "$1 needs a value" >&2; exit 2; }
       options+=("$1" "$2"); shift ;;
     -*) echo "Unknown option: $1" >&2; exit 2 ;;

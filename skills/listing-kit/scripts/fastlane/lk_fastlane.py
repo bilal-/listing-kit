@@ -22,9 +22,11 @@ import uuid
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS / "lib"))
 import apple_assets
+import detect
 import imginfo
 import listing
 import plan
+from review_inputs import write_view_plan
 import secret_scan
 import specs
 
@@ -452,34 +454,43 @@ def target_locales(store, target):
 
 def working_inventory(store, require_outputs=False):
     source = inventory(store, store.trees["metadata"], store.trees["screenshots"])
-    legacy = {}
+    coverage = {}
     if store.data:
         active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
-        locales = {loc for target in active for loc in target_locales(store, target)}
-        if require_outputs and not locales:
+        coverage = apple_assets.planned_coverage(
+            store.root, store.data, store.rules, store.manifest["outputs"], publish_store=store.name,
+            text_locales={path.parent.name for path in source.text.values()} if store.name == "apple" else ())
+        locales = coverage[store.name].keys()
+        if require_outputs and not any(entry.get("screenshots") for entry in coverage[store.name].values()):
             raise ValueError("No active %s target locales to publish" % store.name)
         active_ids = {t["id"] for t in active}
-        approved = {store.root / row["outputPath"] for row in store.manifest["outputs"]
+        approved = {store.root / row["outputPath"]: row for row in store.manifest["outputs"]
                     if row["targetId"] in active_ids and row["upload"] == "fastlane" and row["kind"] == "screenshot"}
         if require_outputs:
-            missing = approved.difference(source.shots.values())
+            missing = approved.keys() - source.shots.values()
             if missing:
                 raise ValueError("Missing planned screenshot: %s" % min(missing))
-        source.shots = {k: p for k, p in source.shots.items() if p in approved}
-        source.text = {k: p for k, p in source.text.items() if len(k.split("/")) == 2
-                       or k.split("/")[1] in locales | {"default"}}
+        shots = {}
+        for key, path in source.shots.items():
+            if path not in approved:
+                continue
+            # Deliver needs its display hint for 12.9" and 13" images of the same size.
+            if approved[path]["slotId"] == "ipad-12-9" and store.name == "apple":
+                key = Path(key).with_name("APP_IPAD_PRO_129-" + path.name).as_posix()
+            shots[key] = path
+        source.shots = shots
+        source.text = {k: p for k, p in source.text.items()
+                       if len(k.split("/")) == 2 or k.split("/")[1] in locales | {"default"}}
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
-    if store.name == "apple":
-        legacy = apple_assets.load_plan(store.root, store.rules)
-        if store.data:
-            legacy = {loc: entry for loc, entry in legacy.items() if loc in locales}
+    elif store.name == "apple":
+        coverage = {"apple": apple_assets.load_legacy(store.root, store.rules)}
         for key, path in list(source.shots.items()):
-            deferred = legacy.get(path.parent.name, {}).get("deferredScreenshots")
+            deferred = coverage["apple"].get(path.parent.name, {}).get("deferredScreenshots")
             if deferred:
                 slot = specs.apple_slot_for_file(store.rules, *imginfo.image_info(path)[:2], key)
                 if slot and slot["id"] in apple_assets.deferred_slots(store.rules, deferred):
                     del source.shots[key]
-    return source, legacy
+    return source, coverage
 
 
 def checked_copy(path, dest):
@@ -492,20 +503,37 @@ def checked_copy(path, dest):
     dest.write_bytes(data)
 
 
-def prepared(store, view):
-    source, legacy = working_inventory(store, require_outputs=True)
+def prepared(store, view, platforms):
+    source, coverage = working_inventory(store, require_outputs=True)
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
     screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
-    if legacy:
+    snapshot = view.parent / (view.name + "-coverage.json")
+    write_json(snapshot, coverage or {"apple": {}})
+    if not store.data and coverage.get("apple"):
         if secret_scan.file_secret(store.state("asset-plan.json")):
             raise ValueError("Credential-like content in asset plan; upload view rejected")
-        write_json(view / ".listing-kit/asset-plan.json", {"apple": legacy})
-    for loc in legacy:
+        write_json(view / apple_assets.LEGACY, coverage)
+    for loc in coverage.get("apple", {}):
         base = store.trees["storeAssets"] / loc
         for header in base.glob("*"):
             if header.is_file() and header.suffix.lower() in IMAGE:
                 dest = view / "store-assets/apple" / loc / header.name
                 checked_copy(safe(store.root, header), dest)
+    if store.data:
+        # Console images participate in validation but stay outside the upload inventory.
+        assets = store.trees["storeAssets"]
+        active = [t for t in plan.targets(store.data, store.name) if t.get("status") != "held"]
+        ids = {t["id"] for t in active}
+        held_paths = {store.root / row["outputPath"] for row in store.manifest["outputs"]
+                      if row["kind"] == "screenshot" and row["targetId"] not in ids}
+        folders = {assets / loc / "screenshots" / t["slot"] for t in active
+                   if t.get("upload", specs.slot(store.rules, store.name, t["slot"])["upload"]) == "console"
+                   for loc in target_locales(store, t)}
+        for folder in sorted(folders):
+            for path in map(Path, listing.images(safe(store.root, folder))):
+                if path not in held_paths:
+                    dest = view / "store-assets" / store.name / path.relative_to(assets)
+                    checked_copy(safe(store.root, path), dest)
     for key, path in source.files().items():
         tree, rel = key.split("/", 1)
         dest = (metadata if tree == "metadata" else screenshots) / rel
@@ -515,23 +543,9 @@ def prepared(store, view):
         dest = view / specs.OVERRIDE
         checked_copy(safe(store.root, override), dest)
     env = dict(os.environ, LK_REVIEW_DISPLAY_ROOT=str(store.root))
-    facts = specs.conditions_from_plan(store.data, rules=store.rules)
-    for key, var in (("supportsIpad", "LK_SUPPORTS_IPAD"), ("supportsIphone", "LK_SUPPORTS_IPHONE")):
-        if key in facts:
-            env[var] = str(int(facts[key]))
-    # Preserve native/Expo tablet detection when validating the isolated store view.
-    if store.name == "apple" and "LK_SUPPORTS_IPAD" not in env:
-        for parent, dirs, names in os.walk(store.root):
-            dirs[:] = [d for d in dirs if d not in (".git", ".listing-kit", "node_modules", "Pods",
-                                                    "build", "DerivedData", ".expo", "dist", ".dart_tool")]
-            for name in names:
-                p = Path(parent, name)
-                if (p.parent == store.root and name in ("app.json", "app.config.json", "app.config.js",
-                                                        "app.config.ts", "app.config.mjs", "app.config.cjs")
-                        or name.endswith(".pbxproj") or name == "Info.plist"):
-                    dest = view / p.relative_to(store.root)
-                    checked_copy(safe(store.root, p), dest)
-    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view)], env=env, check=True)
+    write_view_plan(view, plan.listing_trees(view), {"platforms": platforms})
+    run_child(["bash", str(SCRIPTS / "validate/validate-listing.sh"), str(view),
+               "--coverage-view", str(snapshot)], env=env, check=True)
     return inventory(store, metadata, screenshots)
 
 
@@ -1120,8 +1134,10 @@ def main(argv):
                         raise ValueError("Plan inputs failed the secret scan")
                     run_child([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
                                     "--for", "publish"], check=True)
+                platforms = {name: value for name, (value, _) in detect.resolve(root, rules).items()
+                             if value is not None}
                 for store in stores:
-                    views[store.name] = prepared(store, scratch / (store.name + "-view"))
+                    views[store.name] = prepared(store, scratch / (store.name + "-view"), platforms)
                 transfers = []
                 for store in stores:
                     dest = scratch / store.name

@@ -2,6 +2,8 @@
 
 Save UTF-8 JSON at `.listing-kit/listing.json` in the app root. Format 2 requires `format`, `app`, `locales`, `targets` and `screens`. Run `listing-kit plan check` before building. Missing source files can produce warnings during planning. Choose the style before capture. Raw jobs require the exact upload size. Use `listing-kit plan check --for capture` once the active flows exist. Use `listing-kit plan check --for publish` to catch drafts and stale outputs.
 
+Use this single plan for new listings. Validation counts the outputs for each store locale after applying target `locales` and screen `only` or `except` filters. Apple checks exact counts per display and filenames for planned headers. Play reports a warning when a type has a different count. Review and the hand-upload index show why an optional Apple display was deferred. The publish preview checks coverage for its selected store and upload route.
+
 ## Example
 
 This is the [test fixture](../../../tests/fixtures/plan-example.json). The annotations below the block keep the JSON directly usable. The paths and copy belong to the example app. Replace them for a real capture.

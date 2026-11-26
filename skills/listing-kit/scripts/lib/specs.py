@@ -346,7 +346,7 @@ def apple_slot_for_size(data, w, h):
     return found[0] if found else None
 
 
-def apple_slot_for_file(data, w, h, path=""):
+def apple_slot_for_file(data, w, h, path="", suffixes=None):
     """The slot for a screenshot file, resolving shared sizes the way fastlane deliver does
     (deliver/lib/deliver/app_screenshot.rb, 2.242.0):     3840x2160 uses the vision marker outside an appleTV directory.
     An explicit 12.9-inch suffix selects the legacy slot for shared iPad sizes.
@@ -358,6 +358,14 @@ def apple_slot_for_file(data, w, h, path=""):
     ids = {s["id"]: s for s in found}
     if "vision-pro" in ids and "vision" in low and "appletv" not in low.split("/")[:-1]:
         return ids["vision-pro"]
+    if suffixes and "vision-pro" not in ids:
+        stem = os.path.splitext(os.path.basename(low))[0]
+        stem = re.sub(r"_framed$", "", stem)
+        matches = [slot for slot in found if any(
+            suffix and stem.endswith("_" + suffix.lower())
+            for suffix in [slot.get("suffix"), *suffixes.get(slot["id"], [])])]
+        if matches:
+            return matches[0] if len(matches) == 1 else None
     if "ipad-12-9" in ids:
         stem = os.path.splitext(os.path.basename(low))[0]
         # Existing handoff files use the dotted display size. Plan suffixes are identifiers.

@@ -18,7 +18,7 @@ class Shot(NamedTuple):
     manual: bool = False
 
 
-def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize, tree=None):
+def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize, tree=None, suffixes=None):
     root = Path(root)
     tree = tree if tree is not None else listing.paths(root)[store]
     if store == "apple":
@@ -28,7 +28,7 @@ def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize, tr
             for path in paths:
                 size = imginfo.image_info(path)[:2]
                 relative = path.relative_to(tree["screenshots"])
-                slot = specs.apple_slot_for_file(rules, *size, str(relative))
+                slot = specs.apple_slot_for_file(rules, *size, str(relative), suffixes)
                 if framed and not path.stem.lower().endswith("_framed") and not (slot and slot["id"] == "watch"):
                     continue
                 if slot and slot["id"] in deferred:
