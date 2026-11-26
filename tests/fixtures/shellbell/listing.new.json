@@ -36,7 +36,7 @@
         ]
       }
     },
-    "logo": "../../brand/png/horizontal-black@2x.png"
+    "logo": "repo:brand/png/horizontal-black@2x.png"
   },
   "targets": [
     {
@@ -299,43 +299,70 @@
     "playFeature": {
       "template": "feature",
       "headline": {
-        "en-US": "Your terminal, from anywhere."
+        "en-US": "Your terminal,\nfrom anywhere."
       },
       "detail": {
         "en-US": "Claude Code · Codex · Herdr · tmux · iTerm2"
       },
       "altText": {
         "en-US": "Shellbell on an amber background: Your terminal, from anywhere. Claude Code, Codex, Herdr, tmux and iTerm2."
-      }
+      },
+      "palette": {
+        "background": [
+          "#F6BC4A",
+          "#E79B19"
+        ],
+        "ink": "#151719",
+        "detail": "#493416"
+      },
+      "logo": "repo:brand/png/horizontal-black@2x.png"
     },
     "appleHeaders": [
       {
         "canvas": "16x9",
         "headline": {
-          "en-US": "Your terminal, from anywhere."
+          "en-US": "Your terminal,\nfrom anywhere."
         },
         "detail": {
           "en-US": "Agents / Terminals / End-to-end encrypted / Open source"
         },
         "altText": {
           "en-US": "Shellbell on an amber background. Your terminal, from anywhere. Agents, terminals, end-to-end encrypted, open source."
-        }
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png"
       },
       {
         "canvas": "21x9",
         "headline": {
-          "en-US": "Your terminal, from anywhere."
+          "en-US": "Your terminal,\nfrom anywhere."
         },
         "detail": {
           "en-US": "Agents / Terminals / End-to-end encrypted / Open source"
         },
         "altText": {
           "en-US": "Shellbell on an amber background. Your terminal, from anywhere. Agents, terminals, end-to-end encrypted, open source."
-        }
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png"
       }
     ],
     "playIcon": {
-      "from": "../../brand/android/play-store-512.png"
+      "from": "fastlane/metadata/android/en-US/images/icon.png"
     }
   },
   "console": {

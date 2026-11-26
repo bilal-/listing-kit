@@ -5,6 +5,7 @@ PLAN="$SCRIPTS/lib/plan.py"
 FIXTURES="$ROOT/tests/fixtures"
 T="$(mktemp -d)" || exit 1
 trap 'rm -rf "$T"' EXIT
+git init -q "$T" || exit 1
 mkdir -p "$T/.listing-kit"
 FILE="$T/.listing-kit/listing.json"
 export PYTHONPATH="$SCRIPTS/lib${PYTHONPATH:+:$PYTHONPATH}"
@@ -18,7 +19,17 @@ it "invalid JSON has a single TSV diagnostic and status 1"
 printf '{' > "$FILE"
 python3 "$PLAN" check "$T" > "$T/result"
 assert_eq 1 "$?"
-assert_contains "$(cat "$T/result")" $'ERROR\t.listing-kit/listing.json\t'
+python3 - "$T/result" <<'PYROW'
+import json
+from pathlib import Path
+import sys
+try:
+    json.loads("{")
+except ValueError as exc:
+    expected = "ERROR\t.listing-kit/listing.json\t%s\n" % exc
+    sys.exit(Path(sys.argv[1]).read_bytes() != expected.encode())
+PYROW
+assert_eq 0 "$?"
 
 it "the design example passes check with no warnings"
 cp "$FIXTURES/plan-example.json" "$FILE"
@@ -143,6 +154,9 @@ assert slot("play", "phone", [400,920]) == []
 assert slot("play", "ten-inch", [1080,1920]) == []
 assert slot("play", "xr", [1920,1200]) == []
 assert slot("play", "xr", [1200,1920]) == size
+# Isolate minSize from the aspect ratio and short-side constraints.
+specs.slot(rules, "play", "xr")["minSize"] = [1936, 1200]
+assert slot("play", "xr", [1920,1200]) == size
 assert slot("play", "chromebook", [1920,1080], upload="fastlane") == ["targets[0].upload"]
 PY
 then pass; else fail "slot checks failed"; fi
@@ -164,16 +178,17 @@ target = data["targets"][0]
 target_id = target["id"]
 def problems(*screens):
     data["screens"] = list(screens)
-    return [(level, path) for level, path, _ in plan.check(data, rules)]
-err = ("ERROR", "targets[0]")
-warn = ("WARN", "targets[0]")
+    return plan.check(data, rules)
+few = ("ERROR", "targets[0]", "panels require at least three applicable screens")
+half = ("ERROR", "targets[0]", "panels must be fewer than half of the applicable screens")
+warn = ("WARN", "targets[0]", "the first applicable screen is a panel")
 data["targets"] = [target]
-assert problems(panel) == [err, warn]
-assert problems(capture, panel) == [err]
+assert problems(panel) == [few, warn]
+assert problems(capture, panel) == [few]
 assert problems(panel, capture, second) == [warn]
 assert problems(capture, panel, second) == []
-assert problems(capture, panel, second, dict(panel, id="end")) == [err]
-assert problems(capture, panel, dict(second, **{"except":[target_id]})) == [err]
+assert problems(capture, panel, second, dict(panel, id="end")) == [half]
+assert problems(capture, panel, dict(second, **{"except":[target_id]})) == [few]
 for state in ("retired", "deferred"):
     target.update(state=state, reason="Unavailable")
     assert problems(panel) == []
@@ -201,9 +216,11 @@ import json
 from pathlib import Path
 import sys
 import plan
+import specs
 
 root = Path(sys.argv[1])
 data = plan.load(root)
+rules = specs.load(root)
 assert data == json.loads((root / plan.LISTING).read_text())
 phone, duo, play_phone, tablet = data["targets"]
 agents, layout, terminal, closing = data["screens"]
@@ -212,12 +229,12 @@ assert plan.targets(data, state="deferred") == [duo]
 assert plan.targets(data, state=None) == data["targets"]
 assert plan.screens_for(data, tablet["id"]) == [agents, terminal]
 assert plan.screens_for(data, duo["id"]) == [agents, layout, terminal, closing]
-assert plan.output_name(data, phone, closing) == "03_closing_iphone-medium.png"
-assert plan.output_name(data, tablet, terminal) == "02_terminal.png"
-assert plan.output_name(data, duo, layout) == "02_duo-layout_duo-outer.png"
+assert plan.output_name(data, phone, closing, rules) == "03_closing_iphone-medium.png"
+assert plan.output_name(data, tablet, terminal, rules) == "02_terminal.png"
+assert plan.output_name(data, duo, layout, rules) == "02_duo-layout_duo-outer.png"
 terminal["except"] = [phone["id"]]
 assert plan.screens_for(data, phone["id"]) == [agents, closing]
-assert plan.output_name(data, phone, closing) == "02_closing_iphone-medium.png"
+assert plan.output_name(data, phone, closing, rules) == "02_closing_iphone-medium.png"
 assert plan.flow_for(agents, tablet) == agents["flows"]["play-tablet"]
 assert plan.flow_for(agents, play_phone) == agents["flow"]
 assert plan.flow_for(closing, phone) is None
@@ -259,7 +276,7 @@ source = Path(sys.argv[2])
 old = json.loads((source / "listing.json").read_text())
 assets = json.loads((source / "asset-plan.json").read_text())["apple"]["en-US"]
 rules = specs.load()
-assert plan.check(data, rules) == []
+assert plan.check(data, rules, sys.argv[1]) == []
 assert [s["id"] for s in data["screens"]] == [s["id"] for s in old["screens"]]
 for s, before in zip(data["screens"], old["screens"]):
     for field in ("caption", "detail", "altText"):
@@ -276,21 +293,44 @@ for t in plan.targets(data, "apple"):
     assert len(plan.screens_for(data, t["id"])) == assets["screenshots"][label]
 graphics = data["graphics"]
 assert ["header-" + g["canvas"] + ".png" for g in graphics["appleHeaders"]] == assets["headers"]
-renderer = (source / "render-graphics.sh").read_text()
-for g in [graphics["playFeature"]] + graphics["appleHeaders"]:
-    assert g["headline"]["en-US"].replace("\n", " ") == "Your terminal, from anywhere."
-    assert g["detail"]["en-US"] in renderer
+feature, headers = graphics["playFeature"], graphics["appleHeaders"]
+for g in [feature] + headers:
+    assert g["headline"] == {"en-US": "Your terminal,\nfrom anywhere."}
+    assert g["palette"] == {"background": ["#F6BC4A", "#E79B19"], "ink": "#151719", "detail": "#493416"}
+    assert g["logo"] == "repo:brand/png/horizontal-black@2x.png"
+assert feature["detail"] == {"en-US": "Claude Code · Codex · Herdr · tmux · iTerm2"}
+assert feature["altText"] == {"en-US": old["featureGraphic"]["altText"]}
+for h in headers:
+    assert h["detail"] == {"en-US": "Agents / Terminals / End-to-end encrypted / Open source"}
+    assert h["altText"] == {"en-US": old["appleHeaders"]["altText"]}
+notes = {key: old[key] for key in ("capture", "manualConsoleFields", "releaseNotes", "sources")}
+assert data["app"]["demoEntry"] == notes["capture"].pop("demoMode")
+assert data["notes"] == notes
+assert graphics["playIcon"]["from"] == "fastlane/metadata/android/en-US/images/icon.png"
 PY
 then pass; else fail "ShellBell port differs from its sources"; fi
 
 it "outputs lists all 48 ShellBell screen paths, including the outer display and closing panel"
-OUT="$(python3 "$PLAN" outputs "$T")"
+python3 "$PLAN" outputs "$T" > "$T/outputs"
 assert_eq 0 "$?"
-assert_eq 48 "$(printf '%s\n' "$OUT" | awk 'END {print NR}')"
-assert_contains "$OUT" $'iphone\tagents\t.listing-kit/raw/iphone/agents.png\tfastlane/screenshots/en-US/01_agents_iphone.png'
-assert_contains "$OUT" $'iphone-duo\treading\t.listing-kit/raw/iphone-duo/reading.png\tfastlane/screenshots/en-US/07_reading_iphone-duo.png'
-assert_contains "$OUT" $'android-phone\tagents\t.listing-kit/raw/android-phone/agents.png\tfastlane/metadata/android/en-US/images/phoneScreenshots/01_agents.png'
-assert_contains "$OUT" $'android-tablet\tshellbell\t.listing-kit/raw/android-tablet/shellbell.png\tfastlane/metadata/android/en-US/images/tenInchScreenshots/08_shellbell.png'
+if python3 - "$T/outputs" <<'PYROWS'
+from pathlib import Path
+import sys
+rows = [line.split("\t") for line in Path(sys.argv[1]).read_text().splitlines()]
+expected = []
+for target, suffix, folder in (("iphone", "_iphone", ""), ("iphone-medium", "_iphone-medium", ""),
+                               ("iphone-duo", "_iphone-duo", ""), ("ipad", "_ipad13", ""),
+                               ("android-phone", "", "phoneScreenshots"),
+                               ("android-tablet", "", "tenInchScreenshots")):
+    directory = "fastlane/metadata/android/en-US/images/" + folder if folder else "fastlane/screenshots/en-US"
+    screens = "agents conversation terminal terminals answer direct reading shellbell".split()
+    for n, screen in enumerate(screens, 1):
+        expected.append([target, screen, ".listing-kit/raw/%s/%s.png" % (target, screen),
+                         "%s/%02d_%s%s.png" % (directory, n, screen, suffix)])
+assert rows == expected
+assert len({r[3].casefold() for r in rows}) == 48
+PYROWS
+then pass; else fail "ShellBell output manifest differs"; fi
 
 it "routing honors app-specific rules, upload overrides, active state and target locales"
 if python3 - "$T" <<'PY'
@@ -298,6 +338,7 @@ import json
 from pathlib import Path
 import sys
 import plan
+import specs
 
 root = Path(sys.argv[1])
 def write(path, data):
@@ -305,8 +346,9 @@ def write(path, data):
 slots = [{"id":"ipad-13", "suffix":"tablet-special", "upload":"console"}]
 write(root / ".listing-kit/specs.override.json", {"stores":{"apple":{"screenshots":{"slots":slots}}}})
 data = plan.load(root)
+rules = specs.load(root)
 ipad = plan.targets(data, "apple")[-1]
-assert plan.output_name(data, ipad, data["screens"][0]) == "01_agents_tablet-special.png"
+assert plan.output_name(data, ipad, data["screens"][0], rules) == "01_agents_tablet-special.png"
 data["locales"].append("de")
 ipad["locales"] = ["de"]
 phone, tablet = plan.targets(data, "play")
@@ -323,5 +365,8 @@ assert_contains "$OUT" "store-assets/play/en-US/screenshots/ten-inch/08_shellbel
 assert_contains "$OUT" "store-assets/play/de/screenshots/ten-inch/08_shellbell.png"
 assert_not_contains "$OUT" "phoneScreenshots"
 assert_contains "$OUT" "fastlane/screenshots/de/07_reading_iphone.png"
+
+it "adversarial plan and store-rule regressions"
+if python3 "$ROOT/tests/unit/plan_review.py"; then pass; else fail "regression cases failed"; fi
 
 summary
