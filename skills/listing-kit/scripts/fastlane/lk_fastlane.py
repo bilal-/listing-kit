@@ -345,7 +345,7 @@ def inventory(store, meta, shots, downloaded=False):
     localized_files = {r["stem"] + ".txt" for r in fields if r["scope"] == "locale"}
     if store.name == "apple":
         app_files.update(name for name in listing.DELIVER_APP_FILES if name.endswith(".txt"))
-        localized_files.update(listing.LOCALIZED_FILES)
+        localized_files = listing.localized_files(store.rules)
     for name in sorted(app_files):
         path = meta / name
         if path.is_file():
@@ -469,11 +469,15 @@ def working_inventory(store, require_outputs=False):
                        or k.split("/")[1] in locales | {"default"}}
         source.graphics = {k: p for k, p in source.graphics.items() if k.split("/")[1] in locales}
     if store.name == "apple":
-        legacy = apple_assets.load_plan(store.root)
+        legacy = apple_assets.load_plan(store.root, store.rules)
         if store.data:
             legacy = {loc: entry for loc, entry in legacy.items() if loc in locales}
-        source.shots = {k: p for k, p in source.shots.items() if not apple_assets.is_deferred(
-            p, legacy.get(p.parent.name, {}).get("deferredScreenshots", {}))}
+        for key, path in list(source.shots.items()):
+            deferred = legacy.get(path.parent.name, {}).get("deferredScreenshots")
+            if deferred:
+                slot = specs.apple_slot_for_file(store.rules, *imginfo.image_info(path)[:2], key)
+                if slot and slot["id"] in apple_assets.deferred_slots(store.rules, deferred):
+                    del source.shots[key]
     return source, legacy
 
 

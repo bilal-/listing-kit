@@ -64,7 +64,7 @@ Point your agent at a mobile repo and listing-kit will:
 7. **Assemble** copy, keywords, URLs, copyright, and a generated Play **feature graphic** into the fastlane layout — then **scan to guarantee no secret was committed**.
 8. **Validate & report** every asset/field against current store rules.
 
-Use the bundled `scripts/listing-kit` command from the skill directory for fastlane setup, pull, and publish. Publish previews the transfer. Each store's write gate stays off until its disposable-app test passes. [Commands and release checklist](skills/listing-kit/references/metadata/fastlane-layout.md#store-management)
+Use the bundled `bin/listing-kit` command from the skill directory for fastlane setup, pull, and publish. Publish previews the transfer. Each store's write gate stays off until its disposable-app test passes. [Commands and release checklist](skills/listing-kit/references/metadata/fastlane-layout.md#store-management)
 
 **Out of scope (v1):** positioning and pricing
 decisions (the agent drafts copy; you review and own it), app preview videos, A/B testing, non-mobile targets.

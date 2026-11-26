@@ -22,7 +22,7 @@ if mode == "lock":
     assert result.returncode == 1 and b"holds the lock" in result.stderr, result
 else:
     # Inject terminal input at the prompt without requiring a controlling TTY in CI.
-    sys.argv = [str(Path(tool).parent / "fastlane/lk_fastlane.py"), *args]
+    sys.argv = [str(Path(tool).resolve().parents[1] / "scripts/fastlane/lk_fastlane.py"), *args]
     if mode in ("resolve", "resolve-play"):
         sys.argv.extend(["--resolve", "play" if mode == "resolve-play" else "apple"])
         response = patch("builtins.input", return_value="yes")

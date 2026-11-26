@@ -34,7 +34,7 @@ if [ "$(uname -s)" = Darwin ]; then
   report 'xcrun simctl' 'install Xcode and select its developer directory' xcrun simctl help
 fi
 report adb 'install Android SDK Platform-Tools' command -v adb
-report fastlane 'gem install fastlane -v 2.242.0' command -v fastlane
+report 'fastlane (listing-kit fastlane setup|pull|publish)' 'gem install fastlane -v 2.242.0' command -v fastlane
 plan_ok() {
   [ -f "$root/.listing-kit/listing.json" ] && python3 "$scripts/lib/plan.py" check "$root"
 }

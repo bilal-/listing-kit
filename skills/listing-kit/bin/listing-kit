@@ -23,8 +23,8 @@ Usage: listing-kit <command> [arguments]
   hook install|status [app-root]          Install or check the review hook
   compose [args]                          Render planned store assets
   fastlane setup|pull|publish [args]      Configure or sync a store listing
-  pull [args]                             Pull a store listing
-  publish [args]                          Publish approved listing changes
+  pull [args]                             Alias for fastlane pull
+  publish [args]                          Alias for fastlane publish (preview while gated)
   doctor [app-root]                       Check tools, listing plan and hook
   version                                 Print kit version and store rules date
   ci init --provider github|gitlab --kit-ref REF [args] Generate listing CI jobs
@@ -86,7 +86,7 @@ case "$cmd" in
     if [ "$cmd" != fastlane ]; then set -- "$cmd" "$@"; fi
     case "${1:-}" in setup|pull|publish) ;; *) invalid ;; esac
     optional fastlane/lk_fastlane.py
-    exec python3 "$scripts/fastlane/lk_fastlane.py" "$@" ;;
+    exec python3 -IB "$scripts/fastlane/lk_fastlane.py" "$@" ;;
   doctor) [ "$#" -le 1 ] || invalid; exec bash "$scripts/doctor/doctor.sh" "${1:-.}" ;;
   version)
     date="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["verified"])' "$kit/specs/stores.json")"

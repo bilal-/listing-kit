@@ -7,7 +7,7 @@ description: Use when a user wants App Store / Google Play listing assets for a 
 
 **App-store presence, in your repo.** This is *not* "a screenshot tool." It produces a complete, version-controlled source of truth for what appears on the App Store and Google Play — screenshots, copy, keywords, URLs, graphics — stored in the repo in a fastlane-compatible layout, kept in sync with the running app.
 
-Use fastlane for automated store management. Run the bundled `scripts/listing-kit` command for setup, pull, and publish. Publish previews each store until its live-test gate is enabled. [Store management and hand uploads](references/metadata/fastlane-layout.md#store-management)
+Use fastlane for automated store management. Run the bundled `bin/listing-kit` command for setup, pull, and publish. Publish previews each store until its live-test gate is enabled. [Store management and hand uploads](references/metadata/fastlane-layout.md#store-management)
 
 ## When to use this
 

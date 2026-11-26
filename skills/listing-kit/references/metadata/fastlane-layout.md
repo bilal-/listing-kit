@@ -150,7 +150,7 @@ The committed tree is the source of truth **for non-secrets only**.
 
 ## Store management
 
-An editable App Store Connect version is required. On Play, upload the first build in Play Console. Run the skill's `scripts/listing-kit` executable from the app root, or pass `--app-root DIR`. Adding the skill's `scripts` directory to PATH makes the following commands available.
+An editable App Store Connect version is required. On Play, upload the first build in Play Console. Run the skill's `bin/listing-kit` executable from the app root, or pass `--app-root DIR`. Adding the skill's `bin` directory to PATH makes the following commands available.
 
 ```sh
 listing-kit fastlane setup --store apple --apple-api-key-path /private/keys/asc.json

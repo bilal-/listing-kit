@@ -19,7 +19,7 @@ Keep both credential files outside the checkout and outside synced project folde
 | Apple | `APP_STORE_CONNECT_API_KEY_PATH` | `fastlane.appleApiKeyPath` |
 | Play | `SUPPLY_JSON_KEY` | `fastlane.playJsonKeyPath` |
 
-The fields belong inside a JSON object named `fastlane`. Store only paths there. Add `.listing-kit/local.json` to the app's `.gitignore`. Check with `git check-ignore .listing-kit/local.json` and confirm that `git ls-files -- .listing-kit/local.json` prints nothing. Never put key material in the app repo, plan, launcher or shell history.
+The fields belong inside a JSON object named `fastlane`. Store only paths there. The environment variable overrides the saved path. An explicit `--apple-api-key-path` or `--play-json-key-path` on `listing-kit fastlane setup` takes precedence over both and saves the resolved path. Add `.listing-kit/local.json` to the app's `.gitignore`. Check with `git check-ignore .listing-kit/local.json` and confirm that `git ls-files -- .listing-kit/local.json` prints nothing. Never put key material in the app repo, plan, launcher or shell history.
 
 ## CI use
 

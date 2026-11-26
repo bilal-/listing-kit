@@ -13,7 +13,7 @@ unset APP_STORE_CONNECT_API_KEY_PATH SUPPLY_JSON_KEY LK_PUBLISH_UNVERIFIED LK_FA
 export LK_SUPPORTS_IPHONE=0
 app="$fixture/repo/mobile"
 remote="$fixture/remote"
-lk="$SCRIPTS/listing-kit"
+lk="$SKILL_DIR/bin/listing-kit"
 mkdir -p "$app" "$remote/apple/screenshots" "$remote/apple/metadata/en-US"
 git init -q "$fixture/repo"
 printf '%s\n' '{"key":"SECRET-stub-apple-material","issuer_id":"12345678-1234-1234-1234-123456789012"}' > "$fixture/apple.json"
@@ -190,7 +190,7 @@ mkdir -p "$shots/en-US" "$meta/en-US" "$app/.listing-kit/flows"
 echo keep > "$shots/en-US/01-hand.png"
 echo flow > "$app/.listing-kit/flows/open.yaml"
 cat > "$app/.listing-kit/listing.json" <<'JSON'
-{"format":2,"app":{"ios":"example.apple","android":"example.play"},"locales":["en-US"],"targets":[{"id":"phone","store":"apple","state":"active","slot":"iphone-di-medium","size":[1206,2622]}],"screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"}]}
+{"format":2,"app":{"ios":"example.apple","android":"example.play"},"platforms":{"supportsIpad":false},"locales":["en-US"],"targets":[{"id":"phone","store":"apple","state":"active","slot":"iphone-di-medium","size":[1206,2622]}],"screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"}]}
 JSON
 cp "$app/.listing-kit/listing.json" "$fixture/saved"
 cp "$meta/en-US/release_notes.txt" "$fixture/old-notes"
@@ -618,6 +618,23 @@ run_lk publish --yes
 [ "$rc" = 0 ] || echo "$out"
 assert_eq "$rc" 0
 assert_eq "$(cat "$fixture/sent")" "apple $name"
+
+it "publish requires iPad screenshots when the app declares iPad support"
+mv "$app/.listing-kit/listing.json" "$fixture/phone-plan.json"
+python3 - "$fixture/phone-plan.json" > "$app/.listing-kit/listing.json" <<'PYPLAN'
+import json, sys
+with open(sys.argv[1]) as source:
+    plan = json.load(source)
+plan["platforms"]["supportsIpad"] = True
+json.dump(plan, sys.stdout)
+PYPLAN
+: > "$fixture/sent"
+run_lk publish --yes
+assert_eq "$rc" 1
+assert_contains "$out" 'no iPad 13" screenshots'
+assert_eq "$(cat "$fixture/sent")" ""
+mv "$fixture/phone-plan.json" "$app/.listing-kit/listing.json"
+
 it "publish validates referenced flows before contacting the store"
 echo '-----BEGIN PRIVATE KEY-----' > "$app/.listing-kit/flows/open.yaml"
 n_before="$(wc -l < "$STUB_LOG")"
