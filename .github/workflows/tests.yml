@@ -25,4 +25,8 @@ jobs:
           fi
           echo 'LK_TEST_IM6=1' >> "$GITHUB_ENV"
       - name: Run test suite
+        # Ubuntu's chromium-browser package delegates to Snap. Exercise browser
+        # rendering on macOS and the browserless configuration on Linux.
+        env:
+          LK_BROWSER: ${{ runner.os == 'Linux' && '/dev/null' || '' }}
         run: bash tests/run.sh

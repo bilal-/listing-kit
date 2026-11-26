@@ -215,6 +215,6 @@ def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_
     return png, report
 
 
-def open_browser():
-    b = cdp.Browser()
+def open_browser(path=None):
+    b = cdp.Browser(path)
     return b, cdp.Renderer(b)

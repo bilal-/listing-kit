@@ -14,7 +14,7 @@ owns. A change that would restyle images whose own content did not change needs
 
 Usage: compose.py <app-root> [--target ID]... [--screen ID]... [--restyle] [--adopt] [--dry-run | --preview]
 Exit:  0 done; 1 a problem with an input or an image (details printed);
-       2 usage or an invalid plan; 3 no browser or ImageMagick for what is needed;
+       2 usage or an invalid plan; 3 all outputs are blocked by a missing browser, or ImageMagick is required;
        4 would restyle existing images (rerun with --restyle).
 """
 import argparse
@@ -296,6 +296,12 @@ def preview_page(jobs):
             + "".join(frames)).encode()
 
 
+def report_failures(failed):
+    for job in failed:
+        for problem in job.problems:
+            print("compose: %s: %s" % (job.rec["outputPath"], problem), file=sys.stderr)
+
+
 def compose_outputs(args, man, state):
     root = state.root
     jobs = [Job(root, rec) for rec in man["outputs"] if args.preview or
@@ -359,19 +365,28 @@ def compose_outputs(args, man, state):
         for job in restyled:
             print("  " + job.rec["outputPath"])
         return 4
-    needs_browser = bool(cached) or any(job.template for job in todo)
-    if not args.dry_run:
-        if needs_browser and not render.cdp.find_browser():
-            print("compose: framed screenshots need Chrome, Chromium, Edge or Brave.", file=sys.stderr)
-            return 3
-        if todo and not magick():
-            print("compose: ImageMagick is needed.", file=sys.stderr)
-            return 3
+    browser_path = None
+    failure_code = 1
+    if not args.dry_run and (cached or any(job.template for job in todo)):
+        browser_path = render.cdp.find_browser()
+        if not browser_path:
+            blocked = cached + [job for job in todo if job.template]
+            todo = [job for job in todo if not job.template]
+            unchanged -= len(cached)  # --restyle needs a browser to verify these
+            if not (todo or unchanged or failed):
+                failure_code = 3
+            for job in blocked:
+                job.problems.append("framed screenshots need Chrome, Chromium, Edge or Brave.")
+            failed.extend(blocked)
+    if todo and not args.dry_run and not magick():
+        report_failures(failed)
+        print("compose: ImageMagick is needed.", file=sys.stderr)
+        return 3
     written = held = 0
     browser = renderer = fingerprint = None
     try:
-        if needs_browser and not args.dry_run:
-            browser, renderer = render.open_browser()
+        if browser_path:
+            browser, renderer = render.open_browser(browser_path)
             fingerprint = {"os": sys.platform, "browser": browser.version_major()}
             for job in cached:
                 if state.outputs[job.rec["outputPath"]]["renderer"] != fingerprint:
@@ -409,7 +424,7 @@ def compose_outputs(args, man, state):
         if browser:
             browser.close()
 
-    if not args.dry_run:
+    if not args.dry_run and failure_code != 3:
         for rel in man.get("stale", []):
             if rel in planned:
                 continue
@@ -422,10 +437,8 @@ def compose_outputs(args, man, state):
         if len(versions()) > 1:
             print("note: this set contains images drawn by different browser versions.")
     print("compose: %d written, %d unchanged, %d held, %d failed" % (written, unchanged, held, len(failed)))
-    for job in failed:
-        for problem in job.problems:
-            print("compose: %s: %s" % (job.rec["outputPath"], problem), file=sys.stderr)
-    return 1 if failed else 0
+    report_failures(failed)
+    return failure_code if failed else 0
 
 
 def main(argv):

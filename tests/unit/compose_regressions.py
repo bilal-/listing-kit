@@ -145,6 +145,19 @@ class Composer(unittest.TestCase):
             self.assertEqual(self.run_cli(), 0, self.log)
         self.assertEqual(self.out.read_bytes(), png())
 
+    def test_raw_only_never_checks_for_a_browser(self):
+        with patch.object(cdp, "find_browser", side_effect=AssertionError("browser lookup")), \
+             patch.object(compose, "magick", return_value=True), patch.object(compose, "build", return_value=png()):
+            self.assertEqual(self.run_cli(), 0, self.log)
+            self.assertEqual(self.run_cli(), 0, self.log)
+
+    def test_missing_imagemagick_preserves_browser_diagnostics(self):
+        self.man["outputs"].append(dict(self.rec, styleMode="framed", outputPath="shots/b.png"))
+        with patch.dict(os.environ, PATH=str(self.root), LK_BROWSER=str(self.root / "missing")):
+            self.assertEqual(self.run_cli(), 3, self.log)
+        self.assertIn("shots/b.png: framed screenshots need Chrome, Chromium, Edge or Brave.", self.log)
+        self.assertIn("ImageMagick is needed.", self.log)
+
     def test_09_mixed_browser_versions_only_emit_one_note(self):
         self.rec.update(styleMode="framed", storeCode="en-US")
         self.man["outputs"].append(dict(self.rec, targetId="b", outputPath="shots/b.png"))
@@ -252,7 +265,7 @@ class ChildTargets(unittest.TestCase):
         self.assertTrue(any(m == "Target.closeTarget" and p["targetId"] == "worker" for m, _, p in pipe.calls))
 
 
-@unittest.skipUnless(cdp.find_browser(), "local Chromium-family browser required")
+@unittest.skipUnless(cdp.find_browser(), "no browser")
 class Layout(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -347,4 +360,7 @@ class Layout(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    result = unittest.main(exit=False).result
+    for case, reason in result.skipped:
+        print(f"  skipped: {reason} ({case.id()})")
+    sys.exit(0 if result.wasSuccessful() else 1)

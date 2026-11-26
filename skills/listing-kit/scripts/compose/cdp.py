@@ -41,7 +41,7 @@ class BrowserError(Exception):
 
 def find_browser():
     env = os.environ.get("LK_BROWSER")
-    for cand in ([env] if env else []) + CANDIDATES:
+    for cand in ([env] if env else CANDIDATES):
         path = cand if os.path.isabs(cand) else shutil.which(cand)
         if path and os.access(path, os.X_OK):
             return path

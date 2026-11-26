@@ -8,6 +8,7 @@ if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; R=$'\033[31m'; Z=$'\033[0m'; else
 . tests/helpers.sh
 total_pass=0
 total_fail=0
+total_skip=0
 files_errored=0
 file_count=0
 
@@ -18,6 +19,8 @@ for f in $(find tests -name '*.test.sh' | sort); do
   echo "$out" | grep -v '^##SUMMARY' || true
 
   s="$(echo "$out" | grep '^##SUMMARY' | tail -1)"
+  sk="$(printf '%s\n' "$out" | grep -c '^  skipped: ' || true)"
+  total_skip=$((total_skip + sk))
   if [ -n "$s" ]; then
     p="$(echo "$s" | sed -E 's/.*pass=([0-9]+).*/\1/')"
     fl="$(echo "$s" | sed -E 's/.*fail=([0-9]+).*/\1/')"
@@ -34,7 +37,7 @@ for f in $(find tests -name '*.test.sh' | sort); do
 done
 
 printf '\n%s── Summary ──%s\n' "$B" "$Z"
-printf '%d passed, %d failed across %d test files\n' "$total_pass" "$total_fail" "$file_count"
+printf '%d passed, %d failed, %d skipped across %d test files\n' "$total_pass" "$total_fail" "$total_skip" "$file_count"
 
 if [ "$total_fail" -ne 0 ] || [ "$files_errored" -ne 0 ]; then
   printf '%sFAIL%s\n' "$R" "$Z"

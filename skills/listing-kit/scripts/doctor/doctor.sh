@@ -21,7 +21,8 @@ report() {
 }
 browser() {
   local candidate
-  for candidate in "${LK_BROWSER:-}" google-chrome google-chrome-stable chromium chromium-browser microsoft-edge brave-browser; do
+  if [ -n "${LK_BROWSER:-}" ]; then command -v "$LK_BROWSER"; return; fi
+  for candidate in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge brave-browser; do
     [ -n "$candidate" ] && command -v "$candidate" && return
   done
   if [ "$(uname -s)" = Darwin ]; then

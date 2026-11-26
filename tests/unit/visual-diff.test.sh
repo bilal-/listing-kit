@@ -65,8 +65,11 @@ remove_fixture "$P" "$C"
 it "an ImageMagick 6 install without identify falls back to byte-compare"
 new_tempdir P; new_tempdir C; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
 new_stubdir; stub compare
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
+# Expose only the tools the byte-compare branch uses, even on a host with IM6.
+for tool in mktemp find sort cmp rm; do ln -s "$(command -v "$tool")" "$STUB_BIN/$tool"; done
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"
+assert_contains "$OUT" "1 unchanged"
 remove_fixture "$P" "$C"
 
 it "reports an ImageMagick identify decode error as a comparison failure, not px differ or resized"

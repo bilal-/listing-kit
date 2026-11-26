@@ -8,6 +8,15 @@ new_tempdir T
 have_browser() { python3 -c "import sys; sys.path.insert(0, '$SCRIPTS/compose'); import cdp; sys.exit(0 if cdp.find_browser() else 1)"; }
 have_magick() { command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }
 
+# A nonexistent explicit browser also rules out installed macOS app bundles.
+mkdir "$T/bin"
+for tool in python3 magick convert; do
+  if path="$(command -v "$tool")"; then ln -s "$path" "$T/bin/$tool"; fi
+done
+no_browser_compose() {
+  PATH="$T/bin" LK_BROWSER="$T/bin/missing-chrome" python3 "$COMPOSE" "$@"
+}
+
 # A small app: one iPhone target and one Play phone target, two captured screens and a
 # closing panel, the bundled font, no logo. Raw captures are fixture PNGs at device size.
 make_app() { # dir [mode]
@@ -54,7 +63,7 @@ assert_contains "$OUT" "no .listing-kit/listing.json"
 
 it "a missing raw capture is reported per output and nothing is written for it"
 make_app "$T/missing" raw
-OUT="$(python3 "$COMPOSE" "$T/missing" 2>&1)"; RC=$?
+OUT="$(no_browser_compose "$T/missing" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1"
 assert_contains "$OUT" "no raw capture at .listing-kit/raw/iphone/en-US/home.png"
 assert_eq "" "$(files_in "$T/missing" | tr ' ' '\n' | grep Screenshots || true)" "no screenshots written"
@@ -118,8 +127,12 @@ if have_magick; then
 
 it "raw mode copies captures to the store paths, numbered in screen order, and records what it owns"
 make_app "$T/raw" raw; raws "$T/raw" 1206 2622
-OUT="$(python3 "$COMPOSE" "$T/raw" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "exit 0: $OUT"
+OUT="$(no_browser_compose "$T/raw" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "mixed plan exits 1: $OUT"
+reason="framed screenshots need Chrome, Chromium, Edge or Brave."
+graphic="fastlane/metadata/android/en-US/images/featureGraphic.png"
+assert_contains "$OUT" "compose: $graphic: $reason"
+assert_contains "$OUT" "6 written, 0 unchanged, 0 held, 1 failed"
 assert_contains "$OUT" "wrote fastlane/screenshots/en-US/01_home_iphone-medium.png"
 A="$T/raw/fastlane/screenshots/en-US"; P="$T/raw/fastlane/metadata/android/en-US/images/phoneScreenshots"
 assert_eq 3 "$(ls "$A" | wc -l | tr -d ' ')" "three Apple screenshots"
@@ -128,6 +141,17 @@ assert_eq "1206 2622 8 2" "$(size_of "$A"/01_home*.png)" "Apple file is the targ
 assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" '"format": 1'
 assert_contains "$(cat "$T/raw/.listing-kit/outputs.json")" 'phoneScreenshots/02_detail.png'
 assert_file "$T/raw/.listing-kit/compose.lock.json"
+assert_not_contains "$(cat "$T/raw/.listing-kit/outputs.json")" "$graphic"
+
+it "without a browser each framed screenshot and graphic fails with its output path"
+make_app "$T/browser-only"; raws "$T/browser-only" 1206 2622
+OUT="$(no_browser_compose "$T/browser-only" 2>&1)"; RC=$?
+assert_eq 3 "$RC"
+for file in "$A"/*.png "$P"/*.png; do
+  assert_contains "$OUT" "compose: ${file#"$T/raw/"}: $reason"
+done
+assert_contains "$OUT" "compose: $graphic: $reason"
+assert_contains "$OUT" "0 written, 0 unchanged, 0 held, 7 failed"
 
 it "raw mode refuses a capture that is not the target size"
 make_app "$T/rawbad" raw; raws "$T/rawbad" 1320 2868
@@ -136,7 +160,7 @@ assert_eq 1 "$RC" "exit 1"
 assert_contains "$OUT" "raw mode needs a 1206x2622 capture"
 
 it "a second run writes nothing"
-OUT="$(python3 "$COMPOSE" "$T/raw" --target iphone --target phone 2>&1)"
+OUT="$(no_browser_compose "$T/raw" --target iphone --target phone 2>&1)"
 assert_contains "$OUT" "0 written"
 
 it "a file the plan no longer produces is moved to held/, and only files the kit wrote are ever moved"
@@ -146,7 +170,7 @@ import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["screens"] = d["screens"][:2]
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/raw" 2>&1)"
+OUT="$(no_browser_compose "$T/raw" 2>&1)"
 assert_contains "$OUT" "moved out of the upload tree"
 assert_eq 2 "$(ls "$P" | wc -l | tr -d ' ')" "Play folder has two files left"
 assert_file "$T/raw/.listing-kit/held/fastlane/metadata/android/en-US/images/phoneScreenshots/03_shop.png"
@@ -154,84 +178,100 @@ assert_file "$T/raw/fastlane/screenshots/en-US/99_my_own.png.txt" "the user's ow
 
 fi
 
-if have_browser && have_magick; then
+render_skip=
+if ! have_browser; then render_skip="no browser"
+elif ! have_magick; then render_skip="no ImageMagick"
+fi
 
-it "framed mode renders every output at the exact store size, as RGB without alpha"
-make_app "$T/framed"; raws "$T/framed" 1206 2622 1080 2400
-OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "exit 0: $OUT"
-assert_eq "1206 2622 8 2" "$(size_of "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")" "iPhone"
-assert_eq "1080 1920 8 2" "$(size_of "$T/framed/fastlane/metadata/android/en-US/images/phoneScreenshots/02_detail.png")" "Play phone"
-assert_eq "1024 500 8 2" "$(size_of "$T/framed/fastlane/metadata/android/en-US/images/featureGraphic.png")" "feature graphic"
+framed_case() {
+  it "$1"
+  if [ -n "$render_skip" ]; then skip "$render_skip"; return 1; fi
+  return 0
+}
 
-it "the framed output is not the raw capture"
-if cmp -s "$T/framed/.listing-kit/raw/iphone/en-US/home.png" "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png"; then fail "output equals raw"; else pass "composed"; fi
+if framed_case "framed mode renders every output at the exact store size, as RGB without alpha"; then
+  make_app "$T/framed"; raws "$T/framed" 1206 2622 1080 2400
+  OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "exit 0: $OUT"
+  assert_eq "1206 2622 8 2" "$(size_of "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")" "iPhone"
+  assert_eq "1080 1920 8 2" "$(size_of "$T/framed/fastlane/metadata/android/en-US/images/phoneScreenshots/02_detail.png")" "Play phone"
+  assert_eq "1024 500 8 2" "$(size_of "$T/framed/fastlane/metadata/android/en-US/images/featureGraphic.png")" "feature graphic"
+fi
 
-it "editing one caption rewrites only that screen's files"
-BEFORE="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
-python3 - "$T/framed" <<'PY'
+if framed_case "the framed output is not the raw capture"; then
+  if cmp -s "$T/framed/.listing-kit/raw/iphone/en-US/home.png" "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png"; then fail "output equals raw"; else pass "composed"; fi
+fi
+
+if framed_case "editing one caption rewrites only that screen's files"; then
+  BEFORE="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
+  python3 - "$T/framed" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["screens"][1]["caption"]["en-US"] = "Cook with confidence"
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"
-assert_contains "$OUT" "2 written, 5 unchanged"
-AFTER="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
-assert_eq 2 "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | grep -c '^>')" "exactly two files changed"
+  OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"
+  assert_contains "$OUT" "2 written, 5 unchanged"
+  AFTER="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
+  assert_eq 2 "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | grep -c '^>')" "exactly two files changed"
+fi
 
-it "a style change is refused without --restyle and changes nothing"
-python3 - "$T/framed" <<'PY'
+if framed_case "a style change is refused without --restyle and changes nothing"; then
+  python3 - "$T/framed" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["style"]["palette"]["ink"] = "#101216"
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
-assert_eq 4 "$RC" "exit 4"
-assert_contains "$OUT" "Rerun with --restyle"
-NOW="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
-assert_eq "$AFTER" "$NOW" "nothing rewritten"
-OUT="$(python3 "$COMPOSE" "$T/framed" --restyle 2>&1)"; RC=$?
-assert_eq 0 "$RC" "--restyle proceeds"
-assert_contains "$OUT" "7 written"
+  OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
+  assert_eq 4 "$RC" "exit 4"
+  assert_contains "$OUT" "Rerun with --restyle"
+  NOW="$(cd "$T/framed" && shasum fastlane/screenshots/en-US/*.png fastlane/metadata/android/en-US/images/*/*.png fastlane/metadata/android/en-US/images/*.png)"
+  assert_eq "$AFTER" "$NOW" "nothing rewritten"
+  OUT="$(python3 "$COMPOSE" "$T/framed" --restyle 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "--restyle proceeds"
+  assert_contains "$OUT" "7 written"
+fi
 
-it "a caption that does not fit fails that image, names it, and leaves the previous file in place"
-KEEP="$(shasum "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")"
-python3 - "$T/framed" <<'PY'
+if framed_case "a caption that does not fit fails that image, names it, and leaves the previous file in place"; then
+  KEEP="$(shasum "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")"
+  python3 - "$T/framed" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p))
 d["screens"][0]["caption"]["en-US"] = "This caption is much too long to fit on the canvas at this size no matter what"
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
-assert_eq 1 "$RC" "exit 1"
-assert_contains "$OUT" "01_home_iphone-medium.png: text takes"
-assert_eq "$KEEP" "$(shasum "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")" "previous image kept"
+  OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "exit 1"
+  assert_contains "$OUT" "01_home_iphone-medium.png: text takes"
+  assert_eq "$KEEP" "$(shasum "$T/framed/fastlane/screenshots/en-US/01_home_iphone-medium.png")" "previous image kept"
+fi
 
-it "a character the fonts cannot draw fails with the character named"
-python3 - "$T/framed" <<'PY'
+if framed_case "a character the fonts cannot draw fails with the character named"; then
+  python3 - "$T/framed" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["screens"][0]["caption"]["en-US"] = "すべてのレシピ"
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
-assert_eq 1 "$RC" "exit 1"
-assert_contains "$OUT" "no headline font has"
-assert_contains "$OUT" "U+3059"
+  OUT="$(python3 "$COMPOSE" "$T/framed" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "exit 1"
+  assert_contains "$OUT" "no headline font has"
+  assert_contains "$OUT" "U+3059"
+fi
 
-it "low contrast between text and background fails with both the ratio and the need"
-make_app "$T/contrast"; raws "$T/contrast" 1206 2622 1080 2400
-python3 - "$T/contrast" <<'PY'
+if framed_case "low contrast between text and background fails with both the ratio and the need"; then
+  make_app "$T/contrast"; raws "$T/contrast" 1206 2622 1080 2400
+  python3 - "$T/contrast" <<'PY'
 import json, sys
 p = sys.argv[1] + "/.listing-kit/listing.json"; d = json.load(open(p)); d["style"]["palette"]["detail"] = "#E8A52A"
 json.dump(d, open(p, "w"), indent=1)
 PY
-OUT="$(python3 "$COMPOSE" "$T/contrast" --target iphone --screen home 2>&1)"; RC=$?
-assert_eq 1 "$RC" "exit 1"
-assert_contains "$OUT" "contrast"
-assert_contains "$OUT" "needs 4.5:1"
+  OUT="$(python3 "$COMPOSE" "$T/contrast" --target iphone --screen home 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "exit 1"
+  assert_contains "$OUT" "contrast"
+  assert_contains "$OUT" "needs 4.5:1"
+fi
 
-it "the browser serves nothing outside the allow-list: local files, loopback, the network and workers are refused"
-OUT="$(cd "$SCRIPTS/compose" && python3 - <<'PY'
+if framed_case "the browser serves nothing outside the allow-list: local files, loopback, the network and workers are refused"; then
+  OUT="$(cd "$SCRIPTS/compose" && python3 - <<'PY'
 import cdp
 b = cdp.Browser(); r = cdp.Renderer(b)
 page = b'''<!doctype html><body><style>body{background-image:url(file:///etc/hosts),url(http://127.0.0.1:9/x.png),url(https://example.com/a.png)}</style>
@@ -253,17 +293,13 @@ try:
 finally:
     b.close()
 PY
-)"
-assert_contains "$OUT" "127.0.0.1:9"
-assert_contains "$OUT" "example.com"
-assert_contains "$OUT" "example.net"
-assert_contains "$OUT" "worker request blocked"
-assert_contains "$OUT" "png True"
-case "$OUT" in "frame-text 0 "*|"frame-text -1 "*) pass "the local file frame is empty";; *) fail "local file content reached the page: $OUT";; esac
-
-else
-  it "framed-mode tests need a Chromium-family browser and ImageMagick"
-  pass "skipped: not installed here"
+  )"
+  assert_contains "$OUT" "127.0.0.1:9"
+  assert_contains "$OUT" "example.com"
+  assert_contains "$OUT" "example.net"
+  assert_contains "$OUT" "worker request blocked"
+  assert_contains "$OUT" "png True"
+  case "$OUT" in "frame-text 0 "*|"frame-text -1 "*) pass "the local file frame is empty";; *) fail "local file content reached the page: $OUT";; esac
 fi
 
 it "composer regression cases"
