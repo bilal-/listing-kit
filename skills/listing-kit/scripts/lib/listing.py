@@ -8,11 +8,13 @@ of which may not exist yet when a locale only has screenshots).
 """
 import os
 import sys
+from pathlib import Path
 
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import specs
+import plan
 from imginfo import is_image
 
 # Recognized deliver app-level metadata files directly under fastlane/metadata/.
@@ -25,6 +27,12 @@ DELIVER_APP_FILES = {
     "age_rating_declaration.json",
     "apple_tv_privacy_policy.txt",
 }
+
+
+def paths(root):
+    """Return the same store directories as the plan, rooted at the supplied app."""
+    return {store: {key: Path(root) / value for key, value in tree.items()}
+            for store, tree in plan.listing_trees(root).items()}
 
 
 def localized_files(rules):
@@ -59,20 +67,17 @@ def screenshot_folders(rules):
     return sorted({"iMessage"} | {s["folder"] for s in specs.slots(rules, "apple") if s.get("folder")})
 
 
-def apple_screenshot_dirs(fl, locale, rules):
-    base = os.path.join(fl, "screenshots")
+def apple_screenshot_dirs(base, locale, rules):
     yield "", os.path.join(base, locale)
     for platform in screenshot_folders(rules):
         yield platform, os.path.join(base, platform, locale)
         yield platform, os.path.join(base, locale, platform)
 
 
-def apple_locales(fl, rules=None):
+def apple_locales(tree, rules):
     """Include known locales and directories containing localized deliver assets."""
-    rules = rules if rules is not None else specs.load(os.path.dirname(fl))
     apple = rules["stores"]["apple"]
-    meta = os.path.join(fl, "metadata")
-    shots = os.path.join(fl, "screenshots")
+    meta, shots = tree["metadata"], tree["screenshots"]
     known = set(apple["locales"])
     localized = localized_files(rules)
     names = {n for n in _subdirs(meta) if n not in apple.get("nonLocaleFolders", ())
@@ -82,30 +87,26 @@ def apple_locales(fl, rules=None):
     for platform in folders:
         candidates.update(_subdirs(os.path.join(shots, platform)))
     names.update(n for n in candidates if n in known or
-                 any(images(directory) for _, directory in apple_screenshot_dirs(fl, n, rules)))
+                 any(images(directory) for _, directory in apple_screenshot_dirs(shots, n, rules)))
     return [os.path.join(meta, n) for n in sorted(names)]
 
 
-def apple_default(fl, rules=None):
+def apple_default(meta, rules):
     """metadata/default (deliver's fallback values) if present, else None."""
-    rules = rules if rules is not None else specs.load(os.path.dirname(fl))
-    d = os.path.join(fl, "metadata", "default")
+    d = os.path.join(meta, "default")
     return d if _has_files(d, localized_files(rules)) else None
 
 
-def has_apple_app_metadata(fl, rules=None):
+def has_apple_app_metadata(meta, rules):
     """True if fastlane/metadata holds recognized deliver files at app level or in its special folders."""
-    meta = os.path.join(fl, "metadata")
-    rules = rules if rules is not None else specs.load(os.path.dirname(fl))
     files = DELIVER_APP_FILES | {f["stem"] + ".txt" for f in specs.fields(rules, "apple", "app")}
-    return bool(apple_default(fl, rules)) or _has_files(meta, files) or any(
+    return bool(apple_default(meta, rules)) or _has_files(meta, files) or any(
         _has_files(os.path.join(meta, folder), names) for folder, names in SPECIAL_FILES.items()
     )
 
 
-def play_locales(fl):
-    a = os.path.join(fl, "metadata", "android")
-    return [os.path.join(a, n) for n in _subdirs(a)]
+def play_locales(metadata):
+    return [os.path.join(metadata, n) for n in _subdirs(metadata)]
 
 
 def images(d):
@@ -120,5 +121,13 @@ def images(d):
 
 if __name__ == "__main__":
     kind, fl = sys.argv[1], sys.argv[2]
-    for loc in {"apple-locales": apple_locales, "play-locales": play_locales}[kind](fl):
+    tree = Path(fl)
+    if kind == "apple-locales":
+        locales = apple_locales({"metadata": tree / "metadata", "screenshots": tree / "screenshots"},
+                                specs.load(tree.parent))
+    elif kind == "play-locales":
+        locales = play_locales(tree / "metadata/android")
+    else:
+        sys.exit("expected apple-locales or play-locales")
+    for loc in locales:
         print(loc)

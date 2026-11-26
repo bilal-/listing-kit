@@ -26,7 +26,8 @@ def collect(root, as_of, ios_sdk, verbose=False):
     req.verbose = verbose
     for error in req.errors:
         yield "FAIL", error
-    fl = root / "fastlane"
+    trees = listing.paths(root)
+    apple_tree, play_tree = trees["apple"], trees["play"]
     display = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root))
 
     def copy(store, directory, fallback=None):
@@ -35,26 +36,26 @@ def collect(root, as_of, ios_sdk, verbose=False):
             if verbose or row["required"] or row["value"] is not None or row.get("error") or row["reason"].startswith("required from"):
                 yield fields.check(row)
 
-    apple = apple_assets.has_apple_listing(root, rules)
-    play = (fl / "metadata/android").is_dir()
+    apple = apple_assets.has_apple_listing(root, rules, tree=apple_tree)
+    play = play_tree["metadata"].is_dir()
     if apple:
         yield "NOTE", "== Apple App Store =="
         if not verbose:
             yield "NOTE", "  NOTE: Use --verbose for optional fields and platform evidence."
-        locales = list(map(Path, apple_assets.apple_locales(root, rules)))
-        fallback = listing.apple_default(fl, rules)
+        locales = list(map(Path, apple_assets.apple_locales(root, rules, tree=apple_tree)))
+        fallback = listing.apple_default(apple_tree["metadata"], rules)
         if not locales and fallback:
             locales = [Path(fallback)]
         if not locales:
-            yield "FAIL", "no fastlane/metadata/<locale>/ directory"
+            yield "FAIL", f"no {apple_tree['metadata']}/<locale>/ directory"
         # Deliver can reuse the primary screenshots for a metadata-only localization.
         try:
             targets = apple_assets.load_plan(root, rules)
         except (ValueError, OSError):
             targets = {}  # apple_assets.validate reports this plan error.
         capture_locales = {loc.name for loc in locales
-                           if any(Path(d).is_dir() for _, d in listing.apple_screenshot_dirs(fl, loc.name, rules))
-                           or (root / "store-assets/apple" / loc.name / "screenshots").is_dir()}
+                           if any(Path(d).is_dir() for _, d in listing.apple_screenshot_dirs(apple_tree["screenshots"], loc.name, rules))
+                           or (apple_tree["storeAssets"] / loc.name / "screenshots").is_dir()}
         for locale in locales:
             yield "NOTE", "  locale " + locale.name + ":"
             yield from copy("apple", locale, fallback)
@@ -62,10 +63,10 @@ def collect(root, as_of, ios_sdk, verbose=False):
                 continue
             yield "NOTE", "  screenshots " + locale.name + ":"
             deferred = apple_assets.deferred_slots(rules, targets.get(locale.name, {}).get("deferredScreenshots", {}))
-            yield from rules_check.apple_shots(root, locale.name, rules, req, deferred)
-        yield from copy("apple-app", fl / "metadata")
+            yield from rules_check.apple_shots(root, locale.name, rules, req, deferred, apple_tree)
+        yield from copy("apple-app", apple_tree["metadata"])
         required = {s["label"] for s in specs.slots(rules, "apple") if req.evaluate(s["required"])[0] == "required"}
-        yield from apple_assets.validate(root, required, rules, req)
+        yield from apple_assets.validate(root, required, rules, req, apple_tree)
         if not (root / ".listing-kit/asset-plan.json").is_file():
             yield "WARN", "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"
 
@@ -73,14 +74,14 @@ def collect(root, as_of, ios_sdk, verbose=False):
         yield "NOTE", "== Google Play =="
         if not verbose:
             yield "NOTE", "  NOTE: Use --verbose for optional fields and platform evidence."
-        locales = list(map(Path, listing.play_locales(fl)))
+        locales = list(map(Path, listing.play_locales(play_tree["metadata"])))
         if not locales:
-            yield "FAIL", "fastlane/metadata/android has no locale folders"
+            yield "FAIL", f"{play_tree['metadata']} has no locale folders"
         for locale in locales:
             yield "NOTE", "  locale " + locale.name + ":"
             yield from copy("play", locale)
             directory = locale / "images"
-            yield from rules_check.play_shots(root, locale.name, rules, req)
+            yield from rules_check.play_shots(root, locale.name, rules, req, play_tree)
             for graphic in rules["stores"]["play"]["graphics"]:
                 yield from rules_check.play_graphic(directory, graphic, req)
     if not apple and not play:

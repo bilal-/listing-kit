@@ -467,7 +467,7 @@ SHIM="$SHIM_ROOT/scripts"
 mkdir -p "$SHIM"
 cp -R "$SKILL_DIR/specs" "$SHIM_ROOT/"
 cp -R "$SCRIPTS/validate" "$SCRIPTS/lib" "$SHIM/"
-printf '\ndef apple_locales(root, rules=None, plan=None): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
+printf '\ndef apple_locales(*args, **kwargs): raise RuntimeError("apple_assets.py failed")\n' >> "$SHIM/lib/apple_assets.py"
 apple_only
 OUT="$(bash "$SHIM/validate/validate-listing.sh" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "apple_assets.py --locales failure exits 1"

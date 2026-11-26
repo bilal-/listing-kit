@@ -16,9 +16,10 @@ import sys
 import unicodedata
 
 if __package__:
-    from . import json_input, specs, template_values
+    from . import json_input, layout, specs, template_values
 else:
     import json_input
+    import layout
     import specs
     import template_values
 
@@ -130,12 +131,13 @@ def _style(base, *layers):
     return result
 
 
-def _trees(data):
+def _trees(data, app_root):
+    defaults = layout.fastlane_dirs(app_root)
     trees = data.get("trees", {})
     result = {}
     for store in ("apple", "play"):
         config = trees.get(store, {})
-        fastlane = Path(config.get("fastlaneDir", "fastlane"))
+        fastlane = Path(config.get("fastlaneDir", defaults[store]))
         metadata = Path(config.get("metadata", fastlane / ("metadata" if store == "apple" else "metadata/android")))
         result[store] = dict(fastlaneDir=fastlane, metadata=metadata,
                              storeAssets=Path(trees.get("storeAssets", "store-assets")) / store,
@@ -667,7 +669,7 @@ class _Checker:
                                **self.render_fields(graphic, f"graphics.{store}.{name}", loc, style, rule))
 
     def destinations(self, data):
-        trees = _trees(data)
+        trees = _trees(data, self.app_root)
         rows = list(self.output_records(data, trees))
         planned = [(j["rawPath"], j["targetId"] + "/" + j["screenId"]) for j in self.captures.values()]
         for r in rows:
@@ -849,6 +851,8 @@ def _print(message, stream):
 def _read(app_root, purpose=None, capture_filter=None):
     try:
         root = Path(app_root).resolve()
+        if not (root / LISTING).exists():
+            layout.project(root)
         with _destination(root, LISTING).open(encoding="utf-8") as f:
             data = json_input.read(f)
         rules = specs.load(root)
@@ -862,6 +866,27 @@ def _read(app_root, purpose=None, capture_filter=None):
 def load(app_root):
     """Return the validated plan. Raise FileNotFoundError or PlanError on failure."""
     return _read(app_root)[0]
+
+
+def listing_trees(app_root):
+    """Resolve app-relative input directories for a planned or manual listing."""
+    root = Path(app_root).resolve()
+    if (root / LISTING).exists():
+        trees = load_manifest(root)["trees"]
+        return {store: {key: Path(path) for key, path in tree.items()} for store, tree in trees.items()}
+    return _trees({}, root)
+
+
+def listing_roots(root):
+    """Minimal non-overlapping roots for private-file filtering and secret scans."""
+    roots = {Path(".listing-kit")}
+    for tree in listing_trees(root).values():
+        roots.update((tree["fastlaneDir"], tree["metadata"], tree["screenshots"], tree["storeAssets"].parent))
+    directories = sorted(p for p in roots if roots.isdisjoint(p.parents))
+    base = Path(root).resolve()
+    for directory in directories:
+        _inside(base, base / directory)
+    return directories
 
 
 def load_manifest(app_root, purpose=None, capture_filter=None):

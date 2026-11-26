@@ -272,6 +272,11 @@ def check_store_credentials(repo):
 
 
 def main(paths):
+    if paths[:1] == ["--listing"] and len(paths) == 2:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from plan import listing_roots
+        root = Path(paths[1])
+        paths = [root / tree for tree in listing_roots(root)]
     if paths[:1] == ["--store-credentials"] and len(paths) == 2:
         try:
             check_store_credentials(Path(paths[1]))

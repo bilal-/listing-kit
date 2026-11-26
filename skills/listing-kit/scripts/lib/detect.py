@@ -11,6 +11,7 @@ from xml.parsers.expat import ExpatError
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layout
 import plan
 import specs
 
@@ -278,6 +279,13 @@ class Requirements:
 
 
 if __name__ == "__main__":
-    root = Path(sys.argv[1])
+    root = Path(sys.argv[1]).resolve()
+    try:
+        kind, stores = layout.project(root)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print("stack", kind, sep="\t")
+    print("stores", " ".join(stores), sep="\t")
+    print("appRoot", root, sep="\t")
     for name, (value, source) in resolve(root, specs.load(root)).items():
         print(name, word(value), source, sep="\t")

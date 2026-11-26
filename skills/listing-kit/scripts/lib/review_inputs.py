@@ -8,17 +8,16 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from plan import PlanError, listing_roots
 from project_files import project_files
 from secret_scan import credential_file, file_secret, ignored_private_files, private_local, sensitive_name, tracked
 
-TREES = ("fastlane", "store-assets", ".listing-kit")
 
-
-def exclusions(root):
-    ignored = ignored_private_files(root, *TREES)
+def exclusions(root, trees):
+    ignored = ignored_private_files(root, *trees)
     unsafe = set()
     passwords = set()
-    for tree in TREES:
+    for tree in trees:
         if (root / tree).is_symlink():
             continue
         for directory, dirs, files in os.walk(root / tree):
@@ -33,7 +32,7 @@ def exclusions(root):
                     source = root / path
                     resolved = source.resolve()
                     if (source.is_file() and root in resolved.parents
-                            and resolved.relative_to(root).parts[0] in TREES and file_secret(source)):
+                            and any(root / t in resolved.parents for t in trees) and file_secret(source)):
                         passwords.add(path)
                 elif private_local(path):
                     if tracked(root / path):
@@ -52,7 +51,12 @@ def link_file(source, dest):
 
 
 def run(script, root, args):
-    ignored, unsafe, passwords = exclusions(root)
+    trees = listing_roots(root)
+    if Path(script).name == "build-review.sh" and not any(
+            (root / t).is_dir() for t in trees if t != Path(".listing-kit")):
+        print(f"No fastlane/ tree under: {root} (run Assemble first).", file=sys.stderr)
+        return 2
+    ignored, unsafe, passwords = exclusions(root, trees)
     cmd = ["bash", script, ".", "--prepared", *args]
     env = os.environ.copy()
     env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
@@ -65,7 +69,7 @@ def run(script, root, args):
         view = Path(tmp) / "app"
         view.mkdir()
         skip = ignored | unsafe | passwords
-        for tree in TREES:
+        for tree in trees:
             if (root / tree).is_symlink() and Path(tree) not in skip:
                 raise OSError(f"cannot prepare symlinked listing root: {tree}")
             if Path(tree) not in skip and (root / tree).is_dir():
@@ -74,7 +78,7 @@ def run(script, root, args):
                                     if (Path(d) / n).relative_to(root) in skip])
         for source in project_files(root):
             path = source.relative_to(root)
-            if path in skip or path.parts[0] in TREES or Path(tmp) in source.parents:
+            if path in skip or any(t in path.parents for t in trees) or Path(tmp) in source.parents:
                 continue
             (view / path.parent).mkdir(exist_ok=True, parents=True)
             link_file(source, view / path)
@@ -92,7 +96,13 @@ def run(script, root, args):
 
 if __name__ == "__main__":
     script, root = sys.argv[1], Path(sys.argv[2]).resolve()
-    rc = run(script, root, sys.argv[3:])
+    try:
+        rc = run(script, root, sys.argv[3:])
+    except PlanError as exc:
+        print(f"listing.json invalid; platform overrides ignored: {exc}")
+        sys.exit(1)
+    except ValueError as exc:
+        sys.exit(str(exc))
     if rc == 0 and Path(script).name == "build-review.sh":
         page = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root)) / "listing-review.html"
         print(f"Wrote {page}")

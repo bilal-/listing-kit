@@ -24,7 +24,6 @@ while [ "$#" -gt 0 ]; do
 done
 ROOT="${ROOT:-.}"
 [ -d "$ROOT" ] || { echo "Not a directory: $ROOT" >&2; exit 2; }
-[ -d "$ROOT/fastlane" ] || { echo "No fastlane/ tree under: $ROOT (run Assemble first)." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review page." >&2; exit 2; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,7 +56,7 @@ case "$val_rc/$verdict" in
      echo "$crash" >&2
      # A crash may precede the validator's scan. Scan before rendering its report.
      scan_rc=0
-     bash "$SELF_DIR/../lib/secret-scan.sh" "$ROOT/fastlane" "$ROOT/store-assets" "$ROOT/.listing-kit" >/dev/null || scan_rc=$?
+     bash "$SELF_DIR/../lib/secret-scan.sh" --listing "$ROOT" >/dev/null || scan_rc=$?
      case "$scan_rc" in 0) ;; 1) exit 3 ;; *) exit 2 ;; esac ;;
 esac
 
@@ -76,7 +75,8 @@ import apple_assets
 import screenshots
 from secret_scan import secret_text
 
-FL = os.path.join(root, "fastlane")
+trees = listing.paths(root)
+apple_tree, play_tree = trees["apple"], trees["play"]
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 try:
@@ -111,7 +111,7 @@ except (OSError, ValueError):
 
 def screenshot_groups(store, locale, deferred=()):
     groups = {}
-    for shot in screenshots.active(root, store, locale, rules, deferred):
+    for shot in screenshots.active(root, store, locale, rules, deferred, tree=trees[store]):
         if shot.manual and shot.error:
             sys.exit(shot.error)
         label = shot.slot["label"] if shot.slot else "{}×{}".format(*shot.size)
@@ -121,9 +121,9 @@ def screenshot_groups(store, locale, deferred=()):
     return groups
 
 # ---- iOS (deliver) ----
-ios_locs = apple_assets.apple_locales(root, rules, apple_plan)
-apple_default = listing.apple_default(FL, rules)
-if apple_assets.has_apple_listing(root, rules, ios_locs):
+ios_locs = apple_assets.apple_locales(root, rules, apple_plan, apple_tree)
+apple_default = listing.apple_default(apple_tree["metadata"], rules)
+if apple_assets.has_apple_listing(root, rules, ios_locs, apple_tree):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
@@ -132,7 +132,7 @@ if apple_assets.has_apple_listing(root, rules, ios_locs):
         deferred_ids = apple_assets.deferred_slots(rules, deferred)
         shots = screenshot_groups("apple", loc, deferred_ids)
         graphics = []
-        for f in images(apple_assets.header_dir(root, loc)):
+        for f in images(apple_assets.header_dir(apple_tree, loc)):
             info = image_info(f)
             graphic = apple_assets.header_rule(f, info, rules)
             label = "Header Asset (manual console upload)"
@@ -143,14 +143,14 @@ if apple_assets.has_apple_listing(root, rules, ios_locs):
     if not locs and apple_default:
         locs.append(dict(locale="default", fields=field_rows("apple", apple_default),
                          shots={}, graphics=[], deferred={}))
-    applevel = field_rows("apple-app", os.path.join(FL, "metadata"))
+    applevel = field_rows("apple-app", apple_tree["metadata"])
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
 # ---- Android (supply) ----
-A = os.path.join(FL, "metadata", "android")
+A = play_tree["metadata"]
 if os.path.isdir(A):
     locs = []
-    for ld in listing.play_locales(FL):
+    for ld in listing.play_locales(A):
         loc = os.path.basename(ld)
         fields = field_rows("play", ld)
         shots = screenshot_groups("play", loc)
