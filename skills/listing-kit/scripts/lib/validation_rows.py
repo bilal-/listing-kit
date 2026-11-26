@@ -1,62 +1,93 @@
-"""Collect per-locale field checks and image facts in one validator process."""
-
+"""Collect a complete validation transcript using one snapshot of the effective rules."""
+import argparse
 import os
-import sys
 from pathlib import Path
+import re
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apple_assets
+import detect
 import fields
-from imginfo import validation_rows
 import listing
+import rules_check
+import specs
 
 
-def collect(root, cache):
+def collect(root, as_of, ios_sdk):
+    rules = specs.load(root)
+    verified, age, stale = specs.staleness(rules, as_of)
+    yield "NOTE", f"store rules verified on {verified}"
+    if rules["_override"]:
+        yield "NOTE", f"active store rules override: {rules['_override']}"
+    if stale:
+        yield "WARN", f"store rules are {age} days old; verify current requirements"
+    req = detect.Requirements(root, rules, as_of, ios_sdk)
     fl = root / "fastlane"
-    display_root = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root))
+    display = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root))
 
-    def write(key, rows):
-        dest = cache / key
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with dest.open("w", encoding="utf-8", errors="surrogateescape") as stream:
-            for row in rows:
-                print(row, file=stream)
+    def copy(store, directory, fallback=None):
+        for row in fields.rows(store, directory, fallback, rules, req):
+            row["path"] = display / Path(row["path"]).relative_to(root)
+            yield fields.check(row)
 
-    def copy_fields(store, directory, fallback=None):
-        checks = fields.rows(store, directory, fallback)
-        for row in checks:
-            row["path"] = display_root / Path(row["path"]).relative_to(root)
-        write(Path(store) / directory.relative_to(root) / "rows",
-              ("\t".join(fields.check(row)) for row in checks))
+    apple = apple_assets.has_apple_listing(root, rules)
+    play = (fl / "metadata/android").is_dir()
+    if apple:
+        yield "NOTE", "== Apple App Store =="
+        locales = list(map(Path, apple_assets.apple_locales(root, rules)))
+        fallback = listing.apple_default(fl, rules)
+        if not locales and fallback:
+            locales = [Path(fallback)]
+        if not locales:
+            yield "FAIL", "no fastlane/metadata/<locale>/ directory"
+        # Deliver can reuse the primary screenshots for a metadata-only localization.
+        has_capture = any((fl / "screenshots" / loc.name).is_dir() or
+                          (root / "store-assets/apple" / loc.name / "screenshots").is_dir() for loc in locales)
+        for locale in locales:
+            yield "NOTE", "  locale " + locale.name + ":"
+            yield from copy("apple", locale, fallback)
+            if has_capture and not ((fl / "screenshots" / locale.name).is_dir() or
+                                    (root / "store-assets/apple" / locale.name / "screenshots").is_dir()):
+                continue
+            yield "NOTE", "  screenshots " + locale.name + ":"
+            yield from rules_check.apple_shots(fl / "screenshots" / locale.name,
+                                               root / "store-assets/apple" / locale.name / "screenshots", rules, req)
+        yield from copy("apple-app", fl / "metadata")
+        required = {s["label"] for s in specs.slots(rules, "apple") if req.evaluate(s["required"])[0] == "required"}
+        yield from apple_assets.validate(root, required, rules, req)
+        if not (root / ".listing-kit/asset-plan.json").is_file():
+            yield "WARN", "no asset-plan.json: store minimums checked; requested extra sets/headers cannot be confirmed"
 
-    def screenshots(directory):
-        write(Path("shots") / directory.relative_to(root) / "rows",
-              validation_rows(listing.images(directory)))
-
-    apple = list(map(Path, apple_assets.apple_locales(root)))
-    play = list(map(Path, listing.play_locales(fl)))
-    write("apple-present", [int(apple_assets.has_apple_listing(root))])
-    write("apple-locales", apple)
-    write("play-locales", play)
-    for directory in apple:
-        copy_fields("apple", directory, listing.apple_default(fl))
-    default = fl / "metadata" / "default"
-    if not apple and default.is_dir():
-        copy_fields("apple", default)
-    copy_fields("apple-app", fl / "metadata")
-    for directory in (fl / "screenshots").glob("*"):
-        if directory.is_dir():
-            screenshots(directory)
-    for directory in play:
-        copy_fields("play", directory)
-        images = directory / "images"
-        for device in ("phone", "sevenInch", "tenInch", "tv", "wear"):
-            screenshots(images / (device + "Screenshots"))
-        for image in listing.images(images):
-            path = Path(image)
-            if path.stem in ("featureGraphic", "icon", "tvBanner"):
-                write(Path("graphics") / path.relative_to(root), validation_rows([image]))
+    if play:
+        yield "NOTE", "== Google Play =="
+        locales = list(map(Path, listing.play_locales(fl)))
+        if not locales:
+            yield "FAIL", "fastlane/metadata/android has no locale folders"
+        for locale in locales:
+            yield "NOTE", "  locale " + locale.name + ":"
+            yield from copy("play", locale)
+            directory = locale / "images"
+            yield from rules_check.play_shots(directory, root / "store-assets/play" / locale.name / "screenshots", rules, req)
+            for graphic in rules["stores"]["play"]["graphics"]:
+                yield from rules_check.play_graphic(directory, graphic, req)
+    if not apple and not play:
+        yield "FAIL", f"no App Store or Google Play listing was found under {display} — nothing to validate"
+    yield from req.evidence()
 
 
 if __name__ == "__main__":
-    collect(Path(sys.argv[1]), Path(sys.argv[2]))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", type=Path)
+    parser.add_argument("--as-of")
+    parser.add_argument("--ios-sdk")
+    args = parser.parse_args()
+    if args.as_of and not specs._date(args.as_of):
+        parser.error("--as-of expects YYYY-MM-DD")
+    if args.ios_sdk and not re.fullmatch(r"[0-9]+\.[0-9]+", args.ios_sdk):
+        parser.error("--ios-sdk expects X.Y")
+    try:
+        for level, message in collect(args.root, specs.parse_date(args.as_of) if args.as_of else None, args.ios_sdk):
+            print(level, message, sep="\t")
+    except specs.SpecsError as exc:
+        sys.exit(f"store rules: {exc}")

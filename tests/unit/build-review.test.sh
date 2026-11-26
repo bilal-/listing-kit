@@ -172,7 +172,7 @@ echo 'Clean description' > "$T/fastlane/metadata/en-US/description.txt"
 echo 'Ignored marketing message' > "$T/fastlane/metadata/en-US/subtitle.txt"
 fake_png "$T/fastlane/screenshots/en-US/ignored.png" 1206 2622
 OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 0 "$?" "valid ignored screenshots and metadata pass validation"
-assert_contains "$OUT" 'iPhone screenshots present'
+assert_contains "$OUT" 'iPhone Dynamic Island (medium display) screenshots present'
 unsafe=AKIAIOSFODNN7EXAMPLE
 fake_png "$T/fastlane/screenshots/en-US/$unsafe.png" 1206 2622
 OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?"
@@ -258,6 +258,9 @@ rm -rf "$T"
 
 it "shows escaped crash output and accepts only matching terminal verdicts"
 new_tempdir SHIM
+SHIM="$SHIM/kit/scripts"
+mkdir -p "$SHIM"
+cp -R "$SKILL_DIR/specs" "$SHIM/../"
 cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
 mkdir -p "$SHIM/validate"
 new_tempdir T; mkdir -p "$T/fastlane"

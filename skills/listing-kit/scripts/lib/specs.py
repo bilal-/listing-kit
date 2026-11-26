@@ -9,6 +9,7 @@ CLI:  specs.py verified [<app-root>]            -> the date the rules were check
       specs.py slots <store> [<app-root>]       -> id<TAB>label<TAB>lifecycle per slot
 """
 import datetime
+from fractions import Fraction
 import os
 import re
 import sys
@@ -16,6 +17,8 @@ import sys
 if __package__:
     from . import json_input
 else:
+    if __name__ == "__main__":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import json_input
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -192,7 +195,7 @@ def check(data):
             }, problems)
         if array(st.get("graphics")):
             _entries(st["graphics"], path + ".graphics", "id", ("id", "label", "size", "formats", "file", "upload", "required"), {
-                "id": component, "file": component, "size": _size, "label": _string, "formats": strings,
+                "id": component, "file": component, "size": _size, "label": _string, "formats": strings, "grayscaleJpeg": lambda v: type(v) is bool,
                 "required": _required, "upload": _UPLOAD.__contains__, "bitDepth": _positive,
                 "maxBytes": _positive, "note": _string, "alpha": lambda v: type(v) is bool or v == "required",
             }, problems)
@@ -314,7 +317,7 @@ def _norm(w, h):
 
 
 def apple_slots_for_size(data, w, h):
-    """Every Apple slot accepting this size in either orientation (2048x2732 has two)."""
+    """Every Apple slot accepting the dimensions in the supplied orientation."""
     want = _norm(w, h)
     out = []
     for s in slots(data, "apple"):
@@ -343,6 +346,26 @@ def apple_slot_for_file(data, w, h, path=""):
     if "vision-pro" in ids and "vision" in low and "appletv" not in low.split("/")[:-1]:
         return ids["vision-pro"]
     return found[0]
+
+
+def ratio_matches(w, h, ratios):
+    return any(w * int(r.split(":")[1]) == h * int(r.split(":")[0]) for r in ratios)
+
+
+def play_size_errors(slot, w, h):
+    """Dimension checks shared by planned and captured screenshots."""
+    side = slot.get("side", {})
+    if min(w, h) < side.get("min", 0) or max(w, h) > side.get("max", float("inf")):
+        yield "side outside {}–{} ({}x{})".format(side.get("min", 0), side.get("max", "∞"), w, h)
+    if "minSize" in slot and any(n < low for n, low in zip((w, h), slot["minSize"])):
+        yield "below {}x{} minimum".format(*slot["minSize"])
+    if "sizes" in slot and [w, h] not in slot["sizes"]:
+        yield "size {}x{} is outside the accepted sizes".format(w, h)
+    if "maxRatio" in slot and max(w, h) > min(w, h) * Fraction(str(slot["maxRatio"])):
+        yield "aspect {}/{} exceeds {}:1".format(max(w, h), min(w, h), slot["maxRatio"])
+    ratios = [slot["ratio"]] if "ratio" in slot else slot.get("ratios", [])
+    if ratios and not ratio_matches(w, h, ratios):
+        yield "aspect must be " + " or ".join(ratios)
 
 
 def slot_by_label(data, store, label):
@@ -383,7 +406,7 @@ def conditions_from_plan(plan, detected=None, rules=None):
     return facts
 
 
-def requirement(rule, conditions, as_of=None):
+def requirement(rule, conditions, as_of=None, used=None):
     """(level, reason) for a "required" rule: level is "required", "upcoming" or "optional".
 
     conditions maps a condition name to True, False or None (unknown). An unknown
@@ -398,23 +421,30 @@ def requirement(rule, conditions, as_of=None):
         raise SpecsError("expected a mapping of condition names to flags")
     if "from" in rule and (parse_date(rule["from"]) - as_of).days > WARN_DAYS:
         return "optional", ""
+    unknown = None
     kind = rule["rule"]
     if kind == "never":
         return "optional", ""
     if kind == "if":
         name = rule["condition"]
+        if used is not None:
+            used.add(name)
         value = conditions.get(name)
         if value is False:
             return "optional", ""
         if value is None:
-            return "upcoming", "cannot tell whether %r applies; say so with a flag" % name
+            unknown = "cannot tell whether %r applies; say so with a flag" % name
     unless = rule.get("unless")
     if unless:
+        if used is not None:
+            used.add(unless)
         value = conditions.get(unless)
         if value is True:
             return "optional", ""
         if value is None:
-            return "upcoming", "cannot tell whether exemption %r applies" % unless
+            unknown = unknown or "cannot tell whether exemption %r applies" % unless
+    if unknown:
+        return "upcoming", unknown
     if "from" in rule:
         start = parse_date(rule["from"])
         if as_of < start:

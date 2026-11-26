@@ -715,7 +715,7 @@
       "png"
      ],
      "bitDepth": 8,
-          "alpha": false,
+     "alpha": false,
      "upload": "console",
      "file": "header-16x9",
      "required": {
@@ -734,7 +734,7 @@
       "jpeg"
      ],
      "bitDepth": 8,
-          "alpha": false,
+     "alpha": false,
      "upload": "console",
      "file": "header-21x9",
      "required": {
@@ -1173,6 +1173,7 @@
       "jpeg"
      ],
      "alpha": false,
+     "grayscaleJpeg": true,
      "bitDepth": 8,
      "required": {
       "rule": "if",

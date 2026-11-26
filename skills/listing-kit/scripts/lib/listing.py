@@ -18,9 +18,6 @@ from imginfo import is_image
 # deliver folders under metadata/ that are not locales.
 # Recognized deliver app-level metadata files directly under fastlane/metadata/.
 DELIVER_APP_FILES = {
-    "copyright.txt",
-    "primary_category.txt",
-    "secondary_category.txt",
     "primary_first_sub_category.txt",
     "primary_second_sub_category.txt",
     "secondary_first_sub_category.txt",
@@ -61,6 +58,8 @@ def _subdirs(d):
 
 def apple_locales(fl, rules=None):
     """Include known locales and directories containing localized deliver assets."""
+    rules = rules if rules is not None else specs.load(os.path.dirname(fl))
+    apple = rules["stores"]["apple"]
     meta = os.path.join(fl, "metadata")
     shots = os.path.join(fl, "screenshots")
     names = {n for n in _subdirs(meta) if n not in apple["nonLocaleFolders"]

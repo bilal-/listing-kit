@@ -28,15 +28,24 @@ for cond in hasWearOs hasAndroidTv hasAndroidXr; do assert_contains "$OUT" "$con
 assert_contains "$OUT" $'supportsAndroidPhone\tno\tandroid/AndroidManifest.xml'
 OUT="$(LK_SUPPORTS_IPHONE=1 run)"; assert_contains "$OUT" $'supportsIphone\tyes\tLK_SUPPORTS_IPHONE'
 it "a validated plan takes precedence over environment flags"
-cp "$ROOT/tests/fixtures/shellbell/listing.new.json" "$T/plan-source"
 mkdir -p "$T/.listing-kit"
-python3 - "$T" <<'PY'
-import json, sys
-from pathlib import Path
-p=Path(sys.argv[1])
-d=json.loads((p/'plan-source').read_text())
-d['platforms']={'supportsIphone': True, 'isUpdate': True}
-(p/'.listing-kit/listing.json').write_text(json.dumps(d))
-PY
+cat > "$T/.listing-kit/listing.json" <<'JSON'
+{"format":2,"app":{"id":"example"},"locales":["en-US"],"targets":[{"id":"phone","store":"play","slot":"phone","size":[1080,1920],"state":"active"}],"screens":[{"id":"one","flow":"one.yaml"},{"id":"two","flow":"two.yaml"}],"platforms":{"supportsIphone":true,"isUpdate":true}}
+JSON
 OUT="$(LK_SUPPORTS_IPHONE=0 run)"; assert_contains "$OUT" $'supportsIphone\tyes\t.listing-kit/listing.json'
+assert_contains "$OUT" $'isUpdate\tyes\t.listing-kit/listing.json'
+printf 'invalid' > "$T/.listing-kit/listing.json"
+OUT="$(LK_SUPPORTS_IPHONE=0 run)"; assert_contains "$OUT" $'supportsIphone\tno\tLK_SUPPORTS_IPHONE'
+it "Info.plist and Expo declarations work without evaluating app code"
+rm "$T/App.pbxproj"
+python3 - "$T/Info.plist" <<'PYTEST'
+import plistlib, sys
+with open(sys.argv[1], "wb") as f:
+    plistlib.dump({"UIDeviceFamily": [1]}, f, fmt=plistlib.FMT_BINARY)
+PYTEST
+OUT="$(run)"; assert_contains "$OUT" $'supportsIphone\tyes\tInfo.plist'
+assert_contains "$OUT" $'supportsIpad\tno\tInfo.plist'
+rm "$T/Info.plist"
+printf 'export default { ios: { supportsTablet: true } }; throw Error("do not run")' > "$T/app.config.ts"
+OUT="$(run)"; assert_contains "$OUT" $'supportsIpad\tyes\tapp.config.ts'
 summary

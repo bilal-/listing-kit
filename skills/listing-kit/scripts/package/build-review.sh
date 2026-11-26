@@ -58,6 +58,7 @@ from imginfo import image_info, apple_class
 import fields as store_fields
 import listing
 import specs
+import detect
 import apple_assets
 from secret_scan import secret_text
 
@@ -65,7 +66,12 @@ FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 rules = specs.load(root)
+requirements = detect.Requirements(root, rules)
 read = store_fields.read
+
+
+def field_rows(store, directory, fallback=None):
+    return store_fields.rows(store, directory, fallback, rules, requirements)
 
 def dims(p):
     w, h = image_info(p)[:2]
@@ -87,33 +93,40 @@ def esc(s):
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
-    apple_plan = apple_assets.load_plan(root)
+    apple_plan = apple_assets.load_plan(root, rules)
 except (OSError, ValueError):
     apple_plan = {}  # The validation section displays the malformed plan error.
 
 # ---- iOS (deliver) ----
-ios_locs = apple_assets.apple_locales(root)
-apple_default = listing.apple_default(FL)
-if apple_assets.has_apple_listing(root):
+ios_locs = apple_assets.apple_locales(root, rules)
+apple_default = listing.apple_default(FL, rules)
+if apple_assets.has_apple_listing(root, rules):
     locs = []
     for ld in ios_locs:
         loc = os.path.basename(ld)
-        fields = store_fields.rows("apple", ld, apple_default)
+        fields = field_rows("apple", ld, apple_default)
         shots = {}
         deferred = apple_plan.get(loc, {}).get("deferredScreenshots", {})
         deferred_labels = {s["label"] for label in deferred for s in specs.slot_by_label(rules, "apple", label)}
-    for f in apple_assets.screenshot_paths(os.path.join(FL, "screenshots", loc), rules):
+        console = os.path.join(apple_assets.header_dir(root, loc), "screenshots")
+        for f in apple_assets.screenshot_paths(os.path.join(FL, "screenshots", loc), rules, console):
             cls = devclass(dims(f), f)
             if cls in deferred_labels:
                 continue  # Preserve old files, but do not present them as active deliverables.
             shots.setdefault(cls, []).append(os.path.relpath(f, root))
-        graphics = [("Header Asset (manual console upload)", os.path.relpath(f, root), dims(f))
-                    for f in images(apple_assets.header_dir(root, loc))]
+        graphics = []
+        for f in images(apple_assets.header_dir(root, loc)):
+            info = image_info(f)
+            graphic = apple_assets.header_rule(f, info, rules)
+            label = "Header Asset (manual console upload)"
+            if graphic:
+                label += " · " + graphic["label"]
+            graphics.append((label, os.path.relpath(f, root), info[:2] if info[0] else None))
         locs.append(dict(locale=loc, fields=fields, shots=shots, graphics=graphics, deferred=deferred))
     if not locs and apple_default:
-        locs.append(dict(locale="default", fields=store_fields.rows("apple", apple_default),
+        locs.append(dict(locale="default", fields=field_rows("apple", apple_default),
                          shots={}, graphics=[], deferred={}))
-    applevel = store_fields.rows("apple-app", os.path.join(FL, "metadata"))
+    applevel = field_rows("apple-app", os.path.join(FL, "metadata"))
     platforms["iOS"] = dict(locales=locs, applevel=applevel)
 
 # ---- Android (supply) ----
@@ -122,13 +135,12 @@ if os.path.isdir(A):
     locs = []
     for ld in listing.play_locales(FL):
         loc = os.path.basename(ld)
-        fields = store_fields.rows("play", ld)
+        fields = field_rows("play", ld)
         shots = {}
         for slot in specs.slots(rules, "play"):
-            if not slot.get("folder"):
-                continue
             lbl = slot["label"]
-            fs = images(os.path.join(ld, "images", slot["folder"]))
+            fs = images(os.path.join(ld, "images", slot["folder"])) if slot.get("folder") else []
+            fs += images(os.path.join(root, "store-assets", "play", loc, "screenshots", slot["id"]))
             if fs:
                 shots[lbl] = [os.path.relpath(f, root) for f in fs]
         graphics = []

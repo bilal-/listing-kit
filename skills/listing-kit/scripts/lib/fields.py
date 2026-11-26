@@ -56,7 +56,7 @@ def measure(text, unit):
 def _fields(rules, store, directory):
     yield from specs.fields(rules, "apple" if store == "apple-app" else store,
                             "app" if store == "apple-app" else "locale")
-    if store == "play":
+    if store == "play" and "changelogs" in rules["stores"]["play"]:
         logs = rules["stores"]["play"]["changelogs"]
         for path in sorted((Path(directory) / "changelogs").glob("*.txt")):
             yield dict(stem="changelogs/" + path.stem, label="Release notes (" + path.stem + ")",

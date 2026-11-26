@@ -145,10 +145,7 @@ class Requirements:
         self.used = set()
 
     def evaluate(self, rule):
-        for key in ("condition", "unless"):
-            if key in rule:
-                self.used.add(rule[key])
-        return specs.requirement(rule, self.values, self.as_of)
+        return specs.requirement(rule, self.values, self.as_of, self.used)
 
     def evidence(self):
         for name in sorted(self.used):

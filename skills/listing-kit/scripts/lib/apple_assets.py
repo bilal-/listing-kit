@@ -69,20 +69,21 @@ def load_plan(root, rules=None):
     return plan["apple"]
 
 
-def apple_locales(root):
+def apple_locales(root, rules=None):
     """Metadata paths for every locale visible in the Apple asset preview."""
+    rules = specs.load(root) if rules is None else rules
     try:
-        planned = set(load_plan(root))
+        planned = set(load_plan(root, rules))
     except (OSError, ValueError):
         planned = set()  # validate() reports malformed plans separately.
     fastlane = os.path.join(root, "fastlane")
-    return sorted(set(listing_apple_locales(fastlane)) | {
+    return sorted(set(listing_apple_locales(fastlane, rules)) | {
         os.path.join(fastlane, "metadata", locale)
-        for locale in set(header_locales(root)) | planned
+        for locale in set(header_locales(root)) | planned | set(console_locales(root, rules))
     })
 
 
-def has_apple_listing(root):
+def has_apple_listing(root, rules=None):
     """True when root has recognized Apple deliver metadata, screenshots, headers, or plan."""
     fastlane = os.path.join(root, "fastlane")
     return bool(
@@ -92,34 +93,54 @@ def has_apple_listing(root):
     )
 
 
-def screenshot_paths(directory, rules):
+def console_locales(root, rules):
+    base = os.path.join(root, "store-assets", "apple")
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            if not name.startswith(".") and any(images(os.path.join(base, name, "screenshots", s["id"]))
+                                                 for s in specs.slots(rules, "apple")):
+                yield name
+
+
+def screenshot_paths(directory, rules, console=None):
     folders = sorted({s["folder"] for s in specs.slots(rules, "apple") if s.get("folder")})
-    return images(directory) + [p for folder in folders for p in images(os.path.join(directory, folder))]
+    paths = images(directory) + [p for folder in folders for p in images(os.path.join(directory, folder))]
+    if console is not None:
+        for slot in specs.slots(rules, "apple"):
+            paths.extend(images(os.path.join(console, slot["id"])))
+    return paths
 
 
-def validate(root, required_displays=(), rules=None):
+def header_rule(path, info, rules):
+    w, h, depth, color = info
+    for graphic in rules["stores"]["apple"]["graphics"]:
+        alpha = graphic.get("alpha")
+        if (graphic["size"] == [w, h] and depth == graphic.get("bitDepth", depth)
+                and (color == 2 and alpha != "required" or color == 6 and alpha)
+                and format_allowed(path, graphic["formats"])):
+            return graphic
+    return None
+
+
+def validate(root, required_displays=(), rules=None, requirements=None):
     rules = rules if rules is not None else specs.load(root)
     headers = rules["stores"]["apple"]["graphics"]
-
-    def valid_header(path, info):
-        w, h, depth, color = info
-        return any(g["size"] == [w, h] and depth == g["bitDepth"]
-                   and (color == 2 or (g.get("alpha") and color == 6))
-                   and format_allowed(path, g["formats"]) for g in headers)
-
+    present = set()
     results = []
     saw_unavailable = False
     header_items = [(locale, path) for locale in header_locales(root) for path in images(header_dir(root, locale))]
-    header_statuses = validate_many([path for _, path in header_items], accept=valid_header)
+    header_statuses = validate_many([path for _, path in header_items], accept=lambda p, info: header_rule(p, info, rules))
     for (locale, path), (info, dec) in zip(header_items, header_statuses):
         w, h, _, _ = info
-        struct_ok = valid_header(path, info)
+        graphic = header_rule(path, info, rules)
+        if graphic:
+            present.add((locale, graphic["id"]))
         if dec == "unavailable":
             saw_unavailable = True
         label = "{}/{}".format(locale, os.path.basename(path))
         if dec.startswith("bad:"):
             results.append(("FAIL", "Apple header {}: {}".format(label, dec[5:])))
-        elif not struct_ok:
+        elif not graphic:
             results.append(("FAIL", "Apple header {}: dimensions, format, depth or alpha differ from store header rules".format(label)))
         elif dec.startswith("could not decode:"):
             results.append(("WARN", "Apple header {}: {} ({}x{} RGB/no-alpha)".format(label, dec, w, h)))
@@ -128,6 +149,14 @@ def validate(root, required_displays=(), rules=None):
         else:
             results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
+    if requirements:
+        for locale_path in apple_locales(root, rules):
+            locale = os.path.basename(locale_path)
+            for graphic in headers:
+                level, reason = requirements.evaluate(graphic["required"])
+                if level != "optional" and (locale, graphic["id"]) not in present:
+                    results.append(("FAIL" if level == "required" else "WARN",
+                                    f'{graphic["label"]} MISSING ({locale}) {reason}'.rstrip()))
     try:
         for locale, target in load_plan(root, rules).items():
             shots, headers = target.get("screenshots", {}), target.get("headers", [])
@@ -137,7 +166,8 @@ def validate(root, required_displays=(), rules=None):
                 else:
                     results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
             counts = Counter(apple_class(*image_info(path)[:2], path, rules) for path in screenshot_paths(
-                os.path.join(root, "fastlane", "screenshots", locale), rules))
+                os.path.join(root, "fastlane", "screenshots", locale), rules,
+                os.path.join(header_dir(root, locale), "screenshots")))
             for display, expected in shots.items():
                 actual = sum(counts[s["label"]] for s in specs.slot_by_label(rules, "apple", display))
                 results.append(("PASS" if actual == expected else "FAIL",
