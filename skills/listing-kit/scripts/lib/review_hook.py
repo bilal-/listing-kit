@@ -67,7 +67,7 @@ def find_kit(recorded, channel):
 
 
 LISTING_DIRS = (b"fastlane/", b"store-assets/", b".listing-kit/")
-VENDOR_DIRS = {b"node_modules", b".git", b"Pods", b"build", b"DerivedData", b".expo", b"dist", b".dart_tool"}
+VENDOR_DIRS = {b"node_modules", b".git", b"Pods", b"build", b"DerivedData", b".gradle", b".expo", b"dist", b".dart_tool"}
 VENDOR_LOWER = {part.lower() for part in VENDOR_DIRS}
 
 
@@ -82,7 +82,7 @@ def listing_input(path, prefix, ignorecase=False):
     if rel.startswith(b"app.config.") and b"/" not in rel:
         return True
     parts = rel.split(b"/")
-    if parts[-1] != (b"info.plist" if ignorecase else b"Info.plist") and not rel.endswith(b".pbxproj"):
+    if parts[-1] not in ((b"info.plist", b"androidmanifest.xml") if ignorecase else (b"Info.plist", b"AndroidManifest.xml")) and not rel.endswith(b".pbxproj"):
         return False
     vendor = VENDOR_LOWER if ignorecase else VENDOR_DIRS
     return not any(part in vendor or part.endswith((b".framework", b".xcframework")) for part in parts[:-1])
@@ -96,7 +96,7 @@ def pathspecs(prefixes, ignorecase=False):
                      (b"fastlane", b"store-assets", b".listing-kit", b"app.json"))
         escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
         specs.extend(magic + b"glob)" + escaped + pattern for pattern in
-                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist"))
+                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist", b"**/AndroidManifest.xml"))
     return specs
 
 

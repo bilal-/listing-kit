@@ -74,7 +74,7 @@ def run(script, root, args):
         for directory, dirs, files in os.walk(root):
             rel = Path(directory).relative_to(root)
             dirs[:] = [d for d in dirs if d not in (".git", "Pods", "node_modules", "build",
-                       "DerivedData", ".expo", "dist", ".dart_tool")
+                       "DerivedData", ".gradle", ".expo", "dist", ".dart_tool")
                        and rel / d not in skip and not d.endswith((".framework", ".xcframework"))
                        and (rel / d).parts[0] not in TREES
                        and Path(directory) / d != Path(tmp)]
@@ -83,7 +83,7 @@ def run(script, root, args):
                 if path in skip:
                     continue
                 if ((rel == Path(".") and (name == "app.json" or name.startswith("app.config.")))
-                        or name.endswith(".pbxproj") or name == "Info.plist"):
+                        or name.endswith(".pbxproj") or name in ("Info.plist", "AndroidManifest.xml")):
                     (view / rel).mkdir(exist_ok=True, parents=True)
                     link_file(root / path, view / path)
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
