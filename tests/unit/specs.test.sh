@@ -102,4 +102,11 @@ d=specs.load(); v=specs.parse_date(d['verified'])
 print(specs.staleness(d, v+datetime.timedelta(days=120))[2], specs.staleness(d, v+datetime.timedelta(days=121))[2])")"
 assert_eq "False True" "$OUT"
 
+it "effective rules and conditional requirements reject invalid overrides"
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPTS/lib" python3 "$ROOT/tests/unit/specs_review.py"; then
+  pass
+else
+  fail "store rule regressions"
+fi
+
 summary

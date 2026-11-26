@@ -940,7 +940,12 @@
       "framing": "allowed",
       "lifecycle": "active",
       "upload": "fastlane",
-      "note": "A 1280x720 TV banner is also required."
+      "note": "A 1280x720 TV banner is also required.",
+      "side": {
+       "min": 720,
+       "max": 3840
+      },
+      "ratio": "16:9"
      },
      {
       "id": "wear",
@@ -962,7 +967,8 @@
       "lifecycle": "active",
       "upload": "fastlane",
       "side": {
-       "min": 384
+       "min": 384,
+       "max": 3840
       },
       "ratio": "1:1",
       "note": "Google: no device frames, added text, graphics or backgrounds; no transparency or masking."
@@ -987,7 +993,8 @@
       "lifecycle": "console-only",
       "upload": "console",
       "side": {
-       "min": 1200
+       "min": 1200,
+       "max": 7680
       },
       "minSize": [
        1920,
@@ -1014,7 +1021,17 @@
       "framing": "allowed",
       "lifecycle": "console-only",
       "upload": "console",
-      "note": "At least 2 portrait (800x1280) and 2 landscape (1024x768) unless the app is in a parked category."
+      "note": "At least 2 portrait (800x1280) and 2 landscape (1024x768) unless the app is in a parked category.",
+      "sizes": [
+       [
+        800,
+        1280
+       ],
+       [
+        1024,
+        768
+       ]
+      ]
      }
     ]
    },
