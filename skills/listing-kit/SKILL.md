@@ -102,7 +102,9 @@ Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-
 
 If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html`.
 
-The hook watches staged changes to `fastlane/**`, `store-assets/**`, public files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable.
+The hook watches staged changes to `fastlane/**`, `store-assets/**`, public files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable. A credential in the staged inputs blocks the commit before the page is written. Other validation failures appear on the staged page.
+
+Set `LISTING_KIT_HOME` to select a skill directory for the hook. Otherwise it uses the recorded installation while available, then looks for the highest installed `VERSION` in the supported skill folders. If it cannot find the kit, it warns and lets the commit proceed.
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 

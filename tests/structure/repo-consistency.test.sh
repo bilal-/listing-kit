@@ -16,6 +16,9 @@ assert_eq "listing-kit" "$skill_name" "SKILL.md frontmatter name"
 assert_eq "$skill_name" "$plugin_name" "plugin.json matches skill"
 assert_eq "$skill_name" "$mkt_name" "marketplace matches skill"
 
+it "skill VERSION matches the canonical plugin version"
+assert_eq "$(json_get "$ROOT/.claude-plugin/plugin.json" version)" "$(cat "$SKILL_DIR/VERSION")"
+
 # ---- SKILL.md frontmatter is well-formed ----
 it "SKILL.md has name + description frontmatter"
 assert_contains "$(head -5 "$SKILL_DIR/SKILL.md")" "name:"

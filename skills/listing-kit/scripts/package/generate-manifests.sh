@@ -4,6 +4,7 @@
 #
 # Reads .claude-plugin/plugin.json (the source of truth for name/version/desc)
 # and writes, at the repo root:
+#   - skills/listing-kit/VERSION (installed hook discovery)
 #   - gemini-extension.json          (Gemini CLI)
 #   - AGENTS.md                      (Codex / Copilot CLI discovery)
 #   - .kiro/steering/listing-kit.md  (Kiro steering-doc wrapper — best-effort)
@@ -26,6 +27,10 @@ name="$(read_field name)"
 version="$(read_field version)"
 description="$(read_field description)"
 skill_md="skills/$name/SKILL.md"
+
+mkdir -p "$root/skills/$name"
+printf '%s\n' "$version" > "$root/skills/$name/VERSION"
+echo "wrote skills/$name/VERSION"
 
 # --- Gemini CLI extension (json.dumps so quotes etc. in the description stay valid) ---
 python3 - "$root/gemini-extension.json" "$name" "$version" "$description" "$skill_md" <<'PY'

@@ -40,6 +40,7 @@ printf '{"name":"listing-kit","version":"9.9.9","description":"Say \\"hi\\" \\\\
 bash "$SUT" "$T3" >/dev/null 2>&1
 if json_valid "$T3/gemini-extension.json"; then pass "valid JSON"; else fail "invalid JSON"; fi
 assert_eq 'Say "hi" \ ok' "$(json_get "$T3/gemini-extension.json" description)"
+assert_eq "9.9.9" "$(cat "$T3/skills/listing-kit/VERSION")" "VERSION comes from the supplied plugin.json"
 rm -rf "$T3"
 
 it "fails clearly when plugin.json is missing"

@@ -85,17 +85,64 @@ assert_eq 1 "$(grep -c 'listing-kit review refresh' "$T/.git/hooks/pre-commit")"
 assert_eq 1 "$(grep -c '^apps+=' "$T/.git/hooks/listing-kit-review")" "one app entry"
 rm -rf "$T"
 
-it "a stale build-review path warns instead of blocking the commit"
-make_app "Stale path"
-bash "$SUT" "$T" >/dev/null
-sed -i.bak 's#^build_review=.*#build_review=/no/such/build-review.sh#' "$T/.git/hooks/listing-kit-review"
-git -C "$T" add fastlane
-OUT="$(git -C "$T" commit -m "listing" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "commit still succeeds"
-assert_contains "$OUT" "not refreshed"
-rm -rf "$T"
+# Each fake kit writes its version into the page so we can observe which kit
+# the installed hook actually ran, without consulting the developer's home.
+make_kit() {
+  mkdir -p "$1/scripts/package"
+  ln -s "$SCRIPTS/lib" "$1/scripts/lib"
+  echo "$2" > "$1/VERSION"
+  cat > "$1/scripts/package/build-review.sh" <<'BUILD'
+#!/bin/bash
+cat "$(dirname "$0")/../../VERSION" > "$1/listing-review.html"
+BUILD
+  chmod +x "$1/scripts/package/build-review.sh"
+}
 
-# --- existing hooks keep their contract ---
+it "uses LISTING_KIT_HOME before the recorded installation"
+make_app "Runtime discovery"
+new_tempdir installs
+recorded="$installs/recorded kit"
+override="$installs/override kit"
+test_home="$installs/home"
+make_kit "$recorded" 0.5.0
+make_kit "$override" 1.0.0
+cp "$SUT" "$recorded/scripts/package/"
+bash "$recorded/scripts/package/install-review-hook.sh" "$T" >/dev/null
+git -C "$T" add fastlane
+env HOME="$test_home" LISTING_KIT_HOME="$override" git -C "$T" commit -qm override
+assert_eq 1.0.0 "$(git -C "$T" show HEAD:listing-review.html)"
+
+kit_commit() {
+  echo "$1" > "$T/fastlane/metadata/en-US/description.txt"
+  git -C "$T" add fastlane
+  env -u LISTING_KIT_HOME HOME="$test_home" git -C "$T" commit -qm "$1"
+}
+it "uses the recorded kit while it exists"
+make_kit "$test_home/.agents/skills/listing-kit" 0.9.0
+kit_commit recorded
+assert_eq 0.5.0 "$(git -C "$T" show HEAD:listing-review.html)"
+rm -rf "$recorded"
+
+it "finds the highest version across installed kits after the recorded copy moves"
+kit_commit agents
+assert_eq 0.9.0 "$(git -C "$T" show HEAD:listing-review.html)"
+for entry in '.codex/skills:0.10.0' '.gemini/extensions/listing-kit/skills:0.11.0' \
+    '.cursor/skills:0.12.0' '.kiro/skills:0.13.0' \
+    '.claude/plugins/cache/vendor/kit/first/skills:0.14.1' \
+    '.claude/plugins/cache/vendor/kit/second/skills:0.14.2'; do
+  make_kit "$test_home/${entry%:*}/listing-kit" "${entry#*:}"
+  kit_commit "$entry"
+  assert_eq "${entry#*:}" "$(git -C "$T" show HEAD:listing-review.html)"
+done
+
+it "warns visibly and permits the commit when no installed kit is available"
+rm -rf "$test_home"
+OUT="$(kit_commit missing 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_contains "$OUT" "not refreshed"
+rm -rf "$T" "$installs"
+
+
 it "an existing failing shell hook still blocks the commit"
 make_app "Existing hook"
 printf '#!/bin/sh\necho "lint failed" >&2\nfalse\n' > "$T/.git/hooks/pre-commit"; chmod +x "$T/.git/hooks/pre-commit"
