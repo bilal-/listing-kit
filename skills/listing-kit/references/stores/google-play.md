@@ -52,17 +52,20 @@ The 7-inch and 10-inch sets are optional. Inspect the app manifest for large-scr
 | Title | title | locale | 30 chars | Required |
 | Short description | short_description | locale | 80 chars | Required |
 | Full description | full_description | locale | 4000 chars | Required |
-| Promo video URL | video | locale | url | Optional |
+| Promo video URL | video | locale | YouTube URL | Optional |
+| Content rating | — | console | questionnaire | answer in the console |
 | Release notes | changelogs/<name> | locale | 500 chars | Allowed names: `^(default\|[0-9]+)$` |
 
 Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay/android-developer/answer/9859152) · [Store reference 2](https://support.google.com/googleplay/android-developer/answer/9859348)
 
 <!-- rules:end fields -->
 
+For `video.txt`, validation checks the HTTPS scheme and YouTube host. The bundled sources do not specify which URL paths or query parameters Play accepts.
+
 ## App-level (not per-locale)
 
 - Category
-- Content rating (questionnaire)
+- Answer the content rating questionnaire in Play Console. The hand-upload index includes a reminder.
 - Privacy policy URL
 - Contact details (email required)
 

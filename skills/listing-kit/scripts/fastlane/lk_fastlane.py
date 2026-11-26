@@ -1103,7 +1103,14 @@ def main(argv):
                           stdout=subprocess.PIPE, check=True).stdout):
             raise ValueError(".listing-kit/local.json is tracked; remove it from the git index first")
         config = read_json(local_config, {})
-        with tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-") as tmp:
+        # Deliver can download review credentials before we apply the import allowlist.
+        boundary = repo or root
+        scratch_parent = Path(tempfile.gettempdir()).resolve()
+        if scratch_parent == boundary or boundary in scratch_parent.parents:
+            scratch_parent = Path("/tmp").resolve()
+            if scratch_parent == boundary or boundary in scratch_parent.parents:
+                raise ValueError("Set TMPDIR to a directory outside the repository for fastlane downloads")
+        with tempfile.TemporaryDirectory(prefix="listing-kit-fastlane-", dir=scratch_parent) as tmp:
             scratch = Path(tmp)
             views = {}
             for store in stores:

@@ -126,7 +126,7 @@ class ScanCache:
     def media(self, oid, path, scanner, ignorecase=False):
         name = path.name.lower() if ignorecase else path.name
         policy_path = path.with_name(name)
-        kind = b"demo" if name == "demo_password.txt" else os.fsencode(path.suffix.lower())
+        kind = os.fsencode(path.suffix.lower())
         key = (self.digest, oid, kind)
         if self.db:
             try:
@@ -208,7 +208,8 @@ def scan_index(entries, prefixes, changed, scanner, ignorecase=False, persist=Tr
                 continue
             if stage != b"0" or mode not in (b"100644", b"100755", b"120000"):
                 raise Blocked(f"cannot scan staged entry: {relative}")
-            if scanner.private_local(policy_path) or scanner.credential_file(relative):
+            if (scanner.demo_credential(policy_path) or scanner.private_local(policy_path)
+                    or scanner.credential_file(relative)):
                 scanner.report(relative)
                 raise Blocked(f"remove the credential or private file from {relative}")
             if mode != b"120000":
@@ -231,7 +232,7 @@ def scan_index(entries, prefixes, changed, scanner, ignorecase=False, persist=Tr
         roots = {Path(os.fsdecode(prefix)): dirs for prefix, dirs in prefixes.items()}
         for path, target in check_links(links, roots, ignorecase):
             if target in blobs:
-                # The alias can impose a stronger content policy (e.g. a demo password).
+                # A JSON alias also needs the decoded JSON content check.
                 cache.media(blobs[target], path.relative_to(links[path][0]), scanner, ignorecase)
     finally:
         cache.close()

@@ -2,7 +2,7 @@
 """Store copy fields (limits, units, required flags), shared by validate-listing.sh
 and build-review.sh so the two never disagree. Source: specs/stores.json.
 
-CLI:    fields.py {apple|play|apple-app} <metadata-dir> [<fallback-dir>] --app-root <app-dir>
+CLI:    fields.py {apple|play|apple-app|apple-review} <metadata-dir> [<fallback-dir>] --app-root <app-dir>
 Prints one "LEVEL<TAB>message" line per field, LEVEL in PASS / WARN / FAIL. A field
 missing from the locale is read from <fallback-dir> (fastlane's metadata/default/).
 """
@@ -55,8 +55,10 @@ def measure(text, unit):
 
 
 def _fields(rules, store, directory):
-    yield from specs.fields(rules, "apple" if store == "apple-app" else store,
-                            "app" if store == "apple-app" else "locale")
+    scope = {"apple-app": "app", "apple-review": "review_information"}.get(store, "locale")
+    for field in specs.fields(rules, "play" if store == "play" else "apple", scope):
+        if field["unit"] != "credential":
+            yield field
     if store == "play" and "changelogs" in rules["stores"]["play"]:
         logs = rules["stores"]["play"]["changelogs"]
         for path in sorted((Path(directory) / "changelogs").glob("*.txt")):
@@ -100,6 +102,19 @@ def check(r):
         return "WARN", f"{stem}: " + (r["reason"] or "optional, absent")
     if not value.strip():
         return ("FAIL" if r["required"] else "WARN"), f"{stem}: file is empty ({r['path']})"
+    if r["unit"] == "email":
+        if not re.fullmatch(r"[^@.\s]+(?:\.[^@.\s]+)*@[^@.\s]+(?:\.[^@.\s]+)+", value):
+            return "FAIL", f"{stem}: invalid email address"
+    if r["unit"] == "phone":
+        if not re.fullmatch(r"\+?(?:[0-9]|\([0-9]+\))(?:[ .-]?(?:[0-9]|\([0-9]+\)))*", value):
+            return "FAIL", f"{stem}: invalid phone number"
+    if r["unit"] == "YouTube URL":
+        if is_url(value):
+            url = urlparse(value.strip())
+            host = url.hostname
+            if url.scheme == "https" and (host in ("youtube.com", "youtu.be") or host.endswith(".youtube.com")):
+                return "PASS", f"{stem}: HTTPS YouTube URL"
+        return "FAIL", f"{stem}: expected an HTTPS YouTube URL"
     if r["unit"] == "url":
         if is_url(value):
             return "PASS", f"{stem}: {value}"
@@ -120,7 +135,7 @@ def check(r):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("store", choices=("apple", "apple-app", "play"))
+    parser.add_argument("store", choices=("apple", "apple-app", "apple-review", "play"))
     parser.add_argument("metadata")
     parser.add_argument("fallback", nargs="?")
     parser.add_argument("--app-root", type=Path, required=True)

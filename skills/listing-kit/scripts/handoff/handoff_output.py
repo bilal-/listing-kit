@@ -144,9 +144,11 @@ def guide(plan):
     if plan.missing:
         yield "h2", "Missing"
         yield "ul", plan.missing
+    if plan.checklist:
+        yield "h2", "Console checklist"
+        yield "checklist", plan.checklist
     yield "h2", "Not included"
-    yield "ul", plan.omitted + ["Complete the review contact and demo account, age rating, privacy answers, "
-                                 "and pricing in the console. Upload the build separately."]
+    yield "ul", plan.omitted + ["Complete privacy answers and pricing in the console. Upload the build separately."]
 
 
 def indexes(plan):
@@ -164,6 +166,10 @@ def indexes(plan):
                 md.append("| %s | %s |" % tuple(map(markdown_cell, row)))
                 page.append("<tr><td><code>%s</code></td><td>%s</td></tr>" % tuple(map(html.escape, row)))
             page.append("</tbody></table>")
+        elif tag == "checklist":
+            for line in value:
+                md.append("- [ ] " + html.escape(line, quote=False))
+                page.append('<div><label><input type="checkbox"> ' + html.escape(line) + '</label></div>')
         elif tag == "ul":
             md.extend("- " + html.escape(line, quote=False) for line in value)
             page.append("<ul>" + "".join("<li>%s</li>" % html.escape(line) for line in value) + "</ul>")

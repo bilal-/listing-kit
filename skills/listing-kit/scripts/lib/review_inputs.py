@@ -14,13 +14,16 @@ import plan
 import specs
 from plan import PlanError, listing_roots
 from project_files import project_files
-from secret_scan import credential_file, file_secret, ignored_private_files, private_local, scan, sensitive_name, tracked
+from secret_scan import (
+    DEMO_GUIDANCE, credential_file, demo_credential, ignored_private_files,
+    private_local, scan, sensitive_name, tracked,
+)
 
 
 def exclusions(root, trees):
     ignored = ignored_private_files(root, *trees)
     unsafe = set()
-    passwords = set()
+    demo_files = set()
     for tree in trees:
         for directory, dirs, files in os.walk(root / tree):
             rel = Path(directory).relative_to(root)
@@ -28,21 +31,17 @@ def exclusions(root, trees):
                 path = rel / name
                 if path in ignored:
                     continue
-                if sensitive_name(path) or credential_file(path):
+                if demo_credential(path):
+                    demo_files.add(path)
+                elif sensitive_name(path) or credential_file(path):
                     unsafe.add(path)
-                elif name == "demo_password.txt":
-                    source = root / path
-                    resolved = source.resolve()
-                    if (source.is_file() and root in resolved.parents
-                            and any(root / t in resolved.parents for t in trees) and file_secret(source)):
-                        passwords.add(path)
                 elif private_local(path):
                     if tracked(root / path):
                         unsafe.add(path)
                     else:
                         ignored.add(path)
-            dirs[:] = [name for name in dirs if rel / name not in ignored and rel / name not in unsafe]
-    return ignored, unsafe, passwords
+            dirs[:] = [name for name in dirs if rel / name not in ignored and rel / name not in unsafe and rel / name not in demo_files]
+    return ignored, unsafe, demo_files
 
 
 def link_file(source, dest):
@@ -91,9 +90,9 @@ def prepare_view(view, trees, source, coverage_path, repo_root=None):
 def run(script, root, args):
     config = Path(".listing-kit")
     plan._inside(root, root / config)
-    ignored, unsafe, passwords = exclusions(root, [config])
+    ignored, unsafe, demo_files = exclusions(root, [config])
     if (root / config).exists():
-        status = set(scan(root / config, root, ignored | unsafe | passwords, [root], follow_root=True))
+        status = set(scan(root / config, root, ignored | unsafe | demo_files, [root], follow_root=True))
         if status:
             return (3 if 1 in status else 2) if Path(script).name == "build-review.sh" else 1
     resolved = plan.listing_trees(root)
@@ -101,11 +100,11 @@ def run(script, root, args):
     if Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved):
         print(f"No listing directories under: {root} (run Assemble first).", file=sys.stderr)
         return 2
-    ignored, unsafe, passwords = exclusions(root, trees)
+    ignored, unsafe, demo_files = exclusions(root, trees)
     cmd = ["bash", script, ".", "--prepared", *args]
     env = os.environ.copy()
     env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
-    if not (ignored or unsafe or passwords or any((root / tree).is_symlink() for tree in trees)):
+    if not (ignored or unsafe or demo_files or any((root / tree).is_symlink() for tree in trees)):
         return subprocess.call(cmd, cwd=root, env=env)
 
     # Only these trees and device declarations are consumed by listing tools.
@@ -113,7 +112,7 @@ def run(script, root, args):
     with tempfile.TemporaryDirectory() as tmp:
         view = Path(tmp) / "app"
         view.mkdir()
-        skip = ignored | unsafe | passwords
+        skip = ignored | unsafe | demo_files
         for tree in trees:
             if Path(tree) not in skip and (root / tree).is_dir():
                 shutil.copytree(root / tree, view / tree, symlinks=True, copy_function=link_file,
@@ -132,7 +131,8 @@ def run(script, root, args):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():
                 env.pop(key, None)
         env["LK_REVIEW_NAME_FAILURES"] = str(len(unsafe))
-        env["LK_REVIEW_DEMO_FAILURES"] = str(len(passwords))
+        names = sorted({p.name.lower() for p in demo_files})
+        env["LK_REVIEW_DEMO_MESSAGE"] = f"{', '.join(names)}: {DEMO_GUIDANCE}" if names else ""
         rc = subprocess.call(cmd, cwd=view, env=env)
         if rc == 0 and Path(script).name == "build-review.sh":
             shutil.copyfile(view / "listing-review.html", root / "listing-review.html")

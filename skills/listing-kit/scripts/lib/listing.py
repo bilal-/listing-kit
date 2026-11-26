@@ -44,7 +44,6 @@ def localized_files(rules):
 
 CONTACT_FILES = {"first_name.txt", "last_name.txt", "phone_number.txt", "email_address.txt"}
 SPECIAL_FILES = {
-    "review_information": CONTACT_FILES | {"demo_user.txt", "demo_password.txt", "notes.txt"},
     "trade_representative_contact_information": CONTACT_FILES | {
         "trade_name.txt", "address_line1.txt", "address_line2.txt", "address_line3.txt",
         "city_name.txt", "state.txt", "country.txt", "postal_code.txt",
@@ -101,6 +100,9 @@ def apple_default(meta, rules):
 def has_apple_app_metadata(meta, rules):
     """True if fastlane/metadata holds recognized deliver files at app level or in its special folders."""
     files = DELIVER_APP_FILES | {f["stem"] + ".txt" for f in specs.fields(rules, "apple", "app")}
+    review_files = [f["stem"] + ".txt" for f in specs.fields(rules, "apple", "review_information")]
+    if _has_files(os.path.join(meta, "review_information"), review_files):
+        return True
     return bool(apple_default(meta, rules)) or _has_files(meta, files) or any(
         _has_files(os.path.join(meta, folder), names) for folder, names in SPECIAL_FILES.items()
     )

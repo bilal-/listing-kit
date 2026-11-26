@@ -18,10 +18,12 @@ import sys
 
 if __package__:
     from . import json_input
+    from .secret_scan import DEMO_CREDENTIAL_FILES
 else:
     if __name__ == "__main__":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import json_input
+    from secret_scan import DEMO_CREDENTIAL_FILES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUNDLED = os.path.normpath(os.path.join(HERE, "..", "..", "specs", "stores.json"))
@@ -191,17 +193,22 @@ def check(data):
         if not _fields_ok(st, path, required_sections, {
             "label": _string, "screenshots": obj, "fields": array, "graphics": array,
             "nonLocaleFolders": _list_of(component), "locales": strings,
-            "changelogs": obj, "taglineDiscouraged": strings,
+            "changelogs": obj, "taglineDiscouraged": strings, "questionnaire": _string,
         }, problems):
             continue
         if "changelogs" in st:
             _fields_ok(st["changelogs"], path + ".changelogs", ("limit", "unit", "names"),
                        {"limit": _count, "unit": _string, "names": _string}, problems)
         if array(st.get("fields")):
-            _entries(st["fields"], path + ".fields", "stem", ("stem", "label", "scope", "unit", "required"), {
+            field_entries = _entries(st["fields"], path + ".fields", "stem", ("stem", "label", "scope", "unit", "required"), {
                 "stem": component, "label": _string, "unit": _string, "scope": _string, "min": _count,
                 "limit": _count, "required": _required, "note": _string, "values": _string,
             }, problems)
+            for field, entry in field_entries:
+                if (str(field.get("stem")).lower() + ".txt" in DEMO_CREDENTIAL_FILES
+                        and (store != "apple" or field.get("scope") != "review_information"
+                             or field.get("unit") != "credential")):
+                    problems.append(("ERROR", entry, "demo credentials must stay outside the repo"))
         if array(st.get("graphics")):
             _entries(st["graphics"], path + ".graphics", "id", ("id", "label", "size", "formats", "file", "upload", "required"), {
                 "id": component, "file": component, "size": _size, "label": _string, "formats": strings, "grayscaleJpeg": lambda v: type(v) is bool,

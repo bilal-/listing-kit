@@ -200,9 +200,9 @@ rm "$leak"
 mkdir -p "$T/fastlane/metadata/review_information"
 echo abc > "$T/fastlane/metadata/review_information/demo_password.txt"
 OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?"
-assert_contains "$OUT" 'environment at upload'
+assert_contains "$OUT" 'App Store Connect'
 OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
-assert_contains "$(cat "$T/listing-review.html")" 'environment at upload'
+assert_contains "$(cat "$T/listing-review.html")" 'App Store Connect'
 it "reports the real app root when a private file requires a filtered copy"
 new_tempdir T
 new_tempdir scratch

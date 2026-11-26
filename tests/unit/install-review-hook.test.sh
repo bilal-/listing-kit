@@ -578,28 +578,24 @@ git -C "$T" add app.json
 OUT="$(git -C "$T" commit -qm changed 2>&1)"; assert_ne 0 "$?"
 assert_contains "$OUT" app.json
 
-it "keeps whitespace-only demo passwords and explains how to supply real ones"
+it "blocks staged demo credential names, including empty files and symlinks"
 make_app demo
 d="$T/fastlane/metadata/review_information"
 mkdir -p "$d"
-printf '  \t\n' > "$d/demo_password.txt"
 bash "$SUT" "$T" >/dev/null
-git -C "$T" add fastlane && git -C "$T" commit -qm empty || fail "blocked blank demo password"
-echo abc > "$d/demo_password.txt"
-git -C "$T" add fastlane
-OUT="$(git -C "$T" commit -qm demo 2>&1)"; assert_ne 0 "$?"
-assert_contains "$OUT" "environment at upload"
-
-it "checks the contents of an internal demo-password symlink"
-git -C "$T" reset -q HEAD
-echo private-demo > "$d/demo-account"
-rm "$d/demo_password.txt"
-ln -s demo-account "$d/demo_password.txt"
-git -C "$T" add fastlane
-OUT="$(git -C "$T" commit -qm link-demo 2>&1)"; assert_ne 0 "$?"
-assert_contains "$OUT" "environment at upload"
-OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"
-assert_contains "$OUT" "environment at upload"
+for name in demo_user demo_password; do
+  printf ' \t\n' > "$d/$name.txt"
+  git -C "$T" add fastlane
+  OUT="$(git -C "$T" commit -qm demo 2>&1)"; assert_ne 0 "$?"
+  assert_contains "$OUT" "App Store Connect"
+  rm "$d/$name.txt"
+  echo private-demo > "$d/demo-account"
+  ln -s demo-account "$d/$name.txt"
+  git -C "$T" add fastlane
+  OUT="$(git -C "$T" commit -qm link-demo 2>&1)"; assert_ne 0 "$?"
+  assert_contains "$OUT" "outside the repo"
+  rm "$d/$name.txt"
+done
 
 it "keeps the registered app directory above the staged path scan root"
 make_app "ancestor test"

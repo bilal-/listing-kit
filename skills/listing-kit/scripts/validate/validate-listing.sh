@@ -41,8 +41,8 @@ warn(){ WARN=$((WARN+1)); printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 if [ "${LK_REVIEW_NAME_FAILURES:-0}" -gt 0 ]; then
   fail "POTENTIAL SECRET in listing filename: [redacted path] ($LK_REVIEW_NAME_FAILURES excluded)"
 fi
-if [ "${LK_REVIEW_DEMO_FAILURES:-0}" -gt 0 ]; then
-  fail "demo_password.txt: keep the demo password out of the repo; supply it via the environment at upload"
+if [ -n "${LK_REVIEW_DEMO_MESSAGE:-}" ]; then
+  fail "$LK_REVIEW_DEMO_MESSAGE"
 fi
 scan_rc=0
 bash "$LIB/secret-scan.sh" --prepared-listing "$ROOT" || scan_rc=$?
