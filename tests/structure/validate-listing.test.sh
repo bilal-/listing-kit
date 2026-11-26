@@ -2,7 +2,9 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/validate/validate-listing.sh"
-# Keep historical example captures unchanged; add a synthetic medium-size test fixture.
+# FIXTURE, not the example as shipped: a copy plus a synthetic medium-size iPhone
+# screenshot, so these tests have a valid tree to mutate. The example as committed is
+# checked without any addition in tests/structure/examples.test.sh.
 APP="$(mktemp -d)"
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
 fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
