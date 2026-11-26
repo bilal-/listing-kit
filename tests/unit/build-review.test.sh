@@ -257,7 +257,10 @@ assert_not_contains "$PAGE" 'id="p-empty"'
 rm -rf "$T"
 
 it "shows escaped crash output and accepts only matching terminal verdicts"
-new_tempdir SHIM
+new_tempdir SHIM_ROOT
+SHIM="$SHIM_ROOT/scripts"
+mkdir -p "$SHIM"
+cp -R "$SKILL_DIR/specs" "$SHIM_ROOT/"
 cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
 mkdir -p "$SHIM/validate"
 new_tempdir T; mkdir -p "$T/fastlane"
@@ -275,7 +278,7 @@ for spec in '1|LISTING HAS FAILURES' '0|LISTING VALID'; do
   assert_eq 0 "$RC" "accept matching terminal verdict $spec"
   assert_not_contains "$(cat "$T/listing-review.html")" 'validator crashed'
 done
-rm -rf "$T" "$SHIM"
+remove_fixture "$T" "$SHIM_ROOT"
 
 it "renders Apple review panels when only metadata/default/ or app-level copy is present"
 new_tempdir T; mkdir -p "$T/fastlane/metadata/default"

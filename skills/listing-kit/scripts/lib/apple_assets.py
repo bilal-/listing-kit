@@ -11,12 +11,15 @@ import os
 import re
 import sys
 from collections import Counter
+from pathlib import Path
 
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from imginfo import APPLE_SIZES, apple_class, image_info, validate_many
-from listing import apple_locales as listing_apple_locales, has_apple_app_metadata, images
+import specs
+from imginfo import APPLE_SIZES, EXTENSIONS, apple_class, image_info, validate_many
+from listing import (apple_locales as listing_apple_locales, apple_screenshot_dirs,
+                     has_apple_app_metadata, images, manual_screenshots)
 
 HEADER_SIZES = {(5244, 2950), (3840, 1646)}
 
@@ -25,12 +28,15 @@ def header_dir(root, locale):
     return os.path.join(root, "store-assets", "apple", locale)
 
 
+def header_files(root, locale):
+    return sorted(p for p in Path(header_dir(root, locale)).glob("*")
+                  if not p.name.startswith(".") and p.is_file() and p.suffix.lower() in EXTENSIONS + (".mov", ".mp4"))
+
+
 def header_locales(root):
-    base = os.path.join(root, "store-assets", "apple")
-    if not os.path.isdir(base):
-        return []
-    return sorted(n for n in os.listdir(base)
-                  if not n.startswith(".") and images(os.path.join(base, n)))
+    base = Path(root, "store-assets", "apple")
+    return sorted(p.name for p in base.glob("*") if not p.name.startswith(".") and p.is_dir()
+                  and (header_files(root, p.name) or any(manual_screenshots(root, "apple", p.name))))
 
 
 def load_plan(root):
@@ -67,25 +73,48 @@ def load_plan(root):
     return plan["apple"]
 
 
-def apple_locales(root):
+def is_deferred(path, deferred):
+    return bool(deferred) and apple_class(*image_info(path)[:2]) in deferred
+
+
+def active_screenshots(root, locale, deferred, data=None, nonempty=os.path.getsize):
+    """Yield (deliver platform folder, path) after deliver's framing and plan filters."""
+    for platform, directory in apple_screenshot_dirs(os.path.join(root, "fastlane"), locale):
+        paths = [p for p in images(directory) if nonempty(p)]
+        framed = any(Path(p).stem.lower().endswith("_framed") for p in paths)
+        for path in paths:
+            name = Path(path).stem.lower()
+            if framed and not name.endswith("_framed"):
+                # Deliver uses the name, while hand upload uses the Watch console slot.
+                watch = ("watch" in name if data is None else
+                         any(s["id"] == "watch" for s in specs.apple_slots_for_size(data, *image_info(path)[:2])))
+                if not watch:
+                    continue
+            if is_deferred(path, deferred):
+                continue
+            yield platform, path
+
+
+def apple_locales(root, data=None, plan=None):
     """Metadata paths for every locale visible in the Apple asset preview."""
-    try:
-        planned = set(load_plan(root))
-    except (OSError, ValueError):
-        planned = set()  # validate() reports malformed plans separately.
+    if plan is None:
+        try:
+            plan = load_plan(root)
+        except (OSError, ValueError):
+            plan = {}  # validate() reports malformed plans separately.
     fastlane = os.path.join(root, "fastlane")
-    return sorted(set(listing_apple_locales(fastlane)) | {
-        os.path.join(fastlane, "metadata", locale)
-        for locale in set(header_locales(root)) | planned
-    })
+    meta = os.path.join(fastlane, "metadata")
+    locales = set(listing_apple_locales(fastlane, data))
+    locales.update(os.path.join(meta, loc) for loc in set(header_locales(root)) | set(plan))
+    return sorted(locales)
 
 
-def has_apple_listing(root):
+def has_apple_listing(root, locales=None, data=None):
     """True when root has recognized Apple deliver metadata, screenshots, headers, or plan."""
     fastlane = os.path.join(root, "fastlane")
     return bool(
-        apple_locales(root)
-        or has_apple_app_metadata(fastlane)
+        (apple_locales(root, data) if locales is None else locales)
+        or has_apple_app_metadata(fastlane, data)
         or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
     )
 

@@ -293,7 +293,10 @@ def load(app_root=None, path=None):
             if not isinstance(extra, dict):
                 raise SpecsError("%s must be a JSON object" % opath)
             data = _merge(data, extra)
-            _ensure_valid(data)
+            try:
+                _ensure_valid(data)
+            except SpecsError as e:
+                raise SpecsError(f"{opath}: {e}") from e
             data["_override"] = opath
     return data
 
@@ -314,7 +317,7 @@ def _norm(w, h):
 
 
 def apple_slots_for_size(data, w, h):
-    """Every Apple slot accepting this size in either orientation (2048x2732 has two)."""
+    """Every Apple slot accepting this size in either orientation (some sizes are shared)."""
     want = _norm(w, h)
     out = []
     for s in slots(data, "apple"):
@@ -334,6 +337,7 @@ def apple_slot_for_size(data, w, h):
 def apple_slot_for_file(data, w, h, path=""):
     """The slot for a screenshot file, resolving shared sizes the way fastlane deliver does
     (deliver/lib/deliver/app_screenshot.rb, 2.242.0):     3840x2160 uses the vision marker outside an appleTV directory.
+    An explicit 12.9-inch suffix selects the legacy slot for shared iPad sizes.
     """
     found = apple_slots_for_size(data, w, h)
     if len(found) < 2:
@@ -342,6 +346,12 @@ def apple_slot_for_file(data, w, h, path=""):
     ids = {s["id"]: s for s in found}
     if "vision-pro" in ids and "vision" in low and "appletv" not in low.split("/")[:-1]:
         return ids["vision-pro"]
+    if "ipad-12-9" in ids:
+        stem = os.path.splitext(os.path.basename(low))[0]
+        # Existing handoff files use the dotted display size. Plan suffixes are identifiers.
+        suffix = ids["ipad-12-9"].get("suffix", "ipad-12-9")
+        if re.search(r"(?:^|[-_ ])(?:" + re.escape(suffix) + r"|ipad-12\.9)(?:_framed)?$", stem):
+            return ids["ipad-12-9"]
     return found[0]
 
 

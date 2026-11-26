@@ -50,12 +50,16 @@ cat > "$STUB_BIN/adb" <<'EOF'
 echo "adb $*" >> "$(dirname "$0")/.calls"
 case "$*" in
   *"getprop ro.kernel.qemu"*) echo 1;;
-  *"dumpsys notification"*) echo "NotificationRecord(0x1: pkg=android user=UserHandle{0} id=7 tag=null importance=2 key=0|android|7|null|1000: Notification(x)";;
+  *"dumpsys notification"*) echo "NotificationRecord(0x1: pkg=android user=UserHandle{0} id=7 tag=null importance=2 key=0|android|7|null|1000: Notification(x)"
+    echo "NotificationRecord(0x2: key=second: Notification(y)";;
+  *"cmd notification snooze"*) cat >/dev/null;;
 esac
 EOF
 chmod +x "$STUB_BIN/adb"
 PATH="$STUB_BIN:$PATH" bash "$SUT" android >/dev/null 2>&1
 assert_contains "$(stub_log)" "cmd notification snooze --for 3600000 '0|android|7|null|1000'"
+
+assert_contains "$(stub_log)" "cmd notification snooze --for 3600000 'second'"
 
 it "android: leaves a physical device's notifications alone"
 new_stubdir; stub adb

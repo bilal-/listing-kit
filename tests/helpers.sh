@@ -30,7 +30,9 @@ else
 fi
 export HOME="$SUITE_ROOT/home"
 mkdir -p "$HOME" || exit 1
-export TMPDIR="$SUITE_ROOT" GIT_CEILING_DIRECTORIES="$SUITE_ROOT"
+# Git ignores a ceiling equal to its starting directory. Scans that start
+# at the suite root also need a ceiling one level above it.
+export TMPDIR="$SUITE_ROOT" GIT_CEILING_DIRECTORIES="$SUITE_ROOT:${SUITE_ROOT%/*}"
 
 HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HELPER_DIR/.." && pwd)"
