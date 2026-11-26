@@ -67,8 +67,8 @@ Verified 2026-11-26 · [Store reference 1](https://support.google.com/googleplay
 - Contact details (email required)
 
 ## fastlane `supply` mapping
-See `../metadata/fastlane-layout.md`. Text fields are `.txt` files under
-`fastlane/metadata/android/<locale>/`; images live under that locale's
+Run `listing-kit detect <app-root>`. Text fields are `.txt` files under
+`<play.metadata>/<locale>/`; images live under that locale's
 `images/` subtree: screenshot folders (`phoneScreenshots/`, `sevenInchScreenshots/`,
 `tenInchScreenshots/`, `tvScreenshots/`, `wearScreenshots/`) plus single files
 `featureGraphic.png`, `icon.png`, and optional `tvBanner.png` directly in `images/`

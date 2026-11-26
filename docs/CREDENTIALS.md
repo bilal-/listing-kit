@@ -23,6 +23,8 @@ The fields belong inside a JSON object named `fastlane`. Store only paths there.
 
 For a demo login used during capture, have the user export a `MAESTRO_` variable in their shell or source it from git-ignored `.listing-kit/secrets.local`. Use the variable reference in the YAML. [Maestro flow example](../skills/listing-kit/references/driving/maestro.md#write-a-flow)
 
+To scan the selected app’s resolved listing directories, run the installed skill’s `scripts/lib/secret-scan.sh --listing <app-root>`.
+
 ## CI use
 
 Enter credentials yourself using the provider’s secure settings. Scope `APP_STORE_CONNECT_API_KEY_JSON` to `store-listing-apple` and `PLAY_SERVICE_ACCOUNT_JSON` to `store-listing-play`. On GitHub, store the complete JSON as an environment secret. On GitLab, use protected **File** variables with variable expansion disabled. The job prepares a private file for the selected store and gives fastlane its path. [CI setup and approvals](CI.md).

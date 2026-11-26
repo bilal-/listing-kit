@@ -304,14 +304,26 @@ if amending; then
   base+=("$parent")
 fi
 if [ "$(git config --bool core.ignorecase)" = true ]; then shopt -s nocasematch; fi
+# An indexed plan may select arbitrary directories. Forward its app's changes
+# to the Python runner, which checks exact resolved roots against the same index.
+planned=()
+for app in "${apps[@]}"; do
+  prefix="${app:+$app/}"
+  if git ls-files --error-unmatch -- ":(icase,literal)${prefix}.listing-kit/listing.json" >/dev/null 2>&1; then
+    planned+=("$prefix")
+  fi
+done
 git diff --cached --name-only --no-renames -z "${base[@]}" -- | (
   found=1
   while IFS= read -r -d '' path; do
+    for prefix in ${planned[@]+"${planned[@]}"}; do
+      case "$path" in "$prefix"*) found=0 ;; esac
+    done
     for app in "${apps[@]}"; do
       prefix="${app:+$app/}"
       case "$path" in "$prefix"*) rel="${path:${#prefix}}" ;; *) continue ;; esac
       case "$rel" in
-        fastlane/*|store-assets/*|.listing-kit/*|app.json) found=0 ;;
+        fastlane|fastlane/*|ios/fastlane|ios/fastlane/*|android/fastlane|android/fastlane/*|store-assets/*|.listing-kit/*|app.json) found=0 ;;
         *.pbxproj|Info.plist|*/Info.plist|AndroidManifest.xml|*/AndroidManifest.xml|build.gradle|*/build.gradle|build.gradle.kts|*/build.gradle.kts)
           case "/$rel/" in
 RUN

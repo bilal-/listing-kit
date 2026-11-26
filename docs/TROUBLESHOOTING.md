@@ -17,7 +17,7 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 | `listing-kit compose`: `was not written by listing-kit` | Inspect the destination. Move it aside to preserve it. Use `listing-kit compose --adopt` only after approving its replacement. |
 | `listing-kit compose`: `existing file(s) would be restyled` | Review the affected paths and design. Use `listing-kit compose --restyle` to accept the redraw. |
 | `listing-kit validate`: `ImageMagick not available: images were checked structurally only` | Install ImageMagick and rerun validation for full image checks. |
-| `listing-kit review`: `No fastlane/ tree under:` | Check the app root and create the conventional listing tree. For split roots, see the [layout reference](../skills/listing-kit/references/metadata/fastlane-layout.md#store-management). |
+| `listing-kit review`: `No listing directories under:` | Run `listing-kit detect` in the intended app. Place listing files in the Apple and Play paths it prints. See [directory selection](../skills/listing-kit/references/metadata/fastlane-layout.md#choosing-the-app-and-fastlane-directories). |
 | `listing-kit handoff`: `contains unexpected or modified entries` | Save your changes outside the generated upload directory. Apply intended edits to the source listing, move the modified directory aside and rebuild. |
 | `listing-kit fastlane setup`: `Credential is inside the repository` | Move the key outside the whole repository and supply only its new path. [Credential storage](CREDENTIALS.md) |
 | `listing-kit publish`: `Missing planned screenshot:` | Restore or compose the named active output and rerun validation. |

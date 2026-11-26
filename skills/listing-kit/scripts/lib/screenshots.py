@@ -18,16 +18,16 @@ class Shot(NamedTuple):
     manual: bool = False
 
 
-def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize):
+def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize, tree=None):
     root = Path(root)
-    fastlane = root / "fastlane"
+    tree = tree if tree is not None else listing.paths(root)[store]
     if store == "apple":
-        for platform, directory in listing.apple_screenshot_dirs(fastlane, locale, rules):
+        for platform, directory in listing.apple_screenshot_dirs(tree["screenshots"], locale, rules):
             paths = [Path(p) for p in listing.images(directory) if nonempty(p)]
             framed = any(p.stem.lower().endswith("_framed") for p in paths)
             for path in paths:
                 size = imginfo.image_info(path)[:2]
-                relative = path.relative_to(fastlane / "screenshots")
+                relative = path.relative_to(tree["screenshots"])
                 slot = specs.apple_slot_for_file(rules, *size, str(relative))
                 if framed and not path.stem.lower().endswith("_framed") and not (slot and slot["id"] == "watch"):
                     continue
@@ -38,14 +38,14 @@ def active(root, store, locale, rules, deferred=(), nonempty=os.path.getsize):
                     error = "{}: {}x{} is not an App Store screenshot size for this folder".format(path.name, *size)
                 yield Shot(path, "iMessage" if platform == "iMessage" else "", slot, size, error)
     else:
-        directory = fastlane / "metadata/android" / locale / "images"
+        directory = tree["metadata"] / locale / "images"
         for slot in specs.slots(rules, store):
             if slot.get("folder"):
                 for name in listing.images(directory / slot["folder"]):
                     if nonempty(name):
                         yield Shot(Path(name), "", slot, imginfo.image_info(name)[:2])
 
-    directory = root / "store-assets" / store / locale / "screenshots"
+    directory = tree["storeAssets"] / locale / "screenshots"
     if directory.is_dir():
         for folder in sorted(directory.iterdir()):
             if not folder.is_dir() or folder.name.startswith("."):

@@ -214,7 +214,8 @@ class Store:
         return ["--package_name", self.app, "--json_key", str(self.key), "--track", self.track]
 
     def tool(self):
-        for parent in (self.trees["fastlaneDir"], self.root):
+        directory = self.trees["fastlaneDir"]
+        for parent in (directory, directory.parent, self.root):
             gemfile = parent / "Gemfile"
             if gemfile.is_file() and re.search(r"(?m)^[^#\n]*\bfastlane\b", gemfile.read_text()):
                 return ["bundle", "exec", "fastlane"], gemfile
@@ -273,7 +274,7 @@ def selected(args, root, rules):
                                              (flag, supplied, ids.get(name), name))
         active = {t["store"] for t in plan.targets(data)}
     else:
-        trees = plan._trees({})
+        trees = plan._trees({}, root)
         ids = {"apple": args.app_identifier, "play": args.package_name}
         meta = root / trees["apple"]["metadata"]
         active = set()

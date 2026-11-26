@@ -72,12 +72,12 @@ def byte_limit(path, rule):
         yield "FAIL", f'{path.name}: exceeds {rule["maxBytes"]} bytes'
 
 
-def apple_shots(root, locale, rules, requirements, deferred=()):
+def apple_shots(root, locale, rules, requirements, deferred=(), tree=None):
     counts = Counter()
     message_counts = Counter()
     base = rules["stores"]["apple"]["screenshots"]
     selected = []
-    for shot in screenshots.active(root, "apple", locale, rules, deferred):
+    for shot in screenshots.active(root, "apple", locale, rules, deferred, tree=tree):
         if shot.manual and shot.error:
             yield "FAIL", shot.error
         else:
@@ -123,10 +123,10 @@ def promoted(rule, w, h):
             and specs.ratio_matches(w, h, rule["ratios"]))
 
 
-def play_shots(root, locale, rules, requirements):
+def play_shots(root, locale, rules, requirements, tree=None):
     shots = rules["stores"]["play"]["screenshots"]
     groups = {}
-    for shot in screenshots.active(root, "play", locale, rules):
+    for shot in screenshots.active(root, "play", locale, rules, tree=tree):
         if shot.error:
             yield "FAIL", shot.error
         else:
@@ -214,16 +214,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     rules = specs.load(args.root)
     requirements = detect.Requirements(args.root, rules)
-    directory = args.root / "fastlane"
+    tree = listing.paths(args.root)[args.store]
     if args.store == "apple":
         deferred = apple_assets.load_plan(args.root, rules).get(args.locale, {}).get("deferredScreenshots", {})
-        rows = apple_shots(args.root, args.locale, rules, requirements, apple_assets.deferred_slots(rules, deferred))
+        rows = apple_shots(args.root, args.locale, rules, requirements, apple_assets.deferred_slots(rules, deferred), tree)
     else:
-        images = directory / "metadata" / "android" / args.locale / "images"
+        images = tree["metadata"] / args.locale / "images"
         if args.graphic:
             graphic = next(g for g in rules["stores"]["play"]["graphics"] if g["id"] == args.graphic)
             rows = play_graphic(images, graphic, requirements)
         else:
-            rows = play_shots(args.root, args.locale, rules, requirements)
+            rows = play_shots(args.root, args.locale, rules, requirements, tree)
     for level, message in rows:
         print(level, message, sep="\t")

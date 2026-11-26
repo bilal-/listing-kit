@@ -5,9 +5,7 @@ name: Store listing
 on:
   pull_request:
     paths:
-      - '__APP_PREFIX__fastlane/**'
-      - '__APP_PREFIX__store-assets/**'
-      - '__APP_PREFIX__.listing-kit/**'
+__LISTING_FILTERS__
   workflow_dispatch:
     inputs:
       store:

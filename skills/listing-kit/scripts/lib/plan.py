@@ -11,14 +11,16 @@ from functools import partial
 import json
 import os
 from pathlib import Path
+import io
 import re
 import sys
 import unicodedata
 
 if __package__:
-    from . import json_input, specs, template_values
+    from . import json_input, layout, specs, template_values
 else:
     import json_input
+    import layout
     import specs
     import template_values
 
@@ -130,12 +132,14 @@ def _style(base, *layers):
     return result
 
 
-def _trees(data):
+def _trees(data, app_root):
     trees = data.get("trees", {})
+    if "trees" not in data:
+        layout.project(app_root)
     result = {}
     for store in ("apple", "play"):
         config = trees.get(store, {})
-        fastlane = Path(config.get("fastlaneDir", "fastlane"))
+        fastlane = Path(config["fastlaneDir"]) if "fastlaneDir" in config else layout.fastlane_dir(app_root, store)
         metadata = Path(config.get("metadata", fastlane / ("metadata" if store == "apple" else "metadata/android")))
         result[store] = dict(fastlaneDir=fastlane, metadata=metadata,
                              storeAssets=Path(trees.get("storeAssets", "store-assets")) / store,
@@ -154,7 +158,8 @@ def _repo_root(app_root):
 def _inside(base, candidate):
     """Resolve existing symlinks, including those in a path that doesn't yet exist."""
     resolved = candidate.resolve()
-    resolved.relative_to(base)
+    if resolved != base and base not in resolved.parents:
+        raise ValueError("symlink or path leaves the selected root")
     if resolved == base:
         raise ValueError("expected a path below %s" % base)
     return resolved
@@ -258,7 +263,7 @@ class _Checker:
             self.error(path, "expected an object")
             return False
         for key in sorted(value.keys() - fields.keys()):
-            self.error(_key(path, key), "unknown key %r" % key + _suggest(key, fields))
+            self.error(path or "$", "unknown key" + _suggest(key, fields))
         # Declaration order establishes locales and target ids before checking references.
         for key, field in fields.items():
             child = _key(path, key)
@@ -361,10 +366,10 @@ class _Checker:
             self.error(path, "expected an object keyed by locale")
             return
         for locale, copy in value.items():
-            child = _key(path, locale)
             if locale not in self.locales:
-                self.error(child, "unknown locale %r" % locale + _suggest(locale, self.locales))
-            self.visit(copy, child, str)
+                self.error(path, "unknown locale key" + _suggest(locale, self.locales))
+                continue
+            self.visit(copy, _key(path, locale), str)
 
     def fonts(self, value, path):
         if not isinstance(value, dict):
@@ -372,7 +377,8 @@ class _Checker:
             return
         for name, profile in value.items():
             if name != "default" and name not in self.locales:
-                self.error(_key(path, name), f"unknown locale {name!r}")
+                self.error(path, "unknown locale key")
+                continue
             self.obj(profile, _key(path, name), self.font_roles)
 
     def identifier(self, value, path, seen):
@@ -432,10 +438,10 @@ class _Checker:
             self.error(path, "expected an object keyed by target id")
             return
         for target, flow in value.items():
-            child = _key(path, target)
-            if target not in ("apple", "play"):
-                self.target_ref(target, child)
-            self.flow(flow, child)
+            if target not in ("apple", "play") and target not in self.target_ids:
+                self.error(path, "unknown target key" + _suggest(target, self.target_ids))
+                continue
+            self.flow(flow, _key(path, target))
 
     def row(self, value, path):
         self.obj(value, path, dict(label=self.localized, text=self.localized), ("label", "text"))
@@ -485,7 +491,8 @@ class _Checker:
             return
         for name, flag in value.items():
             if name not in self.rules.get("conditions", {}):
-                self.error(_key(path, name), f"unknown condition {name!r}")
+                self.error(path, "unknown condition key")
+                continue
             self.visit(flag, _key(path, name), bool)
 
     def console(self, value, path):
@@ -667,7 +674,7 @@ class _Checker:
                                **self.render_fields(graphic, f"graphics.{store}.{name}", loc, style, rule))
 
     def destinations(self, data):
-        trees = _trees(data)
+        trees = _trees(data, self.app_root)
         rows = list(self.output_records(data, trees))
         planned = [(j["rawPath"], j["targetId"] + "/" + j["screenId"]) for j in self.captures.values()]
         for r in rows:
@@ -846,11 +853,22 @@ def _print(message, stream):
     print(str(message).encode(encoding, "backslashreplace").decode(encoding), file=stream)
 
 
+def read_listing(root):
+    from secret_scan import secret_content
+
+    path = _destination(root, LISTING)
+    raw = path.read_bytes()
+    if secret_content(path, raw):
+        raise ValueError("POTENTIAL SECRET in .listing-kit/listing.json")
+    return json_input.read(io.StringIO(raw.decode("utf-8")))
+
+
 def _read(app_root, purpose=None, capture_filter=None):
     try:
         root = Path(app_root).resolve()
-        with _destination(root, LISTING).open(encoding="utf-8") as f:
-            data = json_input.read(f)
+        if not (root / LISTING).exists():
+            layout.project(root)
+        data = read_listing(root)
         rules = specs.load(root)
     except FileNotFoundError:
         raise
@@ -862,6 +880,42 @@ def _read(app_root, purpose=None, capture_filter=None):
 def load(app_root):
     """Return the validated plan. Raise FileNotFoundError or PlanError on failure."""
     return _read(app_root)[0]
+
+
+def listing_trees(app_root):
+    """Resolve app-relative input directories for a planned or manual listing."""
+    root = Path(app_root).resolve()
+    try:
+        data = read_listing(root)
+    except FileNotFoundError:
+        data = {}
+    except ValueError as exc:
+        raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
+    if not isinstance(data, dict):
+        raise PlanError([("ERROR", str(LISTING), "expected an object")])
+    if "trees" in data:
+        checker = _Checker({}, root, None)
+        checker.visit(data["trees"], "trees", checker.trees)
+        if checker.problems or checker.tree_errors:
+            raise PlanError(checker.problems + checker.tree_errors)
+    return _trees(data, root)
+
+
+def has_listing_directory(root, trees):
+    """Check the actual listing destinations, including ones beneath .listing-kit."""
+    return any((root / path).is_dir() for tree in trees.values() for path in tree.values())
+
+
+def listing_roots(root, trees=None):
+    """Minimal non-overlapping roots for private-file filtering and secret scans."""
+    roots = {Path(".listing-kit")}
+    for tree in (listing_trees(root) if trees is None else trees).values():
+        roots.update((tree["fastlaneDir"], tree["metadata"], tree["screenshots"], tree["storeAssets"].parent))
+    directories = sorted(p for p in roots if roots.isdisjoint(p.parents))
+    base = Path(root).resolve()
+    for directory in directories:
+        _inside(base, base / directory)
+    return directories
 
 
 def load_manifest(app_root, purpose=None, capture_filter=None):

@@ -2,19 +2,68 @@
 
 Resolve these paths from the app root. In a monorepo, each mobile app can have its own listing. Use UTF-8 text, lower-case image extensions and numbered screenshot filenames to keep gallery order.
 
-| Content | Default source path |
-| --- | --- |
-| Apple app-wide fields | `fastlane/metadata/copyright.txt`, `primary_category.txt` and `secondary_category.txt` in the same directory |
-| Apple localized copy | `fastlane/metadata/<locale>/<field>.txt`, including `name.txt`, `subtitle.txt`, `description.txt`, `keywords.txt` and the URL fields |
-| Apple fastlane screenshots | `fastlane/screenshots/<locale>/`, with a slot subfolder where the rules specify one |
-| Apple headers | `store-assets/apple/<locale>/` |
-| Play localized copy | `fastlane/metadata/android/<locale>/title.txt`, `short_description.txt`, `full_description.txt` |
-| Play release notes | `fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt` or `default.txt` |
-| Play fastlane screenshots | `fastlane/metadata/android/<locale>/images/<slot folder>/`, for example `phoneScreenshots/` |
-| Play graphics | `icon.png`, `featureGraphic.png` and any `tvBanner` file directly under the locale's `images/` |
-| Console screenshot targets | `store-assets/<store>/<store code>/screenshots/<slot id>/` |
+## Choosing the app and fastlane directories
 
-Use the [Apple](../stores/apple-app-store.md) and [Play](../stores/google-play.md) tables for the full field lists, slot folders and routes. Apple localized fields can inherit from `metadata/default/`.
+Run `listing-kit detect <app-root>` before reading or writing a listing. It prints
+app-relative `fastlaneDir`, `metadata`, `screenshots`, and `storeAssets` paths
+for each store. If the root has no listing content or explicit `trees` and detect finds child
+apps, select one of the reported candidates and run detect there. To keep the
+listing at the workspace root, set `trees` in its plan.
+
+The fastlane directories below are relative to the selected app. A dash means
+the platform is absent or the app still needs to be selected.
+
+| Layout | App directory | Stores or candidates | Apple fastlane directory | Play fastlane directory |
+| --- | --- | --- | --- | --- |
+| expo-managed | . | apple play | fastlane | fastlane |
+| expo-prebuild | . | apple play | fastlane | fastlane |
+| react-native-bare | . | apple play | ios/fastlane | android/fastlane |
+| flutter | . | apple play | fastlane | fastlane |
+| native-ios | . | apple | fastlane | — |
+| native-android | . | play | — | fastlane |
+| monorepo-siblings | workspace root | choose apps/android apps/ios | — | — |
+| monorepo-siblings | apps/ios | apple | fastlane | — |
+| monorepo-siblings | apps/android | play | — | fastlane |
+| monorepo-js | workspace root | choose apps/mobile | — | — |
+| monorepo-js | apps/mobile | apple play | fastlane | fastlane |
+| existing-root-fastlane | . | apple play | fastlane | fastlane |
+| root-listing-build-ios | . | apple play | fastlane | fastlane |
+| android-lanes-only | . | apple play | fastlane | android/fastlane |
+| duplicate-apple | . | choose Apple trees | — | — |
+
+The selected app's `.listing-kit/listing.json` can specify individual paths in
+`trees`. Explicit paths take precedence, including at a workspace root. For
+each remaining fastlane directory, compare `fastlane` with `ios/fastlane`
+for Apple or `android/fastlane` for Play.
+
+| Evidence for this store | Directory selected |
+| --- | --- |
+| Listing text or screenshots in one candidate | The directory containing the files |
+| Listing content in both candidates | Stop and set `trees.apple.fastlaneDir` or `trees.play.fastlaneDir` |
+| Neither has content for this store, root has listing content for the other store | `fastlane` |
+| Neither has content, root has a Fastfile | `fastlane` |
+| Neither has content, only the native candidate has a Fastfile | That store's native fastlane directory |
+| Neither has content or a Fastfile | `fastlane` |
+
+Run project fastlane lanes from the directory containing the selected
+`fastlane/`, such as `ios/` for a split Apple tree. The kit's setup, pull and
+publish commands look for a fastlane Gemfile in the selected fastlane
+directory, its parent and the app root, in that order. They invoke deliver and
+supply from a clean temporary directory with explicit paths.
+
+| Content | Resolved source path |
+| --- | --- |
+| Apple app-wide fields | `<apple.metadata>/copyright.txt`, `primary_category.txt` and `secondary_category.txt` in the same directory |
+| Apple localized copy | `<apple.metadata>/<locale>/<field>.txt`, including `name.txt`, `subtitle.txt`, `description.txt`, `keywords.txt` and the URL fields |
+| Apple fastlane screenshots | `<apple.screenshots>/<locale>/`, with a slot subfolder where the rules specify one |
+| Apple headers | `<apple.storeAssets>/<locale>/` |
+| Play localized copy | `<play.metadata>/<locale>/title.txt`, `short_description.txt`, `full_description.txt` |
+| Play release notes | `<play.metadata>/<locale>/changelogs/<versionCode>.txt` or `default.txt` |
+| Play fastlane screenshots | `<play.metadata>/<locale>/images/<slot folder>/`, for example `phoneScreenshots/` |
+| Play graphics | `icon.png`, `featureGraphic.png` and any `tvBanner` file directly under the locale's `images/` |
+| Console screenshot targets | `<store.storeAssets>/<store code>/screenshots/<slot id>/` |
+
+Use the [Apple](../stores/apple-app-store.md) and [Play](../stores/google-play.md) tables for the full field lists, slot folders and routes. Apple localized fields can inherit from `<apple.metadata>/default/`.
 
 ## Split fastlane roots
 
@@ -76,23 +125,4 @@ Before the first pull, configure the external key path and run `listing-kit fast
 
 ## Standalone tools with split roots
 
-Capture, compose and the fastlane adapter use the plan's paths. Standalone validate, review and handoff read `fastlane/` and `store-assets/`. The review hook watches the conventional paths. Skip hook installation for a split listing.
-
-Stage the public listing and its app declarations in the app repository's Git index. From the repository root, export the index to a fresh temporary directory. This includes the staged Apple asset plan, platform declarations and rules overrides.
-
-```sh
-view=$(mktemp -d)
-git checkout-index --all --prefix="$view/"
-cd "$view"
-```
-
-In a monorepo, change into the mobile app inside the copy. For the default split under `ios/fastlane` and `android/fastlane`, assemble the conventional tree as follows. Copy only the stores and directories you use. Substitute the plan's source paths for any overrides. If `trees.storeAssets` is set, copy that directory to `store-assets/` too.
-
-```sh
-mkdir -p fastlane/metadata
-cp -R ios/fastlane/metadata/. fastlane/metadata/
-cp -R ios/fastlane/screenshots fastlane/screenshots
-cp -R android/fastlane/metadata/android fastlane/metadata/android
-```
-
-Run `listing-kit validate` in the copy. Supply the submission date and iOS SDK when relevant. Run `listing-kit review` and `listing-kit handoff` there. Make edits in the source app and export a fresh copy after staging changes.
+Validate, review, handoff and the staged review hook use the resolved paths for each store. Run the commands from the selected app, or pass its directory.

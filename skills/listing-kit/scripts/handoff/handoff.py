@@ -34,6 +34,7 @@ CATEGORY_NAMES = {
 class Plan:
     def __init__(self, root):
         self.root = root
+        self.trees = listing.paths(root)
         self.missing = []
         self.items = []
         self.omitted = []
@@ -56,7 +57,7 @@ class Plan:
         self.items.append((src, dest, place, content))
 
 
-def check_inputs(root):
+def check_inputs(root, trees):
     """Follow internal links once, including links reached through a locale alias."""
     seen = set()
 
@@ -73,8 +74,10 @@ def check_inputs(root):
         elif not real.is_file():
             raise ValueError("not a regular listing file: %s" % path)
 
-    for name in ("fastlane/metadata", "fastlane/screenshots", "store-assets/apple",
-                 "store-assets/play", specs.OVERRIDE, ".listing-kit/asset-plan.json"):
+    for tree in trees.values():
+        for key in ("metadata", "screenshots", "storeAssets"):
+            check(tree[key])
+    for name in (specs.OVERRIDE, ".listing-kit/asset-plan.json"):
         check(root / name)
 
 
@@ -134,7 +137,7 @@ def text_fields(plan, data, store, directory, base):
 
 def screenshot_groups(plan, data, store, locale, deferred=()):
     groups = defaultdict(list)
-    for shot in store_shots.active(plan.root, store, locale, data, deferred, plan.nonempty):
+    for shot in store_shots.active(plan.root, store, locale, data, deferred, plan.nonempty, tree=plan.trees[store]):
         if shot.error:
             if not shot.manual:
                 raise ValueError("{}: {}x{} matches no App Store slot".format(shot.path, *shot.size))
@@ -164,12 +167,13 @@ def screenshots(plan, data, store, base, groups, place):
 
 
 def apple(root, data, plan):
-    meta = root / "fastlane/metadata"
+    tree = plan.trees["apple"]
+    meta = tree["metadata"]
     targets = apple_assets.load_plan(root, data)
-    locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets)}
-    if listing.apple_default(root / "fastlane", data) and not any((meta / loc).is_dir() for loc in locales):
+    locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets, tree)}
+    if listing.apple_default(meta, data) and not any((meta / loc).is_dir() for loc in locales):
         locales.add("default")
-    if apple_assets.has_apple_listing(root, data, locales):
+    if apple_assets.has_apple_listing(root, data, locales, tree):
         text_fields(plan, data, "apple", meta, Path("apple/app-wide"))
     for locale in sorted(locales):
         base = Path("apple") / locale
@@ -181,7 +185,7 @@ def apple(root, data, plan):
         groups = screenshot_groups(plan, data, "apple", locale, deferred_ids)
         screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]
-        for path in apple_assets.header_files(root, locale):
+        for path in apple_assets.header_files(tree, locale):
             if not plan.nonempty(path):
                 continue
             size = list(imginfo.image_info(path)[:2])
@@ -197,9 +201,9 @@ def play_images(plan, directory):
 
 
 def play(root, data, plan):
-    android = root / "fastlane/metadata/android"
-    assets = root / "store-assets/play"
-    locales = {Path(p).name for p in listing.play_locales(root / "fastlane")}
+    android = plan.trees["play"]["metadata"]
+    assets = plan.trees["play"]["storeAssets"]
+    locales = {Path(p).name for p in listing.play_locales(android)}
     if assets.is_dir():
         locales.update(p.name for p in assets.iterdir() if p.is_dir() and not p.name.startswith("."))
     for locale in sorted(locales):
@@ -228,9 +232,9 @@ def play(root, data, plan):
 
 def build(root):
     root = Path(root).resolve()
+    plan = Plan(root)
     with output.locked_upload(root) as destination:
-        check_inputs(root)
-        plan = Plan(root)
+        check_inputs(root, plan.trees)
         data = specs.load(root)
         try:
             apple(root, data, plan)

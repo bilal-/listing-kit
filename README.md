@@ -20,7 +20,7 @@ Installing the skill does not put the launcher on PATH. Ask the agent to run `bi
 
 ## Quick start
 
-Open the app's directory with your agent and ask **“Prepare my store listing.”** Pick the screens, order, copy and devices before the build. The agent writes the plan and Maestro flows and helps build and install the app.
+Open the app's directory with your agent and ask **“Prepare my store listing.”** Run `listing-kit detect` there and use the Apple and Play paths it prints for copy, screenshots and graphics. Pick the screens, order, copy and devices before the build. The agent writes the plan and Maestro flows and helps build and install the app.
 
 These commands are in the [Unreleased changelog](CHANGELOG.md#unreleased). Use a checkout or plugin revision that contains the launcher. Install the app on a matching iOS simulator on a Mac or on a running Android emulator. Automated capture needs Maestro and its JDK. Install ImageMagick and a supported browser for framed shots.
 

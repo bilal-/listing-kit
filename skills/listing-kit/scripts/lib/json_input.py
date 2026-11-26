@@ -7,7 +7,7 @@ def _members(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("duplicate object member %r" % key)
+            raise ValueError("duplicate object member")
         result[key] = value
     return result
 
@@ -26,7 +26,7 @@ def validate(value, path="$", depth=0):
             if not isinstance(key, str):
                 raise ValueError("%s: expected string object key" % path)
             validate(key, path, depth + 1)
-            validate(item, "%s.%s" % (path, key), depth + 1)
+            validate(item, path + "[member]", depth + 1)
     elif isinstance(value, list):
         for i, item in enumerate(value):
             validate(item, "%s[%d]" % (path, i), depth + 1)

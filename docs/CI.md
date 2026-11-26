@@ -15,9 +15,9 @@ Choose the command for your provider. Review and commit the generated file. GitH
 
 ## Validate a listing change
 
-A pull request or merge request that changes `fastlane/**`, `store-assets/**` or `.listing-kit/**` under the app root triggers validation. The runner checks out the app, clones the kit into temporary storage and installs ImageMagick. It runs `listing-kit validate`, builds a fresh review page, and uploads `listing-review.html` for inspection. A validation failure still fails the job. Validation needs no store secrets. Capture and compose run locally. Commit the resulting listing assets before opening the request.
+A pull request or merge request that changes files in the resolved listing directories or `.listing-kit/` under the app root triggers validation. The runner checks out the app, clones the kit into temporary storage and installs ImageMagick. It runs `listing-kit validate`, builds a fresh review page, and uploads `listing-review.html` for inspection. A validation failure still fails the job. Validation needs no store secrets. Capture and compose run locally. Commit the resulting listing assets before opening the request.
 
-Both jobs fetch the chosen ref and check that `skills/listing-kit/bin/listing-kit` is executable before adding it to PATH. Regenerate the workflow and review the diff when upgrading.
+Both jobs fetch the chosen ref and check that `skills/listing-kit/bin/listing-kit` is executable before adding it to PATH. Run `listing-kit detect` to inspect the Apple and Play paths. Regenerate the workflow and review its filters when those paths change or when upgrading.
 
 ## Before you rely on this
 
