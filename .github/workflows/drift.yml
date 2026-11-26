@@ -37,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           title='Store rules drift detected'
-          issue="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+          issue="$(gh issue list --state open --author 'github-actions[bot]' --search "\"$title\" in:title" --json number,title \
             --jq 'map(select(.title == "Store rules drift detected")) | min_by(.number).number // empty')"
           if [ -n "$issue" ]; then
             gh issue edit "$issue" --body-file "$RUNNER_TEMP/drift.txt"

@@ -45,13 +45,13 @@ expect_digest() {
     python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]) != json.loads(sys.argv[2]))' "$out" "$2" && pass || fail "$out"
   fi
 }
-expect_digest apple-screenshots.html '["Other sample dates :: 9 April 2027","Other sample dates :: Sept. 9, 2026","Phone A :: 1170x2532","Phone B :: 1080x1920","Phone B :: 1170x2532","Screenshot sizes :: 1284x2778","Screenshot sizes :: 2778x1284","Screenshot sizes :: 512x512","Screenshot sizes :: April 2027","Screenshot sizes :: September 9, 2026"]'
-expect_digest apple-version-info.html '["Description :: 80 characters","Keywords :: up to 100 bytes","Metadata / Caption :: between 2 and 30 characters","Metadata / Summary :: 80 characters","Name :: 30 characters","Promotional text :: 170 characters"]'
-expect_digest apple-app-info.html '["Name :: 30 characters","Subtitle :: 30 characters"]'
+expect_digest apple-screenshots.html '["Devices / Phone :: 1170x2532","Devices / tablet :: 2048x2732","Devices / tablet :: 2732x2048","Phone A / Portrait :: 1170x2532","Phone B / Portrait :: 1170x2532","Screenshot sizes / Other sample dates :: 9 April 2027","Screenshot sizes / Other sample dates :: Sept. 9, 2026","Screenshot sizes / Phone A :: 1170x2532","Screenshot sizes / Phone B :: 1080x1920","Screenshot sizes / Phone B :: 1170x2532","Screenshot sizes / starting in :: April 2027","Screenshot sizes :: 1284x2778","Screenshot sizes :: 2778x1284","Screenshot sizes :: 512x512","Screenshot sizes :: September 9, 2026"]'
+expect_digest apple-version-info.html '["Keywords :: up to 100 bytes","Listing fields / Description :: 80 characters","Listing fields / Metadata / Caption :: between 2 and 30 characters","Listing fields / Metadata / Summary :: 80 characters","Listing fields / Name :: 30 characters","Promotional text :: 170 characters"]'
+expect_digest apple-app-info.html '["App / Name :: 30 characters","Bundle / Name :: 50 characters","Fields / Name :: 30 characters","Fields / Subtitle :: 50 characters","Name :: 30 characters","Subtitle :: 30 characters"]'
 expect_digest apple-creative-assets.html '["App icon :: 1024x1024"]'
-expect_digest play-preview-assets.html '["Feature graphic :: 1024x500","Icon :: 512x512","Phone screenshots :: 16:9","Phone screenshots :: at most 2.3 times","Phone screenshots :: between 320 px and 3,840 px","Phone screenshots :: minimum 1080px"]'
-expect_digest play-store-listing-fields.html '["App name :: 30 characters","Full description :: up to 4000 characters","Short description :: 80 characters","Tags / Select :: up to 5"]'
-expect_digest apple-upcoming-requirements.html '["App icon requirements :: May 2027","Icon updates :: June 2027 :: Explanatory copy goes here.","SDK :: April 2027 :: Beta April 2027, mandatory June 2027","SDK :: June 2027 :: Beta April 2027, mandatory June 2027","SDK requirements :: September 9, 2026","Screenshot requirements :: April 2027"]'
+expect_digest play-preview-assets.html '["Artwork / Feature graphic :: 1024x500","Artwork / Icon :: 512x512","Phone screenshots / Each side must be :: between 320 px and 3,840 px","Phone screenshots / The long side is :: at most 2.3 times","Phone screenshots / The short side has a :: minimum 1080px","Phone screenshots / the short side. Use :: 16:9"]'
+expect_digest play-store-listing-fields.html '["Store listing / App name :: 30 characters","Store listing / Full description :: up to 4000 characters","Store listing / Short description :: 80 characters","Tags / Select :: up to 5"]'
+expect_digest apple-upcoming-requirements.html '["App icon requirements :: May 2027","Icon updates :: June 2027 :: Explanatory copy goes here. June 2027","SDK :: April 2027 :: Beta April 2027, mandatory June 2027","SDK :: June 2027 :: Beta April 2027, mandatory June 2027","SDK requirements :: September 9, 2026","Screenshot requirements :: April 2027"]'
 expect_digest fastlane-screenshots.rb '["DisplayType::APPLE_TV :: [[1920,1080]]","DisplayType::IOS_65 :: [[1284,2778],[2778,1284]]","DisplayType::IPAD :: [1024,768]","IOS_55 :: [[1242,2208]]","IOS_61 :: [[1170,2532],[2532,1170]]"]'
 expect_digest fastlane-supply.rb '["IMAGES_TYPES :: [\"icon\",\"featureGraphic\"]","IMAGE_TYPES :: [\"icon\",\"featureGraphic\"]","METADATA_UPLOAD_FIELDS :: [\"title\",\"short_description\"]","SCREENSHOT_TYPES :: [\"phoneScreenshots\",\"sevenInchScreenshots\"]"]'
 expect_digest fastlane-languages.rb '["ALL_LANGUAGES :: [\"en-US\",\"de-DE\"]"]'
@@ -94,6 +94,10 @@ PYEDIT
   assert_contains "$out" "${file%.*}: changed"
   cp "$ROOT/tests/fixtures/drift/$file" "$pages/$file"
 }
+changed_rule apple-screenshots.html '<h2>Phone A</h2><p>Portrait: 1170x2532' '<h2>Phone A</h2><p>Portrait: not accepted' 'one heading loses a shared portrait size'
+changed_rule apple-app-info.html '<p>Name: 30 characters</p><h2>Bundle</h2><p>Name: 50 characters' '<p>Name: 50 characters</p><h2>Bundle</h2><p>Name: 30 characters' 'identically named fields swap limits across headings'
+changed_rule apple-app-info.html '(30 characters)<br><b>Subtitle</b> (50 characters)' '(50 characters)<br><b>Subtitle</b> (30 characters)' 'inline fields swap limits across a line break'
+changed_rule apple-screenshots.html 'Phone 1170x2532, tablet 2048x2732' 'Phone 2048x2732, tablet 1170x2532' 'device sizes swap within a list item'
 changed_rule play-preview-assets.html '500 px' '600 px' 'unit-bearing dimensions change'
 changed_rule apple-screenshots.html '<td>1170x2532</td>' '<td>unavailable</td>' 'one device loses a shared size'
 changed_rule apple-screenshots.html '1170x2532</td></tr>
@@ -120,8 +124,8 @@ cat > "$area/contexts.html" <<'HTML'
 <ul><li><p>Phone</p><p>Required size is 1080x1920.</p></li></ul>
 HTML
 run_drift extract apple-screenshots "$area/contexts.html"
-assert_contains "$out" 'Tablet :: 1200x1800'
-assert_contains "$out" 'Phone :: 1080x1920'
+assert_contains "$out" 'Tablet / Required size is :: 1200x1800'
+assert_contains "$out" 'Phone / Required size is :: 1080x1920'
 
 it "repeated orientation labels retain their device row"
 cat > "$area/contexts.html" <<'HTML'
@@ -132,10 +136,27 @@ run_drift extract apple-screenshots "$area/contexts.html"
 assert_contains "$out" 'Phone A / Portrait :: 1170x2532'
 assert_contains "$out" 'Phone B / Portrait :: 1170x2532'
 
+it "row and item labels keep their heading and each inline orientation"
+cat > "$area/contexts.html" <<'HTML'
+<h2>Artwork</h2>
+<table><tr><th>Phone</th><td>Portrait: 1170x2532</td></tr></table>
+<li><p>Tablet</p><p>Portrait: 2048x2732</p><p>Landscape: 2732x2048</p></li>
+HTML
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Artwork / Phone / Portrait :: 1170x2532'
+assert_contains "$out" 'Artwork / Tablet / Portrait :: 2048x2732'
+assert_contains "$out" 'Artwork / Tablet / Landscape :: 2732x2048'
+
 it "nested lists retain the nearest device label"
 echo '<ul><li>Devices<ul><li><p>Tablet</p><p>1200x1800</p></li></ul></li></ul>' > "$area/contexts.html"
 run_drift extract apple-screenshots "$area/contexts.html"
 assert_contains "$out" 'Tablet :: 1200x1800'
+
+it "an outer device label scopes values in unlabelled nested items"
+echo '<h2>Sizes</h2><li>Phone<ul><li>Portrait: 1170x2532</li><li>Landscape: 2532x1170</li></ul></li>' > "$area/contexts.html"
+run_drift extract apple-screenshots "$area/contexts.html"
+assert_contains "$out" 'Sizes / Phone / Portrait :: 1170x2532'
+assert_contains "$out" 'Sizes / Phone / Landscape :: 2532x1170'
 
 it "inline field labels can introduce limits without a colon"
 echo '<h2>Metadata</h2><p><b>Name</b> (30 characters)</p><p><b>Subtitle</b> (30 characters)</p>' > "$area/fields.html"
@@ -149,24 +170,46 @@ run_drift extract apple-upcoming-requirements "$area/date-first.html"
 assert_contains "$out" 'SDK :: June 2027'
 assert_contains "$out" 'Beta starts'
 
-it "dynamic keys cannot silently drop a watched reverse display mapping"
-echo 'lookup = { generated_size => DisplayType::IOS_61 }' >> "$pages/fastlane-screenshots.rb"
-check_pages
-assert_eq 2 "$rc"
-assert_contains "$out" 'fastlane-screenshots: problem'
+it "display names and constant-keyed hash values are facts"
+cat > "$pages/fastlane-screenshots.rb" <<'RB'
+IOS_35 = "iOS-3.5-in"
+IOS_40 = 'iOS-4-in'.freeze
+WATCH = 'Series #3' # device name
+display_names = { DisplayType::IOS_35 => "iPhone 3.5", DisplayType::IOS_40 => IOS_40, DisplayType::WATCH => ["watch", "watchOS"] }
+RB
+expect_digest fastlane-screenshots.rb '["DisplayType::IOS_35 :: \"iPhone 3.5\"","DisplayType::IOS_40 :: IOS_40","DisplayType::WATCH :: [\"watch\",\"watchOS\"]","IOS_35 :: \"iOS-3.5-in\"","IOS_40 :: \"iOS-4-in\"","WATCH :: \"Series #3\""]'
 cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$pages/"
 
-it "a malformed declaration alongside valid literals is a source problem"
-for file in fastlane-supply.rb fastlane-screenshots.rb; do
-  case "$file" in
-    fastlane-supply.rb) echo 'METADATA_FIELDS = build_fields()' >> "$pages/$file" ;;
-    fastlane-screenshots.rb) echo 'sizes = { IOS_70: [[100,200], computed] }' >> "$pages/$file" ;;
-  esac
-  check_pages
-  assert_eq 2 "$rc"
-  assert_contains "$out" "${file%.*}: problem"
-  cp "$ROOT/tests/fixtures/drift/$file" "$pages/$file"
-done
+it "unsupported Ruby declarations leave other literal facts available"
+echo 'lookup = { generated_size => DisplayType::IOS_61 }' >> "$pages/fastlane-screenshots.rb"
+echo 'sizes = { IOS_70: [[100,200], computed] }' >> "$pages/fastlane-screenshots.rb"
+echo 'METADATA_FIELDS = build_fields()' >> "$pages/fastlane-supply.rb"
+check_pages
+assert_eq 0 "$rc"
+cp "$ROOT/tests/fixtures/drift/fastlane-screenshots.rb" "$ROOT/tests/fixtures/drift/fastlane-supply.rb" "$pages/"
+
+it "dated facts include at most eight words on either side across paragraph boundaries"
+cat > "$area/window.html" <<'HTML'
+<li><h3>SDK</h3><p>Before one two three four five six seven eight</p><time>June 2027</time>
+<p>nine ten eleven twelve thirteen fourteen fifteen sixteen After</p></li>
+HTML
+run_drift extract apple-upcoming-requirements "$area/window.html"
+assert_contains "$out" 'SDK :: June 2027'
+assert_contains "$out" 'one two three four five six seven eight'
+assert_contains "$out" 'nine ten eleven twelve thirteen fourteen fifteen sixteen'
+before="$out"
+sed -e 's/Before/Changed introduction/' -e 's/After/Changed ending/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_eq "$before" "$out"
+
+it "distant edits in a dated paragraph without a heading leave the digest unchanged"
+echo '<li>Old one two three four five six seven eight June 2027 nine ten eleven twelve thirteen fourteen fifteen sixteen End</li>' > "$area/window.html"
+run_drift extract apple-upcoming-requirements "$area/window.html"
+assert_eq 0 "$rc"
+before="$out"
+sed 's/Old/Revised/' "$area/window.html" > "$area/edited.html"
+run_drift extract apple-upcoming-requirements "$area/edited.html"
+assert_eq "$before" "$out"
 
 it "a deeply nested baseline is a problem and later sources still run"
 python3 -c 'print("[" * 2000 + "]" * 2000)' > "$digests/apple-screenshots.json"
@@ -213,7 +256,7 @@ rm "$digests/apple-screenshots.json"
 mv "$area/real.json" "$digests/apple-screenshots.json"
 
 it "a computed suffix cannot be mistaken for a complete list"
-echo 'METADATA_FIELDS = ["title"] + extra' >> "$pages/fastlane-supply.rb"
+echo 'METADATA_FIELDS = ["title"] + extra' > "$pages/fastlane-supply.rb"
 check_pages
 assert_eq 2 "$rc"
 assert_contains "$out" 'fastlane-supply: problem'
@@ -249,10 +292,17 @@ check_pages
 assert_eq 2 "$rc"
 assert_contains "$out" 'fastlane-languages: problem'
 assert_not_contains "$out" 'fastlane-languages: unchanged'
-it "an incomplete update preserves the old baselines"
+echo 'ALL_LANGUAGES = build_list()' > "$pages/fastlane-languages.rb"
+it "an incomplete update writes successful sources and preserves each failed baseline"
 update_pages
 assert_eq 2 "$rc"
-diff -r "$digests" "$area/first" >/dev/null 2>&1 && pass || fail 'incomplete update changed baselines'
+assert_contains "$out" 'play-preview-assets: problem'
+assert_contains "$out" 'fastlane-languages: problem'
+assert_contains "$out" 'apple-screenshots: updated'
+assert_contains "$(cat "$digests/apple-screenshots.json")" '1290x2796'
+for id in play-preview-assets fastlane-languages; do
+  cmp -s "$digests/$id.json" "$area/first/$id.json" && pass || fail "$id baseline changed"
+done
 
 it "update accepts reviewed changes into an existing baseline"
 cp "$ROOT/tests/fixtures/drift/play-preview-assets.html" "$ROOT/tests/fixtures/drift/fastlane-languages.rb" "$pages/"
@@ -284,7 +334,7 @@ assert_contains "$out" 'fastlane-languages: problem'
 it "weekly workflow can update one issue with only its built-in token"
 workflow="$ROOT/.github/workflows/drift.yml"
 out="$(cat "$workflow" 2>/dev/null)"
-for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' 'gh issue create' 'gh issue edit' 'Store rules drift detected' '--body-file'; do
+for literal in 'workflow_dispatch:' 'cron:' 'contents: read' 'issues: write' 'drift.py check --fetch' 'gh issue list' "--author 'github-actions[bot]'" 'gh issue create' 'gh issue edit' '.title == "Store rules drift detected"' '--body-file'; do
   assert_contains "$out" "$literal"
 done
 pin="$(sed -n 's/.*uses: \(actions\/checkout@[0-9a-f]*\).*/\1/p' "$ROOT/.github/workflows/tests.yml")"

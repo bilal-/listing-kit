@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare facts from upstream store pages and fastlane source with reviewed digests."""
 import argparse
+from bisect import bisect_right
 from html.parser import HTMLParser
 from http.client import HTTPException
 import json
@@ -123,45 +124,42 @@ def limit_matches(text):
         yield match, match.group().lower().replace(",", "")
 
 
-def labelled_facts(events, find_matches, inline_fields=False):
-    heading = row = item = container = ""
+def labelled_facts(events, find_matches):
+    heading = row = item = outer_item = container = ""
     parents = []
     for role, text in events:
         if role == "start":
-            parents.append((heading, row, item, container))
-            container = text
-            heading, item = item or heading, ""
+            parents.append((heading, row, item, outer_item, container))
+            container, outer_item, item = text, item or outer_item, ""
         elif role == "end":
             if parents:
-                heading, row, item, container = parents.pop()
+                heading, row, item, outer_item, container = parents.pop()
         elif role == "row":
             row = ""
         else:
+            if role == "heading":
+                heading = row = item = outer_item = ""
+            elif role == "label":
+                row = ""
             end = 0
             inline = ""
             for match, value in find_matches(text):
-                prefix = text[end:match.start()].strip(" ;,")
-                # A colon followed by space introduces a field, including in
-                # ordinary prose. A ratio's colon stays inside the match.
-                field = re.search(r"(?:^|[;.])\s*([^:;]+?)\s*:(?:\s|$)", prefix)
-                if field:
-                    inline = field[1].strip()
-                elif end == 0 and (inline_fields or role in ("label", "heading") or
-                                   (container == "li" and not item)):
-                    inline = prefix.strip(" ():–—-")
-                context = inline or row or item or heading or "Page"
-                if inline and row and role != "label":
-                    context = row + " / " + inline
-                elif inline_fields and inline and not field and heading and role == "text":
-                    context = heading + " / " + inline
-                yield context + " :: " + value
+                gap = text[end:match.start()].strip(" (),.;–—-")
+                # A conjunction can introduce another label or just another value.
+                gap = re.sub(r"^(?:(?:and|or)\b[\s,]*)+", "", gap, flags=re.I)
+                if re.search(r"\w", gap):
+                    field = re.search(r"(?:^|[;.])\s*([^:;]+?)\s*:(?:\s|$)", gap)
+                    inline = (field[1] if field else gap).strip()
+                context = " / ".join(part for part in (heading, row or item or outer_item, inline) if part)
+                yield (context or "Page") + " :: " + value
                 end = match.end()
+            label = inline if end else text
             if role == "heading":
-                heading, row, item = inline or text, "", ""
+                heading = label or text
             elif role == "label":
-                row = inline if end else text
-            elif container == "li" and (inline or not end and not item):
-                item = inline or text
+                row = label
+            elif container == "li" and not item:
+                item = label
 
 
 def pixel_sizes(events):
@@ -169,7 +167,7 @@ def pixel_sizes(events):
 
 
 def limits(events):
-    return labelled_facts(events, limit_matches, inline_fields=True)
+    return labelled_facts(events, limit_matches)
 
 
 def dated_items(blocks):
@@ -182,9 +180,8 @@ def dated_items(blocks):
                 yield from dated_entry(heading, body)
                 body = []
             heading = DATE.sub("", text).strip(" ()–—-:,")
-            if not DATE.search(text):
-                continue
-        if text:
+            body.extend(match.group() for match in DATE.finditer(text))
+        elif text:
             body.append(text)
     yield from dated_entry(heading, body)
 
@@ -194,27 +191,27 @@ def dated_entry(title, body):
         return
     if not title:
         first = body[0]
-        match = DATE.search(first)
-        title = (first[:match.start()] or first[match.end():]) if match else first
-        title = title.strip(" ()–—-:,")
-    surrounding = []
-    for index, text in enumerate(body):
-        dates = list(DATE.finditer(text))
-        if not dates:
-            if text != title:
-                surrounding.append(text)
-            continue
-        after = body[index + 1:index + 2]
-        if after and (after[0] == title or DATE.search(after[0])):
-            after = []
-        context = " ".join(surrounding + [text] + after)
-        for match in dates:
-            fact = (title or "Page") + " :: " + match.group()
-            rest = context.replace(match.group(), "", 1).strip(" ()–—-:,")
-            if rest and rest != title:
-                fact += " :: " + (context if text != match.group() else " ".join(surrounding + after))
-            yield fact
-        surrounding = []
+        date = DATE.search(first)
+        if not date:
+            title, body = first, body[1:]
+        elif re.search(r"\s[–—-]\s*$", first[:date.start()]):
+            # An unheaded item may start with "Title — date".
+            title = first[:date.start()].rstrip(" –—-")
+            body = [first[date.start():], *body[1:]]
+    text = " ".join(body)
+    words = [word.start() for word in re.finditer(r"\S+", text)]
+    words.append(len(text))
+    for match in DATE.finditer(text):
+        # Select the date's words plus up to eight on either side in this item.
+        first = bisect_right(words, match.start()) - 1
+        last = bisect_right(words, match.end() - 1) - 1
+        start = words[max(0, first - 8)]
+        stop = words[min(last + 9, len(words) - 1)]
+        excerpt = text[start:stop].strip()
+        fact = (title or "Page") + " :: " + match.group()
+        if excerpt != match.group():
+            fact += " :: " + excerpt
+        yield fact
 
 
 def dated_list(events):
@@ -238,7 +235,10 @@ FORWARD = re.compile(r"(?P<display>" + DISPLAY + r")\s*(?P<operator>=>|=(?!=)|:(
 REVERSE_NAME = re.compile(r"=>\s*(?P<display>" + DISPLAY + r")")
 REVERSE = re.compile(r"(?P<sizes>" + SIZES.pattern + r")\s*" + REVERSE_NAME.pattern)
 ROW_END = re.compile(r"(?:\.freeze)?[ \t]*(?=[,}\n]|$)")
-DEVICE = re.compile(r"(?:IOS|IPAD|IPHONE|APPLE_TV|IMESSAGE|WATCH|VISION)(?:_|$)", re.I)
+CONSTANT = re.compile(r"(?:[A-Z]\w*::)*[A-Z]\w*")
+# Preserve hashes within strings when removing Ruby line comments.
+STRING_OR_COMMENT = re.compile(r"""'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|#[^\n]*""")
+DISPLAY_VALUE = re.compile(r"""'[^'\\\n]*'|"(?:[^"#\\\n]|#(?![{@$]))*"|""" + CONSTANT.pattern + r"|:\w+|[0-9]+")
 LIST_NAMES = {
     "languages.rb": ("ALL_LANGUAGES",),
     "supply.rb": ("METADATA_UPLOAD_FIELDS", "METADATA_FIELDS", "IMAGES_TYPES",
@@ -257,28 +257,36 @@ def display_fact(name, literal):
 
 
 def display_sizes(text):
-    text = re.sub(r"#[^\n]*", "", text)
+    text = STRING_OR_COMMENT.sub(lambda m: "" if m[0].startswith("#") else m[0], text)
     for row in FORWARD.finditer(text):
         name = row["display"]
         start = row.end()
-        if not text.startswith("[", start) and not DEVICE.match(name.split("::")[-1].strip(":\'\"")):
-            continue
-        sizes = SIZES.match(text, start)
         terminator = LIST_END if row["operator"] == "=" else ROW_END
-        if not sizes or not terminator.match(text, sizes.end()):
-            raise ValueError("unsupported Ruby size literal for " + name)
-        yield display_fact(name, sizes.group())
-    literal_names = set()
+        sizes = SIZES.match(text, start)
+        if sizes and terminator.match(text, sizes.end()):
+            yield display_fact(name, sizes.group())
+            continue
+        # Display type constants name the devices, and literal hash entries
+        # map those constants to the values used by deliver.
+        if not CONSTANT.fullmatch(name):
+            continue
+        if text.startswith(("[", "%w", "%i"), start):
+            try:
+                items, end = literal_list(text, start)
+            except ValueError:
+                continue
+            if terminator.match(text, end):
+                yield name + " :: [" + ",".join(items) + "]"
+            continue
+        value = DISPLAY_VALUE.match(text, start)
+        if value and terminator.match(text, value.end()):
+            literal = value.group()
+            if literal[0] in ("'", '"'):
+                literal = json.dumps(literal[1:-1], ensure_ascii=False)
+            yield name + " :: " + literal
     for row in REVERSE.finditer(text):
-        literal_names.add(row.start("display"))
-        if not ROW_END.match(text, row.end()):
-            raise ValueError("unsupported Ruby display literal")
-        yield display_fact(row["display"], row["sizes"])
-    for row in REVERSE_NAME.finditer(text):
-        name = row["display"]
-        if DEVICE.match(name.split("::")[-1]) and row.start("display") not in literal_names:
-            raise ValueError("unsupported Ruby size literal for " + name)
-
+        if ROW_END.match(text, row.end()):
+            yield display_fact(row["display"], row["sizes"])
 
 
 def literal_list(text, pos):
@@ -328,9 +336,9 @@ def ruby_constants(filename, text):
             try:
                 items, end = literal_list(text, declaration.end())
                 if not LIST_END.match(text, end):
-                    raise ValueError("unexpected text after list")
-            except ValueError as exc:
-                raise ValueError("{}: {}".format(name, exc)) from exc
+                    continue
+            except ValueError:
+                continue
             yield name + " :: [" + ",".join(items) + "]"
 
 
@@ -448,7 +456,6 @@ def write_digest(path, facts):
 
 
 def compare_or_update(args, sources):
-    fresh = {}
     status = 0
     for source in sources:
         name = source["id"]
@@ -461,10 +468,13 @@ def compare_or_update(args, sources):
             else:
                 suffix = ".rb" if source["kind"] == "source" else ".html"
                 text = (args.pages / (name + suffix)).read_text(encoding="utf-8-sig")
-            fresh[name] = extract(source, text)
-            if args.command == "check":
+            facts = extract(source, text)
+            if args.command == "update":
+                write_digest(digest, facts)
+                print(name + ": updated")
+            else:
                 old = baseline(digest)
-                new = set(fresh[name])
+                new = set(facts)
                 if old == new:
                     print(name + ": unchanged")
                 else:
@@ -475,17 +485,9 @@ def compare_or_update(args, sources):
                     for fact in sorted(new - old):
                         print("  + " + fact)
         except (OSError, HTTPException, ValueError) as exc:
-            print("{}: problem: {}".format(name, exc))
+            print("{}: problem: {}".format(name, clean_fact(str(exc))))
             status = 2
 
-    if args.command == "update" and status == 0:
-        for name, facts in fresh.items():
-            try:
-                write_digest(args.digests / (name + ".json"), facts)
-                print(name + ": updated")
-            except OSError as exc:
-                print("{}: problem: {}".format(name, exc))
-                return 2
     return status
 
 
@@ -532,13 +534,13 @@ def main():
         try:
             print(formatted(extract(source, args.file.read_text(encoding="utf-8-sig"))), end="")
         except (OSError, ValueError) as exc:
-            print("{}: problem: {}".format(args.id, exc), file=sys.stderr)
+            print("{}: problem: {}".format(args.id, clean_fact(str(exc))), file=sys.stderr)
             return 2
         return 0
     try:
         args.digests = digest_directory(args.digests)
     except ValueError as exc:
-        parser.error(str(exc))
+        parser.error(clean_fact(str(exc)))
     return compare_or_update(args, sources)
 
 
@@ -546,5 +548,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except specs.SpecsError as exc:
-        print(str(exc), file=sys.stderr)
+        print(clean_fact(str(exc)), file=sys.stderr)
         sys.exit(2)

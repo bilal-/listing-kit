@@ -63,6 +63,13 @@ class FetchTest(unittest.TestCase):
                     opener.return_value = Chunked(b"a" * (limit + 1), length)
                     drift.fetch(self.url)
 
+    def test_source_error_text_is_cleaned(self):
+        args = SimpleNamespace(command="check", fetch=True, digests=Path("."))
+        log = io.StringIO()
+        with patch.object(drift, "fetch", side_effect=OSError("bad\x1bheader\rvalue")), redirect_stdout(log):
+            self.assertEqual(drift.compare_or_update(args, [dict(id="page", url=self.url)]), 2)
+        self.assertEqual(log.getvalue(), "page: problem: badheadervalue\n")
+
     def test_bad_length_is_a_per_source_problem(self):
         def source(name):
             return dict(id=name, url=self.url, extract="pixel-sizes", kind="html")
