@@ -16,10 +16,11 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import screenshots
 import specs
-from imginfo import EXTENSIONS, apple_class, format_allowed, image_info, validate_many
-from listing import (apple_locales as listing_apple_locales, apple_screenshot_dirs,
-                     has_apple_app_metadata, images, manual_screenshots)
+from imginfo import EXTENSIONS, format_allowed, image_info, validate_many
+from listing import (apple_locales as listing_apple_locales,
+                     has_apple_app_metadata, images)
 
 
 def header_dir(root, locale):
@@ -34,7 +35,7 @@ def header_files(root, locale):
 def header_locales(root):
     base = Path(root, "store-assets", "apple")
     return sorted(p.name for p in base.glob("*") if not p.name.startswith(".") and p.is_dir()
-                  and (header_files(root, p.name) or any(manual_screenshots(root, "apple", p.name))))
+                  and (header_files(root, p.name) or (p / "screenshots").is_dir()))
 
 
 def load_plan(root, rules=None):
@@ -81,27 +82,6 @@ def deferred_slots(rules, displays):
     return {s["id"] for label in displays for s in specs.slot_by_label(rules, "apple", label)}
 
 
-def active_screenshots(root, locale, deferred_ids, rules, nonempty=os.path.getsize, *, hand_upload=False):
-    """Yield platform, path, slot and size after deliver's framing and plan filters."""
-    fastlane = os.path.join(root, "fastlane")
-    for platform, directory in apple_screenshot_dirs(fastlane, locale, rules):
-        paths = [p for p in images(directory) if nonempty(p)]
-        framed = any(Path(p).stem.lower().endswith("_framed") for p in paths)
-        for path in paths:
-            name = Path(path).stem.lower()
-            size = image_info(path)[:2]
-            if framed and not name.endswith("_framed"):
-                # Deliver uses the filename. Hand upload accepts any Watch capture size.
-                watch = (any(s["id"] == "watch" for s in specs.apple_slots_for_size(rules, *size))
-                         if hand_upload else "watch" in name)
-                if not watch:
-                    continue
-            relative = os.path.relpath(path, os.path.join(fastlane, "screenshots"))
-            slot = specs.apple_slot_for_file(rules, *size, relative)
-            if slot is None or slot["id"] not in deferred_ids:
-                yield platform, path, slot, size
-
-
 def apple_locales(root, rules=None, plan=None):
     """Metadata paths for every locale visible in the Apple asset preview."""
     rules = rules if rules is not None else specs.load(root)
@@ -125,15 +105,6 @@ def has_apple_listing(root, rules=None, locales=None):
         or has_apple_app_metadata(fastlane, rules)
         or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
     )
-
-
-def screenshot_paths(directory, rules, console=None):
-    folders = sorted({s["folder"] for s in specs.slots(rules, "apple") if s.get("folder")})
-    paths = images(directory) + [p for folder in folders for p in images(os.path.join(directory, folder))]
-    if console is not None:
-        for slot in specs.slots(rules, "apple"):
-            paths.extend(images(os.path.join(console, slot["id"])))
-    return paths
 
 
 def header_rule(path, info, rules):
@@ -179,6 +150,8 @@ def validate(root, required_displays=(), rules=None, requirements=None):
             locale = os.path.basename(locale_path)
             for graphic in headers:
                 level, reason = requirements.evaluate(graphic["required"])
+                if level == "upcoming" and "from" not in graphic["required"] and not requirements.verbose:
+                    continue
                 if level != "optional" and (locale, graphic["id"]) not in present:
                     results.append(("FAIL" if level == "required" else "WARN",
                                     f'{graphic["label"]} MISSING ({locale}) {reason}'.rstrip()))
@@ -190,9 +163,9 @@ def validate(root, required_displays=(), rules=None, requirements=None):
                     results.append(("FAIL", "cannot defer required screenshot class: {} ({})".format(display, locale)))
                 else:
                     results.append(("WARN", "deferred {}/{}: {}".format(locale, display, reason)))
-            counts = Counter(apple_class(*image_info(path)[:2], path, rules) for path in screenshot_paths(
-                os.path.join(root, "fastlane", "screenshots", locale), rules,
-                os.path.join(header_dir(root, locale), "screenshots")))
+            deferred = deferred_slots(rules, target.get("deferredScreenshots", {}))
+            counts = Counter(shot.slot["label"] for shot in screenshots.active(root, "apple", locale, rules, deferred)
+                             if not shot.error and not shot.platform)
             for display, expected in shots.items():
                 actual = sum(counts[s["label"]] for s in specs.slot_by_label(rules, "apple", display))
                 results.append(("PASS" if actual == expected else "FAIL",

@@ -3,13 +3,14 @@
 # asset/metadata rules (see ../../references/stores/). Run from / pointed at the
 # APP ROOT (the dir containing fastlane/). Read-only.
 #
-# Usage: validate-listing.sh [<app-root>] [--as-of YYYY-MM-DD] [--ios-sdk X.Y]    (default: current directory)
+# Usage: validate-listing.sh [<app-root>] [--as-of YYYY-MM-DD] [--ios-sdk X.Y] [--verbose]    (default: current directory)
 # Exit: 0 = all checks pass (warnings allowed), 1 = one or more failures, 2 = usage.
 set -uo pipefail
 
 ROOT=; prepared=0; review=0; options=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --verbose) options+=("$1") ;;
     --prepared) prepared=1 ;;
     --review) review=1 ;;
     --as-of|--ios-sdk)

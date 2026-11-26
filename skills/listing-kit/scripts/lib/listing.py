@@ -118,13 +118,6 @@ def images(d):
             if not n.startswith(".") and os.path.isfile(os.path.join(d, n)) and is_image(n)]
 
 
-def manual_screenshots(root, store, locale):
-    base = os.path.join(root, "store-assets", store, locale, "screenshots")
-    for slot in _subdirs(base):
-        for path in images(os.path.join(base, slot)):
-            yield slot, path
-
-
 if __name__ == "__main__":
     kind, fl = sys.argv[1], sys.argv[2]
     for loc in {"apple-locales": apple_locales, "play-locales": play_locales}[kind](fl):

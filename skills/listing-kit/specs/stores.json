@@ -29,6 +29,7 @@
   "apple": {
    "label": "Apple App Store",
    "screenshots": {
+    "minTotal": 1,
     "formats": [
      "png",
      "jpeg"

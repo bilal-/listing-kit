@@ -250,6 +250,8 @@ class HandoffTests(unittest.TestCase):
 
     def test_manual_slot(self):
         self.png("store-assets/play/en-US/screenshots/xr/x.png", 1206, 2622)
+        self.assertIn("does not fit Play slot xr", self.run_build(success=False))
+        self.png("store-assets/play/en-US/screenshots/xr/x.png", 1920, 1200)
         self.run_build()
         self.png("store-assets/apple/en-US/screenshots/vision-pro/wrong.png", 1206, 2622)
         self.assertIn("wrong.png", self.run_build(success=False))

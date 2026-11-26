@@ -30,6 +30,8 @@ Use the console upload slot to choose a capture device. Capture at an accepted n
 | Apple Vision Pro | Required if the app has a visionOS app | 1–10 | 3840×2160, fixed orientation | PNG/JPEG, no alpha | console |
 | Mac | Required if the app has a macOS app | 1–10 | 1280×800, 1440×900, 2560×1600, 2880×1800, fixed orientation | PNG/JPEG, no alpha | fastlane |
 
+At least 1 screenshot across primary device families per locale.
+
 Verified 2026-11-26 · [Store reference 1](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
 
 <!-- rules:end screenshots -->

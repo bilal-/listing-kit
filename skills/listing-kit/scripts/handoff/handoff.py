@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import apple_assets
 import imginfo
 import listing
+import screenshots as store_shots
 import specs
 
 import handoff_output as output
@@ -131,18 +132,15 @@ def text_fields(plan, data, store, directory, base):
             plan.missing.append("%s — %s" % (base.parts[1], place))
 
 
-def manual(plan, data, store, locale, groups, deferred_ids=()):
-    for slot_id, name in listing.manual_screenshots(plan.root, store, locale):
-        path = Path(name)
-        if not plan.nonempty(path):
-            continue
-        slot = specs.slot(data, store, slot_id)
-        if not slot:
-            raise ValueError("%s: unknown %s slot %s" % (path, store, slot_id))
-        if store == "apple" and slot not in specs.apple_slots_for_size(data, *imginfo.image_info(path)[:2]):
-            raise ValueError("%s does not fit Apple slot %s" % (path, slot_id))
-        if slot_id not in deferred_ids:
-            groups["", slot_id].append(path)
+def screenshot_groups(plan, data, store, locale, deferred=()):
+    groups = defaultdict(list)
+    for shot in store_shots.active(plan.root, store, locale, data, deferred, plan.nonempty):
+        if shot.error:
+            if not shot.manual:
+                raise ValueError("{}: {}x{} matches no App Store slot".format(shot.path, *shot.size))
+            raise ValueError(shot.error)
+        groups[shot.platform, shot.slot["id"]].append(shot.path)
+    return groups
 
 
 def natural(path):
@@ -176,18 +174,11 @@ def apple(root, data, plan):
     for locale in sorted(locales):
         base = Path("apple") / locale
         text_fields(plan, data, "apple", meta / locale, base / "text")
-        groups = defaultdict(list)
         deferred = targets.get(locale, {}).get("deferredScreenshots", {})
         for display, reason in deferred.items():
             plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
         deferred_ids = apple_assets.deferred_slots(data, deferred)
-        for platform, name, slot, (w, h) in apple_assets.active_screenshots(
-                root, locale, deferred_ids, data, plan.nonempty, hand_upload=True):
-            path = Path(name)
-            if slot is None or (platform == "appleTV" and slot["id"] != "apple-tv"):
-                raise ValueError("%s: %sx%s matches no App Store slot" % (path, w, h))
-            groups["iMessage" if platform == "iMessage" else "", slot["id"]].append(path)
-        manual(plan, data, "apple", locale, groups, deferred_ids)
+        groups = screenshot_groups(plan, data, "apple", locale, deferred_ids)
         screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]
         for path in apple_assets.header_files(root, locale):
@@ -231,11 +222,7 @@ def play(root, data, plan):
             if matches:
                 path = matches[0]
                 plan.add(path, base / "graphics" / path.name, MAIN_LISTING + " > " + graphic["label"])
-        groups = defaultdict(list)
-        for slot in specs.slots(data, "play"):
-            if slot.get("folder"):
-                groups["", slot["id"]].extend(play_images(plan, child(images, slot["folder"])))
-        manual(plan, data, "play", locale, groups)
+        groups = screenshot_groups(plan, data, "play", locale)
         screenshots(plan, data, "play", base, groups, MAIN_LISTING)
 
 

@@ -8,6 +8,7 @@ import sys
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apple_assets
+import screenshots
 import detect
 import imginfo
 import listing
@@ -35,14 +36,33 @@ def missing(level, reason, message):
         yield ("FAIL" if level == "required" else "WARN", message + (" — " + reason if reason else ""))
 
 
-def count_rows(slot, count, requirements, store):
+PRIMARY = {"supportsIphone": "iphone", "supportsIpad": "ipad", "supportsAndroidPhone": "phone"}
+
+
+def count_rows(slot, count, requirements, store, family_count=0):
     label = slot["label"]
-    level, reason = requirements.evaluate(slot["required"])
+    rule = slot["required"]
+    level, reason = requirements.evaluate(rule)
     if count > slot["max"]:
         yield "FAIL", f'{label}: {count} screenshots ({store} max is {slot["max"]} per display class)'
     if count < slot["min"]:
-        msg = f'no {label} screenshots' if not count else f'{label} screenshots: {count}'
-        yield from missing(level, reason, msg + f' (need ≥{slot["min"]})')
+        msg = (f'no {label} screenshots' if not count else f'{label} screenshots: {count}') + f' (need ≥{slot["min"]})'
+        condition = rule.get("condition")
+        if level == "upcoming" and "from" not in rule and requirements.values.get(condition) is None:
+            if condition in PRIMARY:
+                severity = "WARN" if family_count else "FAIL"
+                first = condition not in requirements.reported_unknown
+                if first:
+                    requirements.reported_unknown.add(condition)
+                    msg += f" — set {condition} in the platforms key in .listing-kit/listing.json"
+                    if condition in detect.ENV_FLAGS:
+                        msg += " or set " + detect.ENV_FLAGS[condition]
+                if first or severity == "FAIL":
+                    yield severity, msg
+            elif requirements.verbose:
+                yield "NOTE", msg + " — " + reason
+        else:
+            yield from missing(level, reason, msg)
     if count and slot["framing"] == "forbidden":
         yield "NOTE", f"{label}: framing forbidden; check that the screenshots are unframed"
 
@@ -52,20 +72,27 @@ def byte_limit(path, rule):
         yield "FAIL", f'{path.name}: exceeds {rule["maxBytes"]} bytes'
 
 
-def apple_shots(directory, console, rules, requirements):
+def apple_shots(root, locale, rules, requirements, deferred=()):
     counts = Counter()
+    message_counts = Counter()
     base = rules["stores"]["apple"]["screenshots"]
-    paths = apple_assets.screenshot_paths(directory, rules, console)
-    for path, (w, h, depth, color), status, notes in inspected(paths):
+    selected = []
+    for shot in screenshots.active(root, "apple", locale, rules, deferred):
+        if shot.manual and shot.error:
+            yield "FAIL", shot.error
+        else:
+            selected.append(shot)
+    for shot, (path, (w, h, depth, color), status, notes) in zip(selected, inspected([s.path for s in selected])):
         yield from notes
         if status.startswith("bad: "):
             continue
-        slot = specs.apple_slot_for_file(rules, w, h, str(path))
-        if not slot:
-            yield "FAIL", f"{path.name}: {w}x{h} is not an App Store screenshot size"
+        if shot.error:
+            yield "FAIL", shot.error
             continue
+        slot = shot.slot
         if status != "bad":
-            counts[slot["id"]] += 1
+            group = message_counts if shot.platform == "iMessage" else counts
+            group[slot["id"]] += 1
         formats = slot.get("formats", base.get("formats"))
         if formats and not imginfo.format_allowed(path, formats):
             yield "FAIL", f"{path.name}: format outside accepted screenshot formats"
@@ -74,9 +101,19 @@ def apple_shots(directory, console, rules, requirements):
         if "bitDepth" in slot and depth != slot["bitDepth"]:
             yield "FAIL", f'{path.name}: expected bit depth {slot["bitDepth"]}'
         yield from byte_limit(path, slot)
+    primary_total = sum(n for key, n in counts.items() if key.startswith(("iphone-", "ipad-")))
+    if primary_total < base["minTotal"]:
+        yield "FAIL", f'screenshots: {primary_total} across primary device families (need ≥{base["minTotal"]})'
     for slot in base["slots"]:
+        message_count = message_counts[slot["id"]]
+        if message_count > slot["max"]:
+            yield "FAIL", f'iMessage {slot["label"]}: {message_count} screenshots (max {slot["max"]})'
+        elif message_count:
+            yield "PASS", f'iMessage {slot["label"]} screenshots present ({message_count})'
         count = counts[slot["id"]]
-        yield from count_rows(slot, count, requirements, "App Store")
+        family = PRIMARY.get(slot["required"].get("condition"))
+        family_count = sum(n for key, n in counts.items() if family and key.startswith(family + "-"))
+        yield from count_rows(slot, count, requirements, "App Store", family_count)
         if count and count <= slot["max"]:
             yield "PASS", f'{slot["label"]} screenshots present ({count})'
 
@@ -86,16 +123,21 @@ def promoted(rule, w, h):
             and specs.ratio_matches(w, h, rule["ratios"]))
 
 
-def play_shots(directory, console, rules, requirements):
+def play_shots(root, locale, rules, requirements):
     shots = rules["stores"]["play"]["screenshots"]
+    groups = {}
+    for shot in screenshots.active(root, "play", locale, rules):
+        if shot.error:
+            yield "FAIL", shot.error
+        else:
+            groups.setdefault(shot.slot["id"], []).append(shot.path)
     total = 0
     for slot in shots["slots"]:
-        paths = listing.images(directory / slot["folder"]) if slot.get("folder") else []
-        paths += listing.images(console / slot["id"])
+        paths = groups.get(slot["id"], [])
         total += len(paths)
         count = len(paths)
         label = slot["label"]
-        yield from count_rows(slot, count, requirements, "Play")
+        yield from count_rows(slot, count, requirements, "Play", count)
         promotion = slot.get("promotion")
         eligible = 0
         sizes = Counter()
@@ -136,6 +178,8 @@ def play_graphic(directory, graphic, requirements):
         yield "FAIL", f"images/{stem}/ is not uploaded by fastlane supply; move the file to images/{stem}.png"
     paths = [p for p in listing.images(directory) if Path(p).stem == stem]
     if not paths:
+        if level == "upcoming" and "from" not in graphic["required"] and not requirements.verbose:
+            return
         yield from missing(level, reason, f"{label} MISSING: images/{stem}")
     if len(paths) > 1:
         yield "FAIL", f'duplicate {stem} candidates: {", ".join(map(str, paths))}'
@@ -171,15 +215,15 @@ if __name__ == "__main__":
     rules = specs.load(args.root)
     requirements = detect.Requirements(args.root, rules)
     directory = args.root / "fastlane"
-    console = args.root / "store-assets" / args.store / args.locale / "screenshots"
     if args.store == "apple":
-        rows = apple_shots(directory / "screenshots" / args.locale, console, rules, requirements)
+        deferred = apple_assets.load_plan(args.root, rules).get(args.locale, {}).get("deferredScreenshots", {})
+        rows = apple_shots(args.root, args.locale, rules, requirements, apple_assets.deferred_slots(rules, deferred))
     else:
         images = directory / "metadata" / "android" / args.locale / "images"
         if args.graphic:
             graphic = next(g for g in rules["stores"]["play"]["graphics"] if g["id"] == args.graphic)
             rows = play_graphic(images, graphic, requirements)
         else:
-            rows = play_shots(images, console, rules, requirements)
+            rows = play_shots(args.root, args.locale, rules, requirements)
     for level, message in rows:
         print(level, message, sep="\t")

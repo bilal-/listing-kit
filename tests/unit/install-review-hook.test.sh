@@ -350,7 +350,7 @@ assert_contains "$PAGE" 'no iPad 13&quot; screenshots'
 assert_contains "$PAGE" 'LISTING HAS FAILURES'
 git -C "$T" mv app.json retired-app.json
 git -C "$T" commit -qm "remove app config from listing inputs" >/dev/null 2>&1
-assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LISTING VALID'
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'LK_SUPPORTS_IPAD'
 remove_fixture "$T"
 
 it "reinstallation replaces the permissive v0.5.0 call and runner"

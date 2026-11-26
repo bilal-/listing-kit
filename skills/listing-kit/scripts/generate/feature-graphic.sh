@@ -32,11 +32,13 @@ if ! im_resolve; then
   exit 3
 fi
 
-size="$(python3 -I -B "$_here/../lib/specs.py" graphic-size play featureGraphic .)"
+settings="$(python3 -I -B "$_here/../lib/specs.py" feature-graphic "$out")"
+IFS=$'\t' read -r size encoder depth alpha <<<"$settings"
+width="${size%x*}"; height="${size#*x}"
+short="$height"; [ "$width" -ge "$height" ] || short="$width"
+inset=$((short * 3 / 5))
+im_channels "$alpha"
 "${IM[@]}" -size "$size" "gradient:${color_a}-${color_b}" \
-  \( "$icon" -resize 300x300 \) -gravity center -composite \
-  -background white -alpha remove -alpha off \
-  -depth 8 -define png:color-type=2 \
-  "PNG24:$out"
-
-echo "Wrote feature graphic: $out ($size, no alpha)."
+  \( "$icon" -resize "${inset}x${inset}" \) -gravity center -composite \
+  "${CHANNELS[@]}" -depth "$depth" "$encoder:$out"
+echo "Wrote feature graphic: $out ($size, $encoder)."

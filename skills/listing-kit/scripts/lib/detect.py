@@ -14,19 +14,11 @@ if __name__ == "__main__":
 import plan
 import specs
 
-SKIP = {".git", ".gradle", "build", "DerivedData", "node_modules", "Pods", ".expo", ".dart_tool", "dist"}
+from project_files import project_files
+from xcode_project import application_settings
+
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 UNKNOWN = (None, "no static evidence")
-
-
-def project_files(root):
-    for parent, dirs, names in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP and not d.endswith((".framework", ".xcframework")))
-        for name in sorted(names):
-            path = Path(parent) / name
-            if name in ("AndroidManifest.xml", "Info.plist") or name.endswith(".pbxproj") or (
-                    path.parent == root and (name == "app.json" or name.startswith("app.config."))):
-                yield path
 
 
 # Scan object keys and literal values without importing or executing a JS config.
@@ -65,27 +57,92 @@ def expo_families(ios):
             tablet if type(tablet) is bool else None)
 
 
+ANDROID_PLUGIN = re.compile(
+    r"""(?:\bid\s*\(?|\bapply\s*\(?\s*plugin\s*[:=])\s*["']com\.android\."""
+    r"""(application|library|dynamic-feature|test)["'][ \t]*\)?"""
+    r"""(?:[ \t]+version[ \t]+[^\s}]+)?(?:[ \t]+apply[ \t]+(false))?"""
+)
+
+
+def app_manifest(path, doc):
+    if doc.getroot().tag != "manifest":
+        return False
+    module = path.parents[2]
+    for gradle in (module / "build.gradle", module / "build.gradle.kts"):
+        if gradle.is_file():
+            source = re.sub(r"/\*.*?\*/|//[^\n]*", "", gradle.read_text(encoding="utf-8"), flags=re.S)
+            plugins = list(ANDROID_PLUGIN.finditer(source))
+            if plugins:
+                return any(match[1] == "application" and not match[2] for match in plugins)
+    for tag in ("activity", "activity-alias"):
+        for category in doc.findall("application/" + tag + "/intent-filter/category"):
+            if category.get(ANDROID + "name") in ("android.intent.category.LAUNCHER",
+                                                  "android.intent.category.LEANBACK_LAUNCHER"):
+                return True
+    return False
+
+
+def device_families(config, directory):
+    value = config.get("TARGETED_DEVICE_FAMILY")
+    if value is None and isinstance(config.get("INFOPLIST_FILE"), str):
+        name = config["INFOPLIST_FILE"].replace("$(SRCROOT)/", "").replace("${SRCROOT}/", "")
+        path = (directory / name).resolve()
+        if directory.resolve() in path.parents and path.is_file():
+            try:
+                value = plistlib.loads(path.read_bytes()).get("UIDeviceFamily")
+            except (ValueError, ExpatError, plistlib.InvalidFileException):
+                pass
+    parts = value if isinstance(value, list) else str(value).split(",")
+    if all(str(part).strip().isdigit() for part in parts):
+        return {str(part).strip() for part in parts}
+    return None
+
+
+def platforms(config):
+    value = config.get("SUPPORTED_PLATFORMS", "")
+    names = set(value if isinstance(value, list) else value.split())
+    if config.get("SDKROOT"):
+        names.add(config["SDKROOT"])
+    return names
+
+
+def xcode(path, project, evidence):
+    settings = list(application_settings(path))
+    if not settings:
+        return
+    ios = False
+    for config in settings:
+        if config is None:
+            project["families"].append((evidence, None))
+            continue
+        family = device_families(config, path.parent.parent)
+        supported = platforms(config)
+        family_only = not supported.difference({"$(inherited)"}) and family and family.intersection({"1", "2"})
+        if supported.intersection({"iphoneos", "iphonesimulator"}) or family_only:
+            ios = True
+            project["families"].append((evidence, family))
+    project["targets"].append((evidence, ios, settings))
+
+
 def read_project(root):
     project = {k: [] for k in ("families", "expo", "targets", "android")}
     for path in project_files(root):
         evidence = str(path.relative_to(root))
         try:
             if path.suffix == ".pbxproj":
-                text = path.read_text(encoding="utf-8")
-                project["targets"].append((evidence, text))
-                for family in re.findall(r'TARGETED_DEVICE_FAMILY\s*=\s*"?([\d,\s]+)"?\s*;', text):
-                    project["families"].append((evidence, family.replace(" ", "").strip().split(",")))
-            elif path.name == "Info.plist":
-                with path.open("rb") as f:
-                    family = plistlib.load(f).get("UIDeviceFamily")
-                if isinstance(family, list):
-                    project["families"].append((evidence, list(map(str, family))))
+                try:
+                    xcode(path, project, evidence)
+                except (KeyError, ValueError, TypeError, AttributeError, plistlib.InvalidFileException):
+                    project["targets"].append((evidence, False, [None]))
+                    project["families"].append((evidence, None))
             elif path.name == "AndroidManifest.xml":
                 doc = ElementTree.parse(path)
+                if not app_manifest(path, doc):
+                    continue
                 features = [(f.get(ANDROID + "name", ""), f.get(ANDROID + "required", "true") != "false")
                             for f in doc.findall("uses-feature")]
                 launcher = any(c.get(ANDROID + "name") == "android.intent.category.LEANBACK_LAUNCHER"
-                               for c in doc.findall(".//intent-filter/category"))
+                               for c in doc.findall("application//intent-filter/category"))
                 project["android"].append((evidence, (features, launcher)))
             elif path.suffix == ".json":
                 cfg = json.loads(path.read_text(encoding="utf-8"))
@@ -102,27 +159,39 @@ def read_project(root):
 
 
 def find(entries, test):
-    negative = UNKNOWN
+    negative = unknown = None
     for path, value in entries:
-        result = test(value)
+        result = test(value) if value is not None else None
         if result:
             return True, path
-        if result is not None:
-            negative = False, path
-        elif negative == UNKNOWN:
-            negative = None, path
-    return negative
+        if result is None:
+            unknown = (None, path)
+        else:
+            negative = (False, path)
+    return unknown or negative or UNKNOWN
 
 
 def family(number, project):
-    result = find(project["families"], lambda values: number in values)
-    if result[0] is None:
-        return find(project["expo"], lambda flags: flags[int(number) - 1])
-    return result
+    if project["families"]:
+        return find(project["families"], lambda values: number in values)
+    return find(project["expo"], lambda flags: flags[int(number) - 1])
 
 
-def target(pattern):
-    return lambda project: find(project["targets"], lambda text: re.search(pattern, text, re.I) is not None)
+def target(platform, setting=None, expected=None):
+    def detect(project):
+        entries = []
+        for path, ios, settings in project["targets"]:
+            for config in settings:
+                if config is None:
+                    entries.append((path, None))
+                    continue
+                match = platform in platforms(config)
+                if setting and setting in config:
+                    match = match or expected is None or config[setting] == expected
+                if ios or match:
+                    entries.append((path, match if ios else None))
+        return find(entries, bool)
+    return detect
 
 
 def nonphone(feature):
@@ -137,10 +206,10 @@ def android(test):
 DETECTORS = {
     "supportsIphone": lambda p: family("1", p),
     "supportsIpad": lambda p: family("2", p),
-    "hasWatchApp": target(r'\b(?:SDKROOT\s*=\s*"?watchos\b|WATCHOS_DEPLOYMENT_TARGET\s*=)'),
-    "hasTvApp": target(r'\b(?:SDKROOT\s*=\s*"?appletvos\b|TVOS_DEPLOYMENT_TARGET\s*=)'),
-    "hasVisionApp": target(r'\b(?:SUPPORTED_PLATFORMS\s*=[^;]*\bxros\b|SDKROOT\s*=\s*"?xros\b)'),
-    "hasMacApp": target(r'\b(?:SDKROOT\s*=\s*"?macosx\b|SUPPORTS_MACCATALYST\s*=\s*"?YES\b)'),
+    "hasWatchApp": target("watchos", "WATCHOS_DEPLOYMENT_TARGET"),
+    "hasTvApp": target("appletvos", "TVOS_DEPLOYMENT_TARGET"),
+    "hasVisionApp": target("xros"),
+    "hasMacApp": target("macosx", "SUPPORTS_MACCATALYST", "YES"),
     "supportsAndroidPhone": android(lambda features, _: not any(nonphone(f) and required for f, required in features)),
     "hasAndroidTv": android(lambda features, launcher: launcher or any(f == "android.software.leanback" for f, _ in features)),
     "hasWearOs": android(lambda features, _: any(f == "android.hardware.type.watch" for f, _ in features)),
@@ -149,16 +218,27 @@ DETECTORS = {
 }
 
 
-def resolve(root, rules, ios_sdk=None):
+ENV_FLAGS = {"supportsIphone": "LK_SUPPORTS_IPHONE", "supportsIpad": "LK_SUPPORTS_IPAD"}
+
+
+def resolve(root, rules, ios_sdk=None, errors=None):
     root = Path(root)
     project = read_project(root)
+    explicit = {}
     try:
         explicit = plan.load(root).get("platforms", {})
-    except (FileNotFoundError, plan.PlanError):
-        explicit = {}
+    except FileNotFoundError:
+        pass
+    except plan.PlanError as exc:
+        _, field, message = next(issue for issue in exc.problems if issue[0] == "ERROR")
+        error = f"listing.json invalid; platform overrides ignored: {field}: {message}"
+        if errors is None:
+            print(error, file=sys.stderr)
+        else:
+            errors.append(error)
     facts = {}
     for name in rules.get("conditions", {}):
-        env = {"supportsIphone": "LK_SUPPORTS_IPHONE", "supportsIpad": "LK_SUPPORTS_IPAD"}.get(name)
+        env = ENV_FLAGS.get(name)
         if name in explicit:
             facts[name] = explicit[name], str(plan.LISTING)
         elif env and os.environ.get(env) in ("0", "1"):
@@ -179,7 +259,10 @@ class Requirements:
     """Evaluate each rule against the same facts and retain the evidence used."""
 
     def __init__(self, root, rules, as_of=None, ios_sdk=None):
-        self.facts = resolve(root, rules, ios_sdk)
+        self.errors = []
+        self.reported_unknown = set()
+        self.verbose = False
+        self.facts = resolve(root, rules, ios_sdk, self.errors)
         self.values = {k: v for k, (v, _) in self.facts.items()}
         self.as_of = as_of
         self.used = set()

@@ -87,7 +87,9 @@ def screenshots(store, rules):
                      dimensions(s), encoding(dict(shot, **s)), ". ".join(notes)))
     result = table(("Display class", "Requirement", "Count per locale", "Accepted size or bounds", "Format", "Delivery and notes"), rows)
     if "minTotal" in shot:
-        result += "\n\nAt least {} screenshots across all device types per locale.".format(shot["minTotal"])
+        families = "primary device families" if store == "apple" else "all device types"
+        count = shot["minTotal"]
+        result += "\n\nAt least {} screenshot{} across {} per locale.".format(count, "" if count == 1 else "s", families)
     return result
 
 

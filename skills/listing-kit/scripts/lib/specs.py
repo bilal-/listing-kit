@@ -12,6 +12,7 @@ CLI:  specs.py verified [<app-root>]            -> the date the rules were check
 import datetime
 from fractions import Fraction
 import os
+from pathlib import Path
 import re
 import sys
 
@@ -202,7 +203,7 @@ def check(data):
             }, problems)
         path += ".screenshots"
         shots = st.get("screenshots")
-        if not _fields_ok(shots, path, ("slots", "minTotal") if store == "play" else ("slots",), {
+        if not _fields_ok(shots, path, ("slots", "minTotal"), {
             "slots": array, "minTotal": _count, "formats": strings, "note": _string,
             "alpha": lambda v: type(v) is bool,
         }, problems) or not array(shots.get("slots")):
@@ -444,7 +445,7 @@ def requirement(rule, conditions, as_of=None, used=None):
         if value is False:
             return "optional", ""
         if value is None:
-            unknown = "cannot tell whether %r applies; say so with a flag" % name
+            unknown = "cannot tell whether %r applies" % name
     unless = rule.get("unless")
     if unless:
         if used is not None:
@@ -455,6 +456,10 @@ def requirement(rule, conditions, as_of=None, used=None):
         if value is None:
             unknown = unknown or "cannot tell whether exemption %r applies" % unless
     if unknown:
+        if "from" in rule:
+            unknown += " (requirement from " + rule["from"] + ")"
+            if unless and unless.startswith("iosSdkBelow:") and conditions.get(unless) is None:
+                unknown += "; pass --ios-sdk X.Y"
         return "upcoming", unknown
     if "from" in rule:
         start = parse_date(rule["from"])
@@ -472,11 +477,52 @@ def staleness(data, as_of=None):
     return data["verified"], age, age > STALE_DAYS
 
 
+def image_output(rule, output):
+    """ImageMagick encoder, channel depth and alpha policy for a generated asset."""
+    formats = rule.get("formats")
+    if not formats:
+        raise SpecsError("an output format is required to generate an image")
+    extension = Path(output).suffix.lower().lstrip(".")
+    extension = "jpeg" if extension == "jpg" else extension
+    fmt = extension if extension in formats else formats[0]
+    depth = rule.get("bitDepth", 8)
+    alpha = bool(rule.get("alpha"))
+    if fmt == "png" and depth in (8, 16):
+        encoder = "PNG" + str(depth * (4 if alpha else 3))
+    elif fmt == "jpeg" and rule.get("alpha") != "required":
+        encoder = "JPEG"
+        alpha = False
+    else:
+        raise SpecsError(f"unsupported output format, depth or alpha for {fmt}")
+    return encoder, str(depth), "on" if alpha else "off"
+
+
+def promotion_crop(width, height, ratios):
+    # Retain the largest rectangle matching one of the accepted orientations.
+    candidates = []
+    for ratio in ratios:
+        reduced = Fraction(*map(int, ratio.split(":")))
+        x, y = reduced.numerator, reduced.denominator
+        scale = min(width // x, height // y)
+        if scale:
+            candidates.append((scale * x, scale * y))
+    if not candidates:
+        raise SpecsError("capture is too small for the promotion ratios")
+    return max(candidates, key=lambda size: size[0] * size[1])
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     try:
         if a[:1] == ["verified"]:
             print(load(a[1] if len(a) > 1 else None)["verified"])
+        elif a[:1] == ["play-crop"] and len(a) == 4:
+            phone = slot(load("."), "play", "phone")
+            w, h = promotion_crop(int(a[1]), int(a[2]), phone["promotion"]["ratios"])
+            print("\t".join((f"{w}x{h}", *image_output(phone, a[3]))))
+        elif a[:1] == ["feature-graphic"] and len(a) == 2:
+            graphic = next(g for g in load(".")["stores"]["play"]["graphics"] if g["id"] == "featureGraphic")
+            print("\t".join(("{}x{}".format(*graphic["size"]), *image_output(graphic, a[1]))))
         elif a[:1] == ["graphic-size"] and len(a) in (3, 4):
             store = load(a[3] if len(a) == 4 else None)["stores"].get(a[1], {})
             graphic = next((g for g in store.get("graphics", []) if g["id"] == a[2]), None)

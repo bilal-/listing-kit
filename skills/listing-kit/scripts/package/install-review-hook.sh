@@ -301,9 +301,17 @@ git diff --cached --name-only --no-renames -z "${base[@]}" -- | (
       case "$path" in "$prefix"*) rel="${path:${#prefix}}" ;; *) continue ;; esac
       case "$rel" in
         fastlane/*|store-assets/*|.listing-kit/*|app.json) found=0 ;;
-        *.pbxproj|Info.plist|*/Info.plist)
+        *.pbxproj|Info.plist|*/Info.plist|AndroidManifest.xml|*/AndroidManifest.xml|build.gradle|*/build.gradle|build.gradle.kts|*/build.gradle.kts)
           case "/$rel/" in
-            */node_modules/*|*/.git/*|*/Pods/*|*/build/*|*/DerivedData/*|*/.expo/*|*/dist/*|*/.dart_tool/*|*.framework/*|*.xcframework/*) ;;
+RUN
+  python3 -I -B - "$SELF_DIR/../lib" <<'PYSKIP'
+import sys
+sys.path.insert(0, sys.argv[1])
+from review_hook import SKIP, SKIP_SUFFIXES
+patterns = ["*/" + name + "/*" for name in sorted(SKIP)] + ["*" + ext + "/*" for ext in SKIP_SUFFIXES]
+print("            " + "|".join(patterns) + ") ;;")
+PYSKIP
+  cat <<'RUN'
             *) found=0 ;;
           esac ;;
         app.config.*) case "$rel" in */*) ;; *) found=0 ;; esac ;;

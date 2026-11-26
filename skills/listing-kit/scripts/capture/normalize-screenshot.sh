@@ -31,20 +31,18 @@ if ! im_resolve; then
 fi
 
 crop=()
+encoder=PNG24; depth=8; alpha=off
 if [ "$mode" = "--play" ]; then
   info="$(python3 -I -B "$_here/../lib/imginfo.py" "$in")" || { echo "Could not read image size: $in" >&2; exit 1; }
   IFS=$'\t' read -r w h _ <<<"$info"
   [ "${w:-0}" -gt 0 ] && [ "${h:-0}" -gt 0 ] || { echo "Not a PNG/JPEG image: $in" >&2; exit 1; }
-  # Keep the top or left edge when trimming the long dimension.
-  if [ $((h * 9)) -gt $((w * 16)) ]; then crop=(-crop "${w}x$((w * 16 / 9))+0+0" +repage)
-  elif [ $((w * 9)) -gt $((h * 16)) ]; then crop=(-crop "$((h * 16 / 9))x${h}+0+0" +repage)
+  settings="$(python3 -I -B "$_here/../lib/specs.py" play-crop "$w" "$h" "$out")"
+  IFS=$'\t' read -r size encoder depth alpha <<<"$settings"
+  if [ "$size" != "${w}x${h}" ]; then
+    crop=(-crop "${size}+0+0" +repage)
   fi
 fi
-
 mkdir -p "$(dirname "$out")"
-"${IM[@]}" "$in" ${crop[@]+"${crop[@]}"} \
-  -background white -alpha remove -alpha off \
-  -strip -depth 8 -define png:color-type=2 \
-  "PNG24:$out"
-
-echo "Wrote $out (24-bit RGB, no alpha${crop[0]:+, cropped to 9:16})."
+im_channels "$alpha"
+"${IM[@]}" "$in" ${crop[@]+"${crop[@]}"} "${CHANNELS[@]}" -strip -depth "$depth" "$encoder:$out"
+echo "Wrote screenshot: $out ($encoder)."

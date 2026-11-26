@@ -1,0 +1,4 @@
+name: runner
+dependencies:
+  flutter:
+    sdk: flutter

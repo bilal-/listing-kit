@@ -86,7 +86,7 @@ remove_fixture "$T"
 it "fails on a native-iOS universal app (TARGETED_DEVICE_FAMILY=2) with no iPad screenshots"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"            # NOTE: no app.json → not the Expo path
 rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
-mkdir -p "$T/App.xcodeproj"; printf 'TARGETED_DEVICE_FAMILY = "1,2";\n' > "$T/App.xcodeproj/project.pbxproj"
+cp -R "$ROOT/tests/fixtures/platforms/flutter/ios/Runner.xcodeproj" "$T/"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 — native iPad support detected, iPad shots required"
 assert_contains "$OUT" 'no iPad 13" screenshots'
@@ -170,7 +170,9 @@ remove_fixture "$T"
 
 it "a phone listing needs two phone images as well as two overall"
 play_only; rm -f "$T/$PHONE"/*.png
-printf '<manifest/>\n' > "$T/AndroidManifest.xml"
+mkdir -p "$T/app/src/main"
+echo 'plugins { id("com.android.application") }' > "$T/app/build.gradle.kts"
+printf '<manifest/>\n' > "$T/app/src/main/AndroidManifest.xml"
 png "$T/$PHONE/01_home.png" 1080 1920
 png "$T/fastlane/metadata/android/en-US/images/tenInchScreenshots/01_home.png" 1920 1080
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
