@@ -34,11 +34,35 @@ Ignore local state in the app's gitignore. Keep the plan and flows trackable.
 .listing-kit/*.local
 ```
 
+The `*.local` rule above keeps `.listing-kit/secrets.local` out of Git. The user can source it before capture to export a demo login. [Flow variables](../driving/maestro.md#write-a-flow)
+
 Setup saves paths supplied through its key-path options in private `.listing-kit/local.json`. This file can also hold device pins. Keep store key files outside the whole repository. The agent may help set a path but must never request, open or print the credential contents.
+
+If the staged review hook blocks a commit, fix the finding and commit again. Never bypass the scan with `--no-verify`. If the user confirms a flagged key in a device declaration is public, review the staged file. For a reviewed `app.json` at the repository root, record the exception from that directory.
+
+```sh
+git config --local --add listingKit.reviewedDeviceBlob "$(git rev-parse :app.json) app.json"
+```
+
+For another declaration, use its repository-relative path in both places. The exception covers only that staged blob at that path. Review it again after an edit.
 
 ## Apple asset plan
 
-Existing listings can have `.listing-kit/asset-plan.json`. The validator, review and handoff read its Apple locale entries for screenshot counts, headers and `deferredScreenshots` reasons. Use the display labels from the Apple table here. The format-2 listing plan uses slot IDs and drives capture and compose. Keep any existing Apple asset plan consistent with the approved coverage.
+For each Apple listing, including a new one, commit the approved coverage in `.listing-kit/asset-plan.json`. Validate, review and handoff read this file for coverage and deferrals. The targets in `.listing-kit/listing.json` drive capture and compose. They do not replace the asset plan yet.
+
+```json
+{
+  "apple": {
+    "en-US": {
+      "screenshots": {"iPhone Dynamic Island (medium display)": 5},
+      "headers": ["header-16x9.png"],
+      "deferredScreenshots": {"iPhone Duo (outer display)": "No Duo runtime installed."}
+    }
+  }
+}
+```
+
+Use one entry per Apple locale. Each needs at least one count, header filename or deferral. Use [Apple display labels](../stores/apple-app-store.md) for exact screenshot counts and single-line deferral reasons. Only defer sets that are optional for the submission. Validation fails if a required set is deferred.
 
 ## Store management
 
@@ -46,7 +70,7 @@ Existing listings can have `.listing-kit/asset-plan.json`. The validator, review
 
 `listing-kit pull` updates nonconflicting text, records hashes in `.listing-kit/remote.lock.json` and saves screenshot references under `.listing-kit/remote/<store>/`. When both sides changed a field, the working file stays in place and the downloaded copy goes under that reference directory. Review the two versions before merging.
 
-`listing-kit publish` validates a scratch copy, compares it with the store and prints a summary and proposed command for comparable changes. Fastlane uses deliver for Apple and supply for Play. The preview identifies gallery replacement scope. Apple replacement affects all screenshot sets in an uploaded locale. The adapter leaves console slots and Play listing graphics for hand upload. Both store upload gates are off in this version pending live tests.
+`listing-kit publish` validates a scratch copy, compares it with the store and prints a summary and proposed command for comparable changes. Fastlane uses deliver for Apple and supply for Play. The preview identifies gallery replacement scope. Apple replacement affects all screenshot sets in an uploaded locale. The adapter leaves console slots and Play listing graphics for hand upload. Publishing does not upload by default. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch.
 
 `listing-kit handoff --open` builds a copy in `.listing-kit/upload/` with Apple and Play folders, ordered screenshots, text and graphics. Open `INDEX.html` or read `INDEX.md` for destinations, missing items and omissions. Edit the source listing. Handoff refuses to replace a modified or unrecognized upload folder.
 

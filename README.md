@@ -8,23 +8,23 @@ Turn a running app into ordered store screenshots, graphics, fastlane text files
 
 ## Install
 
-| Agent | Commands |
+| Agent | Install commands (clean installs unverified) |
 | --- | --- |
-| Claude Code[^install] | `/plugin marketplace add bilal-/listing-kit` then `/plugin install listing-kit@listing-kit` |
-| Codex[^install] | `codex plugin marketplace add bilal-/listing-kit` then `codex plugin add listing-kit@listing-kit` |
-| Copilot CLI[^install] | `copilot plugin marketplace add bilal-/listing-kit` then `copilot plugin install listing-kit@listing-kit` |
-| Gemini CLI[^install] | `gemini extensions install https://github.com/bilal-/listing-kit` |
-| Universal skill installer[^install] | `npx skills add bilal-/listing-kit` |
+| Claude Code | `/plugin marketplace add bilal-/listing-kit` then `/plugin install listing-kit@listing-kit` |
+| Codex | `codex plugin marketplace add bilal-/listing-kit` then `codex plugin add listing-kit@listing-kit` |
+| Copilot CLI | `copilot plugin marketplace add bilal-/listing-kit` then `copilot plugin install listing-kit@listing-kit` |
+| Gemini CLI | `gemini extensions install https://github.com/bilal-/listing-kit` |
+| Universal skill installer | `npx skills add bilal-/listing-kit` |
 
-[^install]: not yet verified from a clean install
-
-For shell access from a checkout, run `skills/listing-kit/bin/listing-kit link` and follow its PATH hint. See [install and launcher setup](docs/INSTALL.md).
+Installing the skill does not put the launcher on PATH. Ask the agent to run `bin/listing-kit link` from the installed skill directory. From a checkout, run `skills/listing-kit/bin/listing-kit link`. Follow the printed PATH hint in your shell. [Launcher setup](docs/INSTALL.md)
 
 ## Quick start
 
 Open the app's directory with your agent and ask **“Prepare my store listing.”** Pick the screens, order, copy and devices before the build. The agent writes the plan and Maestro flows and helps build and install the app.
 
-Once the plan and app are ready, these six commands take you from preflight to hand upload:
+These commands are in the [Unreleased changelog](CHANGELOG.md#unreleased). Use a checkout or plugin revision that contains the launcher. Install the app on a matching iOS simulator on a Mac or on a running Android emulator. Automated capture needs Maestro and its JDK. Install ImageMagick and a supported browser for framed shots.
+
+With the plan and app ready, run these commands from the app directory.
 
 ```sh
 listing-kit doctor
@@ -35,13 +35,13 @@ listing-kit review
 listing-kit handoff --open
 ```
 
-The review page is `listing-review.html`. The hand-upload instructions are in `.listing-kit/upload/INDEX.html`. Try the [first run with Recipe Box](docs/GUIDE.md).
+Open `listing-review.html` to check the finished listing. Handoff opens `.listing-kit/upload/INDEX.html`. Follow the index to paste the text and upload each image yourself in App Store Connect or Play Console. [First run with Recipe Box](docs/GUIDE.md)
 
 ## What runs locally
 
 The kit supports native iOS, native Android, Flutter and React Native (including Expo). Capture needs an installed app and a matching iOS simulator or running Android emulator. Maestro navigates and checks the screen. Compose turns captures into store images. You choose the screens, supply real listing details and approve changes to existing content.
 
-Fastlane setup checks store access. Pull imports listing text and keeps remote screenshot references. **Publishing is preview-only in this version.** The publish command prints the summary and proposed command. Upload by hand until the store's live test passes. Build distribution has a separate [release guide](docs/RELEASES.md).
+Fastlane setup checks store access. Pull imports listing text and keeps remote screenshot references. **Publishing is preview-only by default.** The publish command prints the summary and proposed command. Upload by hand until the store's live test passes. Build distribution has a separate [release guide](docs/RELEASES.md).
 
 | Requirement | When you need it |
 | --- | --- |

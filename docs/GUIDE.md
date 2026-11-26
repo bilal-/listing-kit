@@ -46,6 +46,8 @@ Save the following as `.listing-kit/listing.json` in your copy. It adds one targ
 }
 ```
 
+For Apple, also save the agreed counts, headers and deferrals in the [Apple asset plan](../skills/listing-kit/references/metadata/fastlane-layout.md#apple-asset-plan). For this walkthrough, record two shots for `iPhone Dynamic Island (medium display)` in `en-US`. Preserve any other approved coverage.
+
 Run `listing-kit plan check --for capture` to check the plan and flow paths. Run `listing-kit plan outputs` to see where the two raw and final images will go. For a larger plan, add locales, approved target slots, graphics and split roots as needed. [Plan reference](../skills/listing-kit/references/plan-file.md)
 
 ## Build and capture
@@ -70,7 +72,11 @@ listing-kit validate
 listing-kit review
 ```
 
-Inspect `.listing-kit/preview.html` for the planned appearance and `listing-review.html` for the finished listing. If compose reports an ownership conflict, inspect the named file before deciding which version to keep. Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
+Inspect `.listing-kit/preview.html` for the planned appearance and `listing-review.html` for the finished listing.
+
+When extending the plan to existing galleries, compare `listing-kit plan outputs` with the committed files. A Play output such as `01_recipes.png` can collide with an existing file. Use `listing-kit compose --adopt` only with approval to replace the named files. Apple output names include a target suffix. Review the old and new images side by side, then get approval to move superseded images out of the gallery before validation.
+
+Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
 
 In your app's Git worktree, run `listing-kit hook install` and check `listing-kit hook status`. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 
@@ -78,4 +84,4 @@ In your app's Git worktree, run `listing-kit hook install` and check `listing-ki
 
 Run `listing-kit handoff --open` to open the upload index. Use its text and ordered assets in the named store destinations.
 
-For an app you own on the store, `listing-kit fastlane setup` checks download access using a credential path. Use `listing-kit pull` to import existing text and review conflicts. Run `listing-kit publish` for a change summary and the proposed fastlane command. This version does not upload until the store adapter passes its live test. [Credentials](CREDENTIALS.md) · [Troubleshooting](TROUBLESHOOTING.md)
+For an app you own on the store, `listing-kit fastlane setup` checks download access using a credential path. Use `listing-kit pull` to import existing text and review conflicts. Run `listing-kit publish` for a change summary and the proposed fastlane command. Publishing does not upload by default. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch. [Credentials](CREDENTIALS.md) · [Troubleshooting](TROUBLESHOOTING.md)

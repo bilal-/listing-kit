@@ -10,7 +10,7 @@ Automated capture needs Maestro and JDK 17+. The capture command selects the dev
 
 ## Write a flow
 
-Capture supplies four Maestro variables. `LK_APP_ID` identifies the installed app. `LK_LOCALE` is the store-specific device locale. `LK_TARGET` and `LK_SCREEN` are plan IDs. A literal appId in the flow must match the job. A variable carries the requested locale to your flow. Your app or flow must actually apply it.
+Capture sets four Maestro variables with `-e`. `LK_APP_ID` identifies the installed app. `LK_LOCALE` is the store-specific device locale. `LK_TARGET` and `LK_SCREEN` are plan IDs. A literal appId in the flow must match the job. A variable carries the requested locale to your flow. Your app or flow must actually apply it.
 
 This recipe assumes the app implements the three demo launch arguments and has a populated library. Adapt it to your app. Variable expansion in the appId header, the permission grant after a state clear, launch arguments and orientation still need verification on the target device.
 
@@ -29,7 +29,11 @@ appId: ${LK_APP_ID}
 - assertVisible: "My Books"
 ```
 
-Choose the orientation for the target and assert on an actual item in the requested language. Use seeded data or the app's demo login if a fresh launch shows an empty list. Keep secrets out of the flow. On iOS prefer tapping accessible labels when a custom-scheme link opens a system confirmation dialog. Handle any permission dialogs in the flow.
+Choose the orientation for the target and assert on an actual item in the requested language. Use seeded data or the app's demo login if a fresh launch shows an empty list.
+
+If login is needed, have the user export `MAESTRO_DEMO_PASSWORD` in the shell that runs capture. They can keep the export in git-ignored `.listing-kit/secrets.local` and source it themselves. Maestro inherits the exported shell environment. Capture does not load that file. Reference the variable as `${MAESTRO_DEMO_PASSWORD}` in the flow. Never type the value into YAML, read it or print it.
+
+On iOS prefer tapping accessible labels when a custom-scheme link opens a system confirmation dialog. Handle any permission dialogs in the flow. If `expo run:ios` leaves an “Open in app?” alert after install, reboot the simulator before capture. On iPadOS 26, select Full Screen Apps in the simulator to hide the window grabber. Inspect the raw PNG for overlays even if capture passes.
 
 After a successful flow, capture sanitizes the status bar and reads the display with simctl or adb. The default Maestro timeout is 600 seconds and other capture tools get 120 seconds. `LK_CAPTURE_TIMEOUT` and `LK_TOOL_TIMEOUT` override those limits in seconds. Inspect the reported log under `.listing-kit/logs/` for a failed flow. [Maestro launchApp](https://docs.maestro.dev/api-reference/commands/launchapp) · [Maestro setOrientation](https://docs.maestro.dev/api-reference/commands/setorientation)
 

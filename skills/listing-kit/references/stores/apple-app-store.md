@@ -97,7 +97,7 @@ URLs, copyright symbols, pricing and other platforms' logos. Review each finishe
 size visually; a dimension check cannot catch clipping or an unreadable headline.
 
 Store headers under `store-assets/apple/<locale>/` at the app root. Record expected
-filenames in the asset plan so a missing header fails validation. The review page
+filenames in the [Apple asset plan](../metadata/fastlane-layout.md#apple-asset-plan) so a missing header fails validation. The review page
 shows these separately as **Header Asset (manual console upload)**. Do not place
 them in `fastlane/screenshots/` or imply `deliver` uploads them. Include this
 folder in the handoff alongside screenshots, with upload slots clearly labeled.

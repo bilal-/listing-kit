@@ -62,7 +62,9 @@ def check_link(file, dest, where):
         errors.append(f"{where}: missing heading {dest}")
 
 mention = re.compile(r"(?<![\w-])listing-kit[ \t]+([a-z][\w-]*)")
-for file in [root / "README.md", skill / "SKILL.md", *sorted((root / "docs").glob("*.md"))]:
+layout = skill / "references/metadata/fastlane-layout.md"
+maestro = skill / "references/driving/maestro.md"
+for file in [root / "README.md", skill / "SKILL.md", layout, maestro, *sorted((root / "docs").glob("*.md"))]:
     content = file.read_text()
     # Join shell continuations so flags on following lines are checked too.
     lines = re.sub(r"\\\n\s*", " ", content).splitlines()
@@ -107,6 +109,30 @@ if json.loads(example) != json.loads((root / "tests/fixtures/plan-example.json")
     errors.append("documented plan differs from tests/fixtures/plan-example.json")
 listing = app / ".listing-kit/listing.json"
 listing.parent.mkdir()
+# Parse the documented coverage with the same reader used by validation and handoff.
+sys.path.insert(0, str(skill / "scripts/lib"))
+import apple_assets
+asset_example, = re.findall(r"^```json\n(.*?)^```$", layout.read_text(), re.M | re.S)
+(listing.parent / "asset-plan.json").write_text(asset_example)
+coverage = apple_assets.load_plan(app)["en-US"]
+if not all(coverage.get(key) for key in ("screenshots", "headers", "deferredScreenshots")):
+    errors.append("Apple asset plan example must demonstrate counts, headers and deferrals")
+
+flow_doc = maestro.read_text()
+if set(re.findall(r"`(LK_[A-Z_]+)`", flow_doc)) - {"LK_CAPTURE_TIMEOUT", "LK_TOOL_TIMEOUT"} != {
+        "LK_APP_ID", "LK_LOCALE", "LK_TARGET", "LK_SCREEN"}:
+    errors.append("Maestro reference must name the four explicit flow variables")
+for term in (".listing-kit/secrets.local", "${MAESTRO_DEMO_PASSWORD}"):
+    if term not in flow_doc:
+        errors.append(f"Maestro login instructions missing {term}")
+
+workflow = (skill / "SKILL.md").read_text()
+if not re.search(r"never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`", workflow, re.I):
+    errors.append("Agent workflow must forbid both live publish controls")
+hook_example = 'git config --local --add listingKit.reviewedDeviceBlob "$(git rev-parse :app.json) app.json"'
+if hook_example not in layout.read_text().splitlines():
+    errors.append("Missing staged blob review command in the layout reference")
+
 listing.write_text(example)
 result = run("plan", "check")
 if result.returncode:

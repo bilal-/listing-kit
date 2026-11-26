@@ -21,4 +21,6 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 | `listing-kit handoff`: `contains unexpected or modified entries` | Save your changes outside the generated upload directory. Apply intended edits to the source listing, move the modified directory aside and rebuild. |
 | `listing-kit fastlane setup`: `Credential is inside the repository` | Move the key outside the whole repository and supply only its new path. [Credential storage](CREDENTIALS.md) |
 | `listing-kit publish`: `Missing planned screenshot:` | Restore or compose the named active output and rerun validation. |
-| `listing-kit publish`: `until it has passed a live test` | Use `listing-kit handoff --open` for delivery. Publish prints a preview in this version. |
+| `listing-kit publish`: `until it has passed a live test` | Use `listing-kit handoff --open` for delivery. The default publish run writes no upload receipt. Read the preview in the job log. |
+
+If the review hook flags a public key in a device declaration, follow the [staged blob review procedure](../skills/listing-kit/references/metadata/fastlane-layout.md#what-to-commit).

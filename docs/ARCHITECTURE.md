@@ -30,7 +30,7 @@ The composer compares content and style keys, tracks renderer details and checks
 
 ## Fastlane and CI
 
-`listing-kit fastlane setup` checks read access. When given a key-path option it saves the external credential path in ignored local settings. `listing-kit pull` downloads into scratch space, merges text against a hash baseline and keeps remote screenshots for comparison. `listing-kit publish` prepares a filtered validation tree, reads the live listing, reports differences and shows the proposed command when there are changes to send. Both upload gates are off until the corresponding live tests pass.
+`listing-kit fastlane setup` checks read access. When given a key-path option it saves the external credential path in ignored local settings. `listing-kit pull` downloads into scratch space, merges text against a hash baseline and keeps remote screenshots for comparison. `listing-kit publish` prepares a filtered validation tree, reads the live listing, reports differences and shows the proposed command when there are changes to send. Both upload gates are off by default pending live tests.
 
 `listing-kit ci init` generates GitHub or GitLab jobs for listing validation, a review artifact and a store-specific manual publish job. Pin the kit ref used by the runner. [CI configuration](CI.md)
 
