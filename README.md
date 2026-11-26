@@ -20,7 +20,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
   <a href="https://github.com/bilal-/listing-kit/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/bilal-/listing-kit/actions/workflows/tests.yml/badge.svg"></a>
-  <img alt="Status: v0.4.0 (in development)" src="https://img.shields.io/badge/status-v0.4.0%20(in%20dev)-orange">
+  <a href="CHANGELOG.md"><img alt="Version: 0.5.0" src="https://img.shields.io/badge/version-0.5.0-blue"></a>
   <img alt="Stacks: iOS · Android · Flutter · RN/Expo" src="https://img.shields.io/badge/stacks-iOS%20%C2%B7%20Android%20%C2%B7%20Flutter%20%C2%B7%20RN%2FExpo-success">
 </p>
 

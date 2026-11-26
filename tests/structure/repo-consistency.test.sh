@@ -16,6 +16,17 @@ assert_eq "listing-kit" "$skill_name" "SKILL.md frontmatter name"
 assert_eq "$skill_name" "$plugin_name" "plugin.json matches skill"
 assert_eq "$skill_name" "$mkt_name" "marketplace matches skill"
 
+# ---- the version shown to people matches the manifest ----
+it "README version badge matches plugin.json"
+plugin_version="$(json_get "$ROOT/.claude-plugin/plugin.json" version)"
+assert_contains "$(cat "$ROOT/README.md")" "alt=\"Version: $plugin_version\""
+assert_contains "$(cat "$ROOT/README.md")" "badge/version-$plugin_version-"
+assert_not_contains "$(cat "$ROOT/README.md")" "in%20dev"
+
+it "CHANGELOG has an entry for the current version"
+assert_file "$ROOT/CHANGELOG.md"
+assert_contains "$(cat "$ROOT/CHANGELOG.md")" "## $plugin_version"
+
 # ---- SKILL.md frontmatter is well-formed ----
 it "SKILL.md has name + description frontmatter"
 assert_contains "$(head -5 "$SKILL_DIR/SKILL.md")" "name:"

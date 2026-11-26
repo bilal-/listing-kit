@@ -29,4 +29,17 @@ it "committed example flows contain no inlined secrets"
 OUT="$(bash "$SCRIPTS/lib/secret-scan.sh" "$APP/.listing-kit/flows" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "flows are secret-clean"
 
+# The example is validated exactly as committed, with no fixture added, and the
+# examples README must say the same thing the validator says.
+it "examples/README.md tells the truth about the example's validation state"
+OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$APP" 2>&1)"; RC=$?
+STATUS="$(grep 'expo-recipe-box' "$ROOT/examples/README.md" | head -1)"
+if [ "$RC" = 0 ]; then
+  assert_not_contains "$STATUS" "needs recapture" "example validates, so the README must not call it stale"
+else
+  assert_contains "$STATUS" "needs recapture" "example fails validation, so the README must say so"
+  assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots" "the only known failure is the missing medium iPhone set"
+  assert_contains "$OUT" "1 failures" "exactly one failure"
+fi
+
 summary
