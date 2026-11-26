@@ -122,12 +122,11 @@ listing.parent.mkdir()
 # Parse the documented coverage with the same reader used by validation and handoff.
 sys.path.insert(0, str(skill / "scripts/lib"))
 import apple_assets
-asset_example, = re.findall(r"^```json\n(.*?)^```$", layout.read_text(), re.M | re.S)
-(listing.parent / "asset-plan.json").write_text(asset_example)
-coverage = apple_assets.load_plan(app)["en-US"]
-if not all(coverage.get(key) for key in ("screenshots", "headers", "deferredScreenshots")):
-    errors.append("Apple asset plan example must demonstrate counts, headers and deferrals")
-
+listing.write_text(example)
+coverage = apple_assets.load_coverage(app)
+en = coverage["apple"]["en-US"]
+if not all(en.get(key) for key in ("screenshots", "headers", "deferredScreenshots")) or not coverage["play"]:
+    errors.append("listing plan example must demonstrate Apple and Play coverage")
 flow_doc = maestro.read_text()
 if set(re.findall(r"`(LK_[A-Z_]+)`", flow_doc)) - {"LK_CAPTURE_TIMEOUT", "LK_TOOL_TIMEOUT"} != {
         "LK_APP_ID", "LK_LOCALE", "LK_TARGET", "LK_SCREEN"}:
@@ -143,7 +142,6 @@ hook_example = 'git config --local --add listingKit.reviewedDeviceBlob "$(git re
 if hook_example not in layout.read_text().splitlines():
     errors.append("Missing staged blob review command in the layout reference")
 
-listing.write_text(example)
 result = run("plan", "check")
 if result.returncode:
     errors.append(result.stdout)

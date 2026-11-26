@@ -63,7 +63,7 @@ Save this plan as `.listing-kit/listing.json` in the copy. It captures two iPhon
 }
 ```
 
-For Apple, also save the agreed counts, headers and deferrals in the [Apple asset plan](../skills/listing-kit/references/metadata/fastlane-layout.md#apple-asset-plan). For this walkthrough, record two shots for `iPhone Dynamic Island (medium display)` in `en-US`. Preserve any other approved coverage.
+The two screens assigned to the active iPhone target tell validation to expect two medium-display screenshots in `en-US`. This walkthrough needs only `.listing-kit/listing.json`.
 
 Run `listing-kit plan check --for capture` to check the plan and flow paths. Run `listing-kit plan outputs` to see where the two raw and final images will go. For a larger plan, add locales, approved target slots, graphics and split roots as needed. [Plan reference](../skills/listing-kit/references/plan-file.md)
 
