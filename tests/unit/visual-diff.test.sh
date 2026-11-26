@@ -69,4 +69,67 @@ OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"
 rm -rf "$P" "$C"
 
+it "reports an ImageMagick identify decode error as a comparison failure, not px differ or resized"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+printf 'bad1' > "$P/01.png"; printf 'bad2' > "$C/01.png"
+printf 'bad1' > "$P/02.png"; printf 'good' > "$C/02.png"
+new_stubdir
+cat > "$STUB_BIN/identify" <<'EOF'
+#!/usr/bin/env bash
+for last; do :; done
+case "$(cat "$last")" in
+  good) printf '10x10'; exit 0;;
+  *) echo "identify: improper image header \`$last'" >&2; exit 1;;
+esac
+EOF
+cat > "$STUB_BIN/compare" <<'EOF'
+#!/usr/bin/env bash
+echo "compare: improper image header" >&2
+exit 2
+EOF
+chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
+OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "still exits 0 on decode error"
+assert_contains "$OUT" "01.png"
+assert_contains "$OUT" "comparison failed"
+assert_contains "$OUT" "improper image header"
+assert_not_contains "$OUT" "px differ"
+assert_not_contains "$OUT" "resized ?"
+assert_contains "$OUT" "0 changed"
+rm -rf "$P" "$C"
+
+it "reports an ImageMagick compare error as a comparison failure, not px differ"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+printf 'trunc1' > "$P/01.png"; printf 'trunc2' > "$C/01.png"
+new_stubdir
+cat > "$STUB_BIN/identify" <<'EOF'
+#!/usr/bin/env bash
+printf '10x10'
+EOF
+cat > "$STUB_BIN/compare" <<'EOF'
+#!/usr/bin/env bash
+echo "compare: corrupt image data in IDAT" >&2
+exit 2
+EOF
+chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
+OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "still exits 0 on compare error"
+assert_contains "$OUT" "comparison failed"
+assert_contains "$OUT" "corrupt image data in IDAT"
+assert_not_contains "$OUT" "px differ"
+assert_contains "$OUT" "0 changed"
+rm -rf "$P" "$C"
+
+if command -v magick >/dev/null 2>&1; then
+  it "real ImageMagick: corrupt PNG reports comparison failed instead of px differ"
+  P="$(mktemp -d)"; C="$(mktemp -d)"
+  fake_png "$P/01.png" 10 10
+  printf 'not a png' > "$C/01.png"
+  OUT="$(bash "$SUT" "$P" "$C" 2>&1)"; RC=$?
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "comparison failed"
+  assert_not_contains "$OUT" "px differ"
+  rm -rf "$P" "$C"
+fi
+
 summary

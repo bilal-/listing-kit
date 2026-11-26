@@ -17,12 +17,19 @@ if [ -z "$platform" ] || [ -z "$app" ]; then
   exit 2
 fi
 
+clean_err() {
+  printf '%s' "$1" | tr '\r\n\t' '   ' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]][[:space:]]+/ /g'
+}
+
+granted=0
+failed=()
+
 case "$platform" in
   ios)
     device="${3:-booted}"
     command -v xcrun >/dev/null 2>&1 || { echo "xcrun not found (install Xcode command-line tools)." >&2; exit 1; }
     # Fails if the device isn't booted/valid or the app isn't installed on it, so a
-    # broken setup isn't misreported as "unsupported" for every service below.
+    # broken setup isn't misreported for every service below.
     xcrun simctl get_app_container "$device" "$app" >/dev/null 2>&1 || {
       echo "App '$app' not found on simulator '$device' (boot it and install the app first)." >&2
       exit 1
@@ -31,10 +38,16 @@ case "$platform" in
     xcrun simctl terminate "$device" "$app" >/dev/null 2>&1 || true
     # Services that simctl privacy reliably supports:
     for svc in location-always photos contacts calendar reminders microphone media-library motion; do
-      if xcrun simctl privacy "$device" grant "$svc" "$app" 2>/dev/null; then
+      rc=0
+      err="$(xcrun simctl privacy "$device" grant "$svc" "$app" 2>&1)" || rc=$?
+      if [ "$rc" -eq 0 ]; then
         echo "granted: $svc"
+        granted=$((granted + 1))
       else
-        echo "skip (unsupported on this runtime): $svc"
+        msg="$(clean_err "$err")"
+        [ -n "$msg" ] || msg="exit $rc"
+        echo "failed: $svc ($msg)"
+        failed+=("$svc")
       fi
     done
     echo "NOTE: camera and App Tracking Transparency cannot be pre-granted — handle in-flow."
@@ -44,7 +57,7 @@ case "$platform" in
     serial="${3:-}"
     adb_target=(adb)
     [ -n "$serial" ] && adb_target=(adb -s "$serial")
-    # Without a device every grant fails and would be misreported as "not declared".
+    # Without a device every grant fails.
     "${adb_target[@]}" get-state >/dev/null 2>&1 || {
       echo "No Android device/emulator reachable${serial:+ at $serial} (check: adb devices)." >&2
       exit 1
@@ -61,10 +74,16 @@ case "$platform" in
       android.permission.READ_MEDIA_IMAGES \
       android.permission.POST_NOTIFICATIONS \
       android.permission.READ_CONTACTS ; do
-      if "${adb_target[@]}" shell pm grant "$app" "$perm" 2>/dev/null; then
+      rc=0
+      err="$("${adb_target[@]}" shell pm grant "$app" "$perm" 2>&1)" || rc=$?
+      if [ "$rc" -eq 0 ]; then
         echo "granted: $perm"
+        granted=$((granted + 1))
       else
-        echo "skip (not declared by app): $perm"
+        msg="$(clean_err "$err")"
+        [ -n "$msg" ] || msg="exit $rc"
+        echo "failed: $perm ($msg)"
+        failed+=("$perm")
       fi
     done
     ;;
@@ -74,3 +93,11 @@ case "$platform" in
     exit 2
     ;;
 esac
+
+if [ "$granted" -eq 0 ]; then
+  echo "All ${#failed[@]} permission grants failed: ${failed[*]}" >&2
+  exit 1
+fi
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo "Failed permission grants (${#failed[@]}): ${failed[*]}"
+fi
