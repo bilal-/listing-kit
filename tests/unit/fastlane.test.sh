@@ -26,6 +26,9 @@ def opt(key):
 if args == ["--version"]:
     print("fastlane 2.242.0")
 elif args[1] in ("init", "download_metadata", "download_screenshots"):
+    if (base / "deny").exists():
+        print("forbidden", opt("api_key_path").read_text())
+        sys.exit(1)
     store = "apple" if args[0] == "deliver" else "play"
     kind = "screenshots" if args[1] == "download_screenshots" else "metadata"
     dest = opt(kind + "_path")
@@ -194,12 +197,46 @@ d = json.load(open(p))
 d["targets"].append(dict(d["targets"][0], id="manual", upload="console"))
 json.dump(d, open(p, "w"))
 PYPLAN
-fake_png "$shots/en-US/01_one_iphone-di-medium.png" 1206 2622
+fake_png "$shots/en-US/01_one_iphone-medium.png" 1206 2622
+fake_png "$rs/en-US/01_remote_medium.png" 1179 2556
 : > "$fixture/sent"
 run_lk publish --store apple --yes
+[[ "$out" == *"hand-upload folder"* ]] || echo "$out"
 assert_eq "$rc" 1
 assert_contains "$out" "hand-upload folder"
 assert_eq "$(cat "$fixture/sent")" ""
+it "custom plan paths publish only active targets and locales"
+python3 - "$app/.listing-kit/listing.json" <<'PYPLAN'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["targets"].pop()
+d["targets"].append(dict(d["targets"][0], id="later", locales=["fr-FR"], state="deferred", reason="later"))
+d["targets"][0]["locales"] = ["en-US"]
+d["locales"].append("fr-FR")
+d["trees"] = {"apple":{"fastlaneDir":"ios/store","metadata":"ios/copy","screenshots":"ios/images"}}
+json.dump(d, open(p, "w"))
+PYPLAN
+mkdir -p "$app/ios/copy" "$app/ios/images/en-US"
+cp -R "$meta/en-US" "$app/ios/copy/en-US"
+cp -R "$meta/en-US" "$app/ios/copy/fr-FR"
+cp "$meta"/*.txt "$app/ios/copy/"
+cp "$shots/en-US/01_one_iphone-medium.png" "$app/ios/images/en-US/"
+cp "$shots/en-US/01_one_iphone-medium.png" "$rs/en-US/01_remote_medium.png"
+echo 'Changed active title' > "$app/ios/copy/$name"
+echo 'Held' > "$app/ios/copy/fr-FR/name.txt"
+echo 'held' > "$app/ios/images/en-US/untracked.png"
+run_lk publish --yes
+[ "$rc" = 0 ] || echo "$out"
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" "apple $name"
+it "setup verifies actual access and keeps diagnostics free of credential bytes"
+touch "$fixture/deny"
+run_lk fastlane setup --store apple
+assert_eq "$rc" 1
+assert_contains "$out" "forbidden"
+assert_not_contains "$out" "SECRET-stub-apple-material"
+rm "$fixture/deny"
 rm "$app/.listing-kit/listing.json"
 it "repo-wide scan finds even ignored unrelated credential files"
 touch "$fixture/repo/elsewhere.p8"
@@ -217,4 +254,10 @@ run_lk fastlane setup "${a[@]}"
 assert_eq "$rc" 3
 assert_contains "$out" "install"
 assert_contains "$out" "scripts/handoff/handoff.py"
+it "offline CI contract exercises the option inventory without store keys"
+contract="$(python3 "$ROOT/tests/contract/fastlane_cases.py" 2>/dev/null)" || contract=""
+assert_contains "$contract" "overwrite_screenshots"
+assert_contains "$contract" "skip_upload_changelogs"
+assert_file "$ROOT/tests/contract/fastlane.rb"
+assert_file "$ROOT/.github/workflows/fastlane.yml"
 summary

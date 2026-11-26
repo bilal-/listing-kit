@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -eu
+scripts="$(cd "$(dirname "$0")" && pwd)"
+case "${1:-}" in
+  fastlane) shift; [ "${1:-}" = setup ] || { echo "Usage: listing-kit fastlane setup [options]" >&2; exit 2; };;
+  pull|publish) ;;
+  handoff) shift; exec python3 -EsB "$scripts/handoff/handoff.py" "$@";;
+  *) echo "Usage: listing-kit {fastlane setup|pull|publish|handoff} [options]" >&2; exit 2;;
+esac
+exec python3 -IB "$scripts/fastlane/lk_fastlane.py" "$@"
