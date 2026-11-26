@@ -146,6 +146,13 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" iPad
 assert_contains "$OUT" 'xcrun simctl create'
 assert_not_contains "$(cat "$CALLS")" 'simctl create'
+it 'reports malformed simulator inventory as a failed job with a summary'
+echo '{"devices":{"iOS":[{"state":"Booted"}]}}' > "$IOS_DEVICES"
+ios
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'simulator inventory'
+assert_not_contains "$OUT" Traceback
+assert_contains "$OUT" '1 failed'
 cp "$T/all-ios" "$IOS_DEVICES"
 
 it 'matches the AVD and preserves the full native Android capture'
@@ -237,6 +244,17 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" 'raw'
 assert_contains "$OUT" '1080x1920'
 assert_eq old "$(cat "$raw")"
+cp "$T/original.json" "$KIT/listing.json"
+
+it 'explains the exact raw upload size when the iOS helper rejects the geometry'
+sed 's/"mode": "framed"/"mode": "raw"/' "$T/original.json" > "$KIT/listing.json"
+IOS_IMAGE="$T/android.png" ios
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'raw upload'
+assert_contains "$OUT" '1206x2622'
+ios
+assert_eq 0 "$RC"
+assert_contains "$OUT" "raw upload 1206x2622"
 cp "$T/original.json" "$KIT/listing.json"
 
 it 'passes a store locale to Maestro and writes the logical capture locale path'

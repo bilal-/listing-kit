@@ -861,6 +861,11 @@ def load(app_root):
     return _read(app_root)[0]
 
 
+def load_manifest(app_root, purpose=None):
+    """Read a manifest after the same checks as the CLI's check --for purpose."""
+    return _read(app_root, purpose)[1].result
+
+
 def main(args):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
