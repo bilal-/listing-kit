@@ -43,6 +43,36 @@ import ownership
 import template_values
 import fontcheck  # noqa: E402
 
+def listing_name(root, man, rec):
+    """The app's display name for brand text, read from the listing itself (Apple name.txt,
+    Play title.txt) for this output's locale, then any locale. Never the bundle id: with
+    no name on file the brand line is left out."""
+    trees = man.get("trees", {})
+    order = [rec.get("store")] + [s for s in ("apple", "play") if s != rec.get("store")]
+    for store in order:
+        meta = (trees.get(store) or {}).get("metadata")
+        if not meta:
+            continue
+        stem = "name.txt" if store == "apple" else "title.txt"
+        base = os.path.join(str(root), meta)
+        codes = [rec.get("storeCode")] if store == rec.get("store") else []
+        try:
+            codes += sorted(d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
+        except OSError:
+            continue
+        for code in codes:
+            if not code:
+                continue
+            try:
+                with open(os.path.join(base, code, stem), encoding="utf-8") as f:
+                    name = f.read().strip()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if name:
+                return name
+    return None
+
+
 def sha_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -272,8 +302,8 @@ def compose_outputs(args, man, state):
             ((not args.target or rec.get("targetId") in args.target) and
              (not args.screen or rec.get("screenId") in args.screen))]
     for job in jobs:
-        if job.template == "header" and not job.rec.get("appName"):
-            job.rec = dict(job.rec, appName=man.get("app", {}).get("apple"))
+        if job.template in ("header", "feature", "panel") and not job.rec.get("appName"):
+            job.rec = dict(job.rec, appName=listing_name(root, man, job.rec))
     if args.preview:
         rel = ".listing-kit/preview.html"
         current = state.digest(rel)
