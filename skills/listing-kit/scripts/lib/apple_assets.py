@@ -38,6 +38,9 @@ def load_plan(root, rules=None):
     if not os.path.isfile(plan_path):
         return {}
     rules = rules if rules is not None else specs.load(root)
+    header_extensions = {fmt for g in rules["stores"]["apple"]["graphics"] for fmt in g["formats"]}
+    if "jpeg" in header_extensions:
+        header_extensions.add("jpg")
     with open(plan_path, encoding="utf-8") as source:
         plan = json.load(source)
     if not isinstance(plan, dict) or set(plan) != {"apple"} or not isinstance(plan["apple"], dict):
@@ -59,8 +62,9 @@ def load_plan(root, rules=None):
             if not matching or type(expected) is not int or not 1 <= expected <= max(s["max"] for s in matching):
                 raise ValueError("unknown display class or invalid screenshot count for " + locale)
         for name in headers:
-            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.(png|jpg|jpeg)", name):
-                raise ValueError("header must be a PNG/JPEG basename, not a path")
+            if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name)
+                    or os.path.splitext(name)[1][1:] not in header_extensions):
+                raise ValueError("unsupported header filename; use a basename in an accepted graphic format")
         for display, reason in deferred.items():
             if not specs.slot_by_label(rules, "apple", display) or display in shots:
                 raise ValueError("unknown or both active and deferred display class for " + locale)

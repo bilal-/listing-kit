@@ -48,4 +48,15 @@ assert_contains "$OUT" $'supportsIpad\tno\tInfo.plist'
 rm "$T/Info.plist"
 printf 'export default { ios: { supportsTablet: true } }; throw Error("do not run")' > "$T/app.config.ts"
 OUT="$(run)"; assert_contains "$OUT" $'supportsIpad\tyes\tapp.config.ts'
+it "nested Expo settings and an iPad-only declaration are read as static literals"
+printf '%s' 'export default { ios: { infoPlist: { note: "}" }, isTabletOnly: true, supportsTablet: true } };' > "$T/app.config.ts"
+OUT="$(run)"
+assert_contains "$OUT" $'supportsIphone\tno\tapp.config.ts'
+assert_contains "$OUT" $'supportsIpad\tyes\tapp.config.ts'
+it "a computed Expo capability stays unknown"
+printf '%s' 'export default { ios: { supportsTablet: process.env.TABLET } };' > "$T/app.config.ts"
+OUT="$(run)"; assert_contains "$OUT" $'supportsIpad\tunknown'
+it "malformed native metadata leaves detection available"
+printf '<?xml version="1.0"?><plist><dict>' > "$T/Info.plist"
+OUT="$(run)"; assert_eq 0 "$?"; assert_contains "$OUT" $'supportsIpad\tunknown'
 summary

@@ -32,4 +32,17 @@ render --check >/dev/null; assert_eq 1 "$?"
 render && render --check; assert_eq 0 "$?"
 assert_contains "$(cat "$T/stores/apple-app-store.md")" "321×654"
 assert_contains "$(cat "$T/stores/apple-app-store.md")" "4 chars"
+it "legacy header plans accept only formats supported by the effective rules"
+python3 - "$T" <<'PYTEST'
+import json, sys
+from pathlib import Path
+app = Path(sys.argv[1]) / ".listing-kit"
+override = app / "specs.override.json"
+d = json.loads(override.read_text())
+d["stores"]["apple"]["graphics"].append({"id": "header-21x9", "formats": ["jpeg"]})
+override.write_text(json.dumps(d))
+(app / "asset-plan.json").write_text(json.dumps({"apple": {"en-US": {"headers": ["unused.png"]}}}))
+PYTEST
+OUT="$(python3 -I -B "$SCRIPTS/lib/apple_assets.py" "$T")"
+assert_contains "$OUT" "unsupported header filename"
 summary

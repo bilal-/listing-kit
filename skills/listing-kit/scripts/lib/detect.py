@@ -7,6 +7,7 @@ import plistlib
 import re
 import sys
 from xml.etree import ElementTree
+from xml.parsers.expat import ExpatError
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,6 +27,42 @@ def project_files(root):
             if name in ("AndroidManifest.xml", "Info.plist") or name.endswith(".pbxproj") or (
                     path.parent == root and (name == "app.json" or name.startswith("app.config."))):
                 yield path
+
+
+# Scan object keys and literal values without importing or executing a JS config.
+JS_TOKEN = re.compile(r"""//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|[^\s]""")
+
+
+def expo_literals(text):
+    tokens = [t for t in JS_TOKEN.findall(text) if not t.startswith(("//", "/*"))]
+    for i, key in enumerate(tokens):
+        if key.strip("\"'") != "ios" or tokens[i + 1:i + 3] != [":", "{"]:
+            continue
+        depth = 1
+        flags = {}
+        for j in range(i + 3, len(tokens)):
+            token = tokens[j]
+            if token == "{":
+                depth += 1
+            elif token == "}":
+                depth -= 1
+                if not depth:
+                    break
+            elif depth == 1 and token.strip("\"'") in ("supportsTablet", "isTabletOnly"):
+                value = tokens[j + 1:j + 4]
+                if len(value) == 3 and value[0] == ":" and value[2] in (",", "}") and value[1] in ("true", "false"):
+                    flags[token.strip("\"'")] = value[1] == "true"
+                else:
+                    flags[token.strip("\"'")] = None
+        if flags:
+            yield flags
+
+
+def expo_families(ios):
+    tablet_only = ios.get("isTabletOnly", False)
+    tablet = ios.get("supportsTablet", False)
+    return (not tablet_only if type(tablet_only) is bool else None,
+            tablet if type(tablet) is bool else None)
 
 
 def read_project(root):
@@ -54,13 +91,12 @@ def read_project(root):
                 cfg = json.loads(path.read_text(encoding="utf-8"))
                 ios = cfg.get("expo", cfg).get("ios")
                 if isinstance(ios, dict):
-                    project["expo"].append((evidence, (not ios.get("isTabletOnly", False), ios.get("supportsTablet", False))))
+                    project["expo"].append((evidence, expo_families(ios)))
             elif path.suffix in (".ts", ".js", ".mjs", ".cjs"):
                 text = path.read_text(encoding="utf-8")
-                match = re.search(r"""\bios["\']?\s*:\s*\{[^{}]*?\bsupportsTablet["']?\s*:\s*(true|false)\b""", text)
-                if match:
-                    project["expo"].append((evidence, (True, match[1] == "true")))
-        except (OSError, ValueError, AttributeError, ElementTree.ParseError, plistlib.InvalidFileException):
+                for ios in expo_literals(text):
+                    project["expo"].append((evidence, expo_families(ios)))
+        except (OSError, ValueError, AttributeError, ElementTree.ParseError, ExpatError, plistlib.InvalidFileException):
             continue
     return project
 
@@ -68,9 +104,13 @@ def read_project(root):
 def find(entries, test):
     negative = UNKNOWN
     for path, value in entries:
-        if test(value):
+        result = test(value)
+        if result:
             return True, path
-        negative = False, path
+        if result is not None:
+            negative = False, path
+        elif negative == UNKNOWN:
+            negative = None, path
     return negative
 
 
@@ -82,7 +122,7 @@ def family(number, project):
 
 
 def target(pattern):
-    return lambda project: find(project["targets"], lambda text: re.search(pattern, text, re.I))
+    return lambda project: find(project["targets"], lambda text: re.search(pattern, text, re.I) is not None)
 
 
 def nonphone(feature):

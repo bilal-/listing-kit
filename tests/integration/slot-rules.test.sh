@@ -42,11 +42,15 @@ assert_contains "$OUT" "Apple Watch: framing forbidden"
 for i in 7 8 9 10 11; do ln "$shots/outer-1.png" "$shots/outer-$i.png"; done
 OUT="$(run)"; assert_eq 1 "$?"
 assert_contains "$OUT" "iPhone Duo (outer display): 11 screenshots"
+rm "$shots/outer-11.png"
 it "large-screen promotion bounds are independent of the phone upload bounds"
-for i in 01 02 03 04; do fake_png "$T/fastlane/metadata/android/en-US/images/tenInchScreenshots/$i.png" 7680 4320; done
-OUT="$(run)"
+tablet="$T/fastlane/metadata/android/en-US/images/tenInchScreenshots"
+fake_png "$tablet/01.png" 7680 4320
+for i in 02 03 04; do ln "$tablet/01.png" "$tablet/$i.png"; done
+OUT="$(run)"; assert_eq 0 "$?"
 assert_not_contains "$OUT" "10-inch tablet: only"
 assert_not_contains "$OUT" "01.png: side outside"
+remove_fixture "$tablet"
 it "the phone byte cap is inclusive"
 phone="$T/fastlane/metadata/android/en-US/images/phoneScreenshots/01_recipes.png"
 pad_png(){ python3 -I -B - "$phone" "$1" <<'PYTEST'
@@ -61,7 +65,9 @@ PYTEST
 }
 cp "$phone" "$T/source.png"
 pad_png 8388608
-OUT="$(run)"; assert_not_contains "$OUT" "exceeds 8388608 bytes"
+OUT="$(run)"; assert_eq 0 "$?"
+assert_not_contains "$OUT" "exceeds 8388608 bytes"
 cp "$T/source.png" "$phone"; pad_png 8388609
-OUT="$(run)"; assert_contains "$OUT" "01_recipes.png: exceeds 8388608 bytes"
+OUT="$(run)"; assert_eq 1 "$?"
+assert_contains "$OUT" "01_recipes.png: exceeds 8388608 bytes"
 summary
