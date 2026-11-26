@@ -26,12 +26,20 @@ Notable changes to listing-kit. Versions follow the plugin manifest
   changes, including creative asset folders, flows and app configuration.
 - Malformed URLs and non-UTF-8 copy are reported without breaking the review page.
 - The asset plan and creative asset folders are scanned for credentials.
+- Brand kit and logo set; project site at listing-kit.bilal.sh; Codex install
+  instructions; `docs/ARCHITECTURE.md` replaces the earlier plans and specs.
 
 ## 0.4.0 (2026-10-04)
 
-- Brand kit and logo set; project site at listing-kit.bilal.sh.
-- Codex install instructions.
-- `docs/ARCHITECTURE.md` replaces the earlier plans and specs.
+- Truncated PNGs are rejected, and ImageMagick is checked per operation.
+- Play phone screenshots are cropped to 9:16, and promotion eligibility is
+  checked by aspect ratio.
+- The secret scan catches more current credential formats and stops flagging
+  ordinary copy.
+- One locale inventory is shared by the validator and the review page.
+- Maestro flows are committed; the skill drives by accessibility labels rather
+  than deep links.
+- `python3` is listed as a requirement.
 
 ## 0.3.1 and earlier
 

@@ -32,14 +32,20 @@ assert_eq 0 "$RC" "flows are secret-clean"
 # The example is validated exactly as committed, with no fixture added, and the
 # examples README must say the same thing the validator says.
 it "examples/README.md tells the truth about the example's validation state"
-OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$APP" 2>&1)"; RC=$?
-STATUS="$(grep 'expo-recipe-box' "$ROOT/examples/README.md" | head -1)"
+# Detection overrides in the caller's environment must not change what is checked.
+OUT="$(env -u LK_SUPPORTS_IPHONE -u LK_SUPPORTS_IPAD bash "$SCRIPTS/validate/validate-listing.sh" "$APP" 2>&1)"; RC=$?
+# The status lives in exactly one place: the table row that links to the example.
+ROWS="$(grep -c '^| \[`expo-recipe-box`\](expo-recipe-box) |' "$ROOT/examples/README.md")"
+assert_eq 1 "$ROWS" "one status row for the example"
+STATUS="$(grep '^| \[`expo-recipe-box`\](expo-recipe-box) |' "$ROOT/examples/README.md")"
+FAILS="$(printf '%s\n' "$OUT" | sed -n 's/.* \([0-9][0-9]*\) failures.*/\1/p' | tail -1)"
 if [ "$RC" = 0 ]; then
-  assert_not_contains "$STATUS" "needs recapture" "example validates, so the README must not call it stale"
+  assert_contains "$STATUS" "passes validation" "example validates, so the row must say so"
+  assert_not_contains "$(cat "$ROOT/examples/README.md")" "needs recapture" "nothing in the README may still call it stale"
 else
-  assert_contains "$STATUS" "needs recapture" "example fails validation, so the README must say so"
-  assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots" "the only known failure is the missing medium iPhone set"
-  assert_contains "$OUT" "1 failures" "exactly one failure"
+  assert_contains "$STATUS" "needs recapture" "example fails validation, so the row must say so"
+  assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots" "the known failure is the missing medium iPhone set"
+  assert_eq 1 "$FAILS" "exactly one failure"
 fi
 
 summary

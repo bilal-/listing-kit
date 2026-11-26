@@ -25,7 +25,7 @@ assert_not_contains "$(cat "$ROOT/README.md")" "in%20dev"
 
 it "CHANGELOG has an entry for the current version"
 assert_file "$ROOT/CHANGELOG.md"
-assert_contains "$(cat "$ROOT/CHANGELOG.md")" "## $plugin_version"
+if grep -q "^## $(printf '%s' "$plugin_version" | sed 's/[.]/[.]/g') (" "$ROOT/CHANGELOG.md"; then pass "heading for $plugin_version"; else fail "CHANGELOG.md has no '## $plugin_version (date)' heading"; fi
 
 # ---- SKILL.md frontmatter is well-formed ----
 it "SKILL.md has name + description frontmatter"
