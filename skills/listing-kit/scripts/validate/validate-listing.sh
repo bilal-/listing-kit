@@ -145,7 +145,8 @@ print('True' if (expo() or native()) else 'False')
 PY2
 }
 
-echo "${B}listing-kit — validating: $ROOT${Z}"
+display_root="${LK_REVIEW_DISPLAY_ROOT:-$ROOT}"
+echo "${B}listing-kit — validating: $display_root${Z}"
 
 # Scope to the store(s) actually present, so a single-store listing (e.g. Play
 # only) is not failed for the store it never targeted.
@@ -346,7 +347,7 @@ fi
 
 # ---------------- scope notice ----------------
 if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ]; then
-  fail "no App Store or Google Play listing was found under $ROOT — nothing to validate"
+  fail "no App Store or Google Play listing was found under $display_root — nothing to validate"
 fi
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"

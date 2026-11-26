@@ -52,9 +52,11 @@ def link_file(source, dest):
 
 def run(script, root, args):
     ignored, unsafe, passwords = exclusions(root)
-    cmd = ["bash", script]
+    cmd = ["bash", script, ".", "--prepared", *args]
+    env = os.environ.copy()
+    env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
     if not ignored and not unsafe and not passwords:
-        os.execvp("bash", cmd + [str(root), "--prepared", *args])
+        return subprocess.call(cmd, cwd=root, env=env)
 
     # Only these trees and device declarations are consumed by listing tools.
     # Hard links preserve working-tree contents and avoid copying screenshots.
@@ -84,17 +86,23 @@ def run(script, root, args):
                         or name.endswith(".pbxproj") or name == "Info.plist"):
                     (view / rel).mkdir(exist_ok=True, parents=True)
                     link_file(root / path, view / path)
-        env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(view.parent))
+        env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():
                 env.pop(key, None)
         env["LK_REVIEW_NAME_FAILURES"] = str(len(unsafe))
         env["LK_REVIEW_DEMO_FAILURES"] = str(len(passwords))
-        rc = subprocess.call(cmd + [str(view), "--prepared", *args], env=env)
+        rc = subprocess.call(cmd, cwd=view, env=env)
         if rc == 0 and Path(script).name == "build-review.sh":
             shutil.copyfile(view / "listing-review.html", root / "listing-review.html")
         return rc
 
 
 if __name__ == "__main__":
-    sys.exit(run(sys.argv[1], Path(sys.argv[2]).resolve(), sys.argv[3:]))
+    script, root = sys.argv[1], Path(sys.argv[2]).resolve()
+    rc = run(script, root, sys.argv[3:])
+    if rc == 0 and Path(script).name == "build-review.sh":
+        page = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root)) / "listing-review.html"
+        print(f"Wrote {page}")
+        print(f"Open it in a browser: {page}")
+    sys.exit(rc)

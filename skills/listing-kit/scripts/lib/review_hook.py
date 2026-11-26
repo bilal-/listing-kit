@@ -322,6 +322,7 @@ def refresh(apps, paths, media, kit, snap):
         if ignored.returncode != 1:
             ignored.check_returncode()
         if (root / "fastlane").is_dir():
+            build_env["LK_REVIEW_DISPLAY_ROOT"] = str(Path(app).resolve())
             result = subprocess.run(["bash", kit / BUILDER, root], env=build_env,
                                     stdout=subprocess.DEVNULL)
             if result.returncode or not (snap / page).is_file():

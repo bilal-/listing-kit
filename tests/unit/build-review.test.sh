@@ -203,6 +203,25 @@ OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T" 2>&1)"; assert_eq 1 "$?
 assert_contains "$OUT" 'environment at upload'
 OUT="$(bash "$SUT" "$T" 2>&1)"; assert_eq 0 "$?"
 assert_contains "$(cat "$T/listing-review.html")" 'environment at upload'
+it "reports the real app root when a private file requires a filtered copy"
+new_tempdir T
+new_tempdir scratch
+app="$T/my app"
+mkdir -p "$app/fastlane/metadata/en-US" "$app/.listing-kit"
+touch "$app/.listing-kit/secrets.local"
+echo 'Description' > "$app/fastlane/metadata/en-US/description.txt"
+OUT="$(cd "$app" && TMPDIR="$scratch" bash "$SCRIPTS/validate/validate-listing.sh" . 2>&1)"; assert_eq 1 "$?"
+assert_contains "$OUT" "validating: $app"
+assert_contains "$OUT" "REQUIRED file missing ($app/fastlane/metadata/en-US/name.txt)"
+assert_not_contains "$OUT" "$scratch/"
+OUT="$(cd "$app" && TMPDIR="$scratch" bash "$SUT" . 2>&1)"; assert_eq 0 "$?"
+assert_contains "$OUT" "Wrote $app/listing-review.html"
+assert_contains "$OUT" "Open it in a browser: $app/listing-review.html"
+assert_not_contains "$OUT" "$scratch/"
+PAGE="$(cat "$app/listing-review.html")"
+assert_contains "$PAGE" "REQUIRED file missing ($app/fastlane/metadata/en-US/name.txt)"
+assert_not_contains "$PAGE" "$scratch/"
+
 it "produces a review page with #p-empty saying Nothing to validate when fastlane/ has no store listing"
 new_tempdir T; mkdir -p "$T/fastlane"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?

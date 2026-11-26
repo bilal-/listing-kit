@@ -1,5 +1,6 @@
 """Collect per-locale field checks and image facts in one validator process."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import listing
 
 def collect(root, cache):
     fl = root / "fastlane"
+    display_root = Path(os.environ.get("LK_REVIEW_DISPLAY_ROOT", root))
 
     def write(key, rows):
         dest = cache / key
@@ -22,6 +24,8 @@ def collect(root, cache):
 
     def copy_fields(store, directory, fallback=None):
         checks = fields.rows(store, directory, fallback)
+        for row in checks:
+            row["path"] = display_root / Path(row["path"]).relative_to(root)
         write(Path(store) / directory.relative_to(root) / "rows",
               ("\t".join(fields.check(row)) for row in checks))
 

@@ -278,7 +278,5 @@ page = (f'<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
         f'<script>{JS}</script></body></html>\n')
 
 open(out_path, "w", encoding="utf-8").write(page)
-print(f"Wrote {out_path}")
 PY
-echo "Open it in a browser: $OUT"
 [ -z "$crash" ]
