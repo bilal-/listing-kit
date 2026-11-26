@@ -1,236 +1,162 @@
 #!/usr/bin/env bash
-# Install a git pre-commit hook that keeps listing-review.html in sync whenever
-# staged listing inputs change (including flows and device-support config).
-#
-# Usage: install-review-hook.sh [<app-root>]    (default: current directory)
-# Exit:  0 = installed/updated hook, 2 = usage / not a git worktree / can't install.
-#
-# The refresh logic lives in a generated `listing-kit-review` script next to the
-# hook. It rebuilds the page from the STAGED tree (so it matches the commit, not
-# unstaged edits), handles every registered app root, and blocks commits containing credentials.
-# An existing pre-commit hook is left intact:
-#   - shell hook  → one call line is inserted after its shebang; the rest of the
-#                   hook runs exactly as before (same exit status)
-#   - other hooks → not modified (managers like overcommit dispatch on the hook's
-#                   name); the call line to add is printed instead
-# Husky 9 (core.hooksPath=.husky/_) → the call goes in the durable .husky/pre-commit,
-# never the regenerated .husky/_/pre-commit. Rerunning adds the app root to the
-# list; hooks from listing-kit ≤0.2 (an inline BEGIN/END block) are migrated.
-# Honors linked worktrees and core.hooksPath.
+# Register an app's staged listing inputs with its repository's pre-commit hook.
+# --status is read-only and exits zero only for an active, current registration.
 set -euo pipefail
-
+status=0
+if [ "${1:-}" = --status ]; then status=1; shift; fi
+[ "$#" -le 1 ] || { echo "Usage: install-review-hook.sh [--status] [app-root]" >&2; exit 2; }
 ROOT="${1:-.}"
-[ -d "$ROOT" ] || { echo "Not a directory: $ROOT" >&2; exit 2; }
-
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_REVIEW="$SELF_DIR/build-review.sh"
-[ -x "$BUILD_REVIEW" ] || { echo "Missing executable: $BUILD_REVIEW" >&2; exit 2; }
-
-git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-  echo "Not inside a git worktree: $ROOT" >&2
+body="$SELF_DIR/../lib/review_hook.py"
+[ -x "$SELF_DIR/build-review.sh" ] || { echo "inactive (review builder missing)" >&2; exit 2; }
+[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || {
+  echo "inactive (Not inside a git worktree: $ROOT)" >&2
   exit 2
 }
 
-# Git paths are relative to the app unless absolute. Linked worktrees own
-# their common Git directory too. Check physical destinations before mkdir
-# or redirection, including a Husky user hook and any file-level symlinks.
-hook_dir="$(cd "$ROOT" && python3 - "$(git rev-parse --git-path hooks)" \
-    "$(git rev-parse --show-toplevel)" "$(git rev-parse --git-common-dir)" <<'PYHOOK'
+# Git resolves relative hooksPath at the worktree root. Check the repository
+# owning the nearest existing ancestor as well as the resolved destination.
+hook_dir="$(cd "$ROOT" && python3 -I -B - <<'PYHOOK'
+import os
 from pathlib import Path
+import subprocess
 import sys
 
-hooks, worktree, common = (Path(arg).resolve() for arg in sys.argv[1:])
+def git_path(cwd, *args):
+    raw = subprocess.check_output(["git", "rev-parse", *args], cwd=cwd)
+    return (cwd / os.fsdecode(raw[:-1])).resolve()
+
+app = Path.cwd()
+worktree = git_path(app, "--show-toplevel")
+common = git_path(app, "--git-common-dir")
+hooks = git_path(worktree, "--git-path", "hooks")
 user_hooks = hooks.parent if hooks.name == "_" and (hooks / "h").is_file() else hooks
 for path in (hooks, user_hooks / "pre-commit", hooks / "listing-kit-review"):
     dest = path.resolve()
     if not any(root == dest or root in dest.parents for root in (worktree, common)):
-        sys.exit(f"Refusing to install Git hook outside the repository: {dest}")
-print(hooks)
+        sys.exit(f"inactive (hooks path outside repository: {dest})")
+    parent = dest if dest.is_dir() else dest.parent
+    while not parent.exists():
+        parent = parent.parent
+    if git_path(parent, "--git-common-dir") != common:
+        sys.exit(f"inactive (hooks path belongs to another repository: {dest})")
+# A sentinel protects a trailing newline from shell command substitution.
+print(str(hooks) + ".", end="")
 PYHOOK
 )" || exit 2
-mkdir -p "$hook_dir"
+hook_dir="${hook_dir%.}"
 hook="$hook_dir/pre-commit"
 runner="$hook_dir/listing-kit-review"
-# Husky 9 regenerates .husky/_/*; user hooks live one level up.
-if [ "$(basename "$hook_dir")" = "_" ] && [ -f "$hook_dir/h" ]; then
-  hook="$(dirname "$hook_dir")/pre-commit"
+if [ "${hook_dir##*/}" = "_" ] && [ -f "$hook_dir/h" ]; then
+  hook="${hook_dir%/*}/pre-commit"
 fi
 CALL_MARK='# listing-kit review refresh'
-# Resolved through git so it works from any hook layout (and is a no-op for
-# clones that never ran the installer, e.g. teammates sharing .husky/pre-commit).
-call="r=\"\$(git rev-parse --git-path hooks)/listing-kit-review\"; [ ! -x \"\$r\" ] || \"\$r\" || exit \$? $CALL_MARK"
-
-# App root relative to the worktree root ("" at the root), without trailing slash.
-app_rel="$(git -C "$ROOT" rev-parse --show-prefix)"
+call='r="$(git rev-parse --git-path hooks && printf .)" || exit 1; r="${r%??}/listing-kit-review"; [ ! -x "$r" ] || "$r" || exit $?'
+call="$call $CALL_MARK"
+app_rel="$(git -C "$ROOT" rev-parse --show-prefix && printf .)"
+app_rel="${app_rel%$'\n.'}"
 app_rel="${app_rel%/}"
+printf -v q "%q" "$app_rel"
 
-# ---- registered apps: keep existing ones (shell-quoted, as written), add this one ----
+shell_hook() {
+  local first
+  IFS= read -r first < "$hook" || :
+  case "$first" in
+    '#!'*) [[ "$first" =~ [/[:space:]](ba|da|k|z)?sh([[:space:]]|$) ]] ;;
+    *) return 0 ;;
+  esac
+}
+
+check_status() {
+  if [ ! -f "$hook" ]; then echo "inactive (pre-commit missing)"; return 1; fi
+  if [ ! -x "$hook_dir/pre-commit" ]; then echo "inactive (pre-commit is not executable)"; return 1; fi
+  if ! shell_hook; then echo "inactive (foreign pre-commit; configure the hook manager to run $runner)"; return 1; fi
+  if grep -q '# BEGIN listing-kit review hook' "$hook" ||
+      { grep -qF "$CALL_MARK" "$hook" && ! grep -Fxq "$call" "$hook"; }; then
+    echo outdated; return 1
+  fi
+  if ! grep -Fxq "$call" "$hook"; then echo "inactive (pre-commit is not wired)"; return 1; fi
+  if ! awk -v call="$call" 'NR == 1 && /^#!/ {next} {found = ($0 == call); exit} END {exit !found}' "$hook"; then
+    echo "inactive (runner call must precede existing hook commands)"; return 1
+  fi
+  if [ ! -x "$runner" ]; then echo "inactive (runner missing or disabled)"; return 1; fi
+  if ! sed -n '/^# listing-kit isolated review runner$/,/^PYREVIEW$/{ /^# listing-kit isolated review runner$/d; /^PYREVIEW$/d; p; }' "$runner" | cmp -s - "$body"; then
+    echo outdated; return 1
+  fi
+  if ! grep -Fxq "apps+=($q)" "$runner"; then echo "inactive (app is not registered)"; return 1; fi
+  echo active
+}
+if [ "$status" = 1 ]; then check_status; exit $?; fi
+
+# Keep the shell-quoted registrations written by previous installers.
 apps=()
-add_app(){ local a; for a in ${apps[@]+"${apps[@]}"}; do [ "$a" = "$1" ] && return; done; apps+=("$1"); }
+add_app() {
+  local a
+  for a in ${apps[@]+"${apps[@]}"}; do [ "$a" != "$1" ] || return 0; done
+  apps+=("$1")
+}
 if [ -f "$runner" ]; then
   while IFS= read -r a; do add_app "$a"; done < <(sed -n 's/^apps+=(\(.*\))$/\1/p' "$runner")
 fi
 if [ -f "$hook" ] && grep -q '# BEGIN listing-kit review hook' "$hook"; then
   legacy="$(sed -n 's/^listing_kit_app_rel=//p' "$hook" | head -1)"
-  [ -n "$legacy" ] && add_app "$legacy"
+  [ -z "$legacy" ] || add_app "$legacy"
 fi
-printf -v q "%q" "$app_rel"
 add_app "$q"
 
-# ---- the runner (fully generated) ----
-printf -v kit_q "%q" "$(cd "$SELF_DIR/../.." && pwd)"
-{
-  cat <<EOF
-#!/usr/bin/env bash
-# Generated by listing-kit install-review-hook.sh; rerun it to update (edits here
-# are overwritten). Rebuilds listing-review.html from the STAGED fastlane/ tree of
-# each app below and stages it. Credentials block the commit.
-recorded_kit=$kit_q
-apps=()
-EOF
-  for a in "${apps[@]}"; do echo "apps+=($a)"; done
-  cat <<'EOF'
-
-warn(){ echo "listing-kit: $*" >&2; }
-builder=scripts/package/build-review.sh
-kit="${LISTING_KIT_HOME:-$recorded_kit}"
-if [ -z "${LISTING_KIT_HOME:-}" ] && [ ! -x "$kit/$builder" ]; then
-  kit="$(python3 - "$builder" <<'PYKIT'
+# Replace directory entries atomically so hard links retain their original data.
+mkdir -p "$hook_dir"
+tmp=
+trap '[ -z "$tmp" ] || rm -f -- "$tmp"' EXIT
+install_file() {
+  python3 -I -B - "$tmp" "$1" "$2" <<'PYINSTALL'
 import os
-from pathlib import Path
-import re
+import stat
 import sys
-
-home = Path.home()
-candidates = sorted((home / ".claude/plugins/cache").glob("**/skills/listing-kit"))
-for folder in (".agents/skills", ".codex/skills", ".gemini/extensions/listing-kit/skills",
-               ".cursor/skills", ".kiro/skills"):
-    candidates.append(home / folder / "listing-kit")
-
-def version(kit):
-    try:
-        value = (kit / "VERSION").read_text(encoding="ascii").strip()
-    except (OSError, UnicodeError):
-        return ()
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?", value)
-    if not match:
-        return ()
-    major, minor, patch, pre = match.groups()
-    parts = [(0, int(p)) if p.isdigit() else (1, p) for p in (pre or "").split(".")]
-    return int(major), int(minor), int(patch), pre is None, parts
-
-best, best_version = "", ()
-for kit in candidates:
-    if (kit / sys.argv[1]).is_file() and os.access(kit / sys.argv[1], os.X_OK):
-        candidate = version(kit)
-        if candidate > best_version:
-            best, best_version = kit, candidate
-print(best)
-PYKIT
-)"
-fi
-if [ -z "$kit" ] || [ ! -x "$kit/$builder" ]; then
-  warn "Warning: listing-kit installation not found; listing-review.html not refreshed."
-  warn "Set LISTING_KIT_HOME to the skill directory or reinstall listing-kit."
-  exit 0
-fi
-build_review="$(cd "$kit" && pwd)/$builder"
-cd "$(git rev-parse --show-toplevel)" || exit 0
-set -o pipefail
-
-# Index paths build-review reads for one app (listing, headers, plan, flows, iPad signals), NUL-separated.
-# Pathspecs are literal so app dirs with [ ] * ? in their names match exactly.
-review_paths(){ # prefix; NUL-separated paths on stdin
-  python3 -c '
-import re, sys
-pre = sys.argv[1]
-keep = re.compile(r"(fastlane/|store-assets/|\.listing-kit/)|(app\.json|app\.config\.[^/]+)$|.*(\.pbxproj|/Info\.plist|^Info\.plist)$")
-for p in sys.stdin.buffer.read().split(b"\0"):
-    rel = p.decode("utf-8", "surrogateescape")[len(pre):]
-    parts = rel.split("/")
-    if ".listing-kit" in parts and (parts[-1] == "local.json" or parts[-1].endswith(".local")
-                                  or (".listing-kit", "raw") in zip(parts, parts[1:])):
-        continue
-    if p and keep.match(rel):
-        sys.stdout.buffer.write(p + b"\0")
-' "$1"
+src, dest, kind = sys.argv[1:]
+mode = stat.S_IMODE(os.stat(dest).st_mode) if os.path.exists(dest) else 0o755
+if kind == "runner" and not mode & 0o111:
+    mode |= stat.S_IXUSR
+os.chmod(src, mode)
+os.replace(src, dest)
+PYINSTALL
+  tmp=
 }
 
-for app in "${apps[@]}"; do
-  p="${app:+$app/}"
-  # Disable rename detection so moving an input outside this set still refreshes.
-  changed_bytes="$(git diff --cached --name-only --no-renames -z -- ":(literal)${app:-.}" | review_paths "$p" | wc -c)"
-  [ "$changed_bytes" -gt 0 ] || continue
-  if ! snap="$(mktemp -d)" || [ -z "$snap" ] || [ ! -d "$snap" ]; then
-    warn "mktemp failed; listing-review.html not refreshed."
-    continue
-  fi
-  # Scan the complete staged snapshot, including device config and inputs left
-  # behind when fastlane/ is deleted. Only file names go to the commit log.
-  if git ls-files -z -- ":(literal)${app:-.}" | review_paths "$p" | git checkout-index -z --stdin --ignore-skip-worktree-bits --prefix="$snap/"; then
-    rc=0
-    (cd "$snap" && bash "$(dirname "$build_review")/../lib/secret-scan.sh" .) >/dev/null || rc=$?
-    if [ "$rc" = 1 ]; then
-      warn "Commit blocked: remove the credential from the staged listing inputs."
-      rm -rf "$snap"
-      exit 1
-    elif [ "$rc" != 0 ]; then
-      warn "Secret scan incomplete; listing-review.html not refreshed."
-    elif [ ! -d "$snap/${p}fastlane" ]; then
-      git rm -q --cached --ignore-unmatch -- ":(literal)${p}listing-review.html" && rm -f -- "${p}listing-review.html"
-    else
-      bash "$build_review" "$snap/${app}" >/dev/null || rc=$?
-      if [ "$rc" = 3 ]; then
-        warn "Commit blocked: remove the credential from the staged listing inputs."
-        rm -rf "$snap"
-        exit 1
-      elif [ "$rc" = 0 ] && cp "$snap/${p}listing-review.html" "${p}listing-review.html"; then
-        git add -- ":(literal)${p}listing-review.html"
-      else
-        warn "Could not rebuild listing-review.html for ${app:-the repo root}."
-      fi
-    fi
-  else
-    warn "Could not read staged listing inputs; listing-review.html not refreshed."
-  fi
-  rm -rf "$snap"
-done
-exit 0
-EOF
-} > "$runner"
-chmod +x "$runner"
-
-# ---- wire the runner into pre-commit without changing the existing hook's behavior ----
-if [ -f "$hook" ] && grep -q '# BEGIN listing-kit review hook' "$hook"; then
-  tmp="$(mktemp)"
-  awk '/# BEGIN listing-kit review hook/{skip=1;next} /# END listing-kit review hook/{skip=0;next} !skip' "$hook" > "$tmp"
-  cat "$tmp" > "$hook"; rm -f "$tmp"
-fi
+printf -v kit_q "%q" "$(cd "$SELF_DIR/../.." && pwd)"
+tmp="$(mktemp "$hook_dir/.listing-kit.XXXXXX")"
+{
+  printf '#!/usr/bin/env bash\n# Generated by listing-kit install-review-hook.sh\nrecorded_kit=%s\napps=()\n' "$kit_q"
+  for a in "${apps[@]}"; do printf 'apps+=(%s)\n' "$a"; done
+  cat <<'RUN'
+python3 -I -B - "$recorded_kit" "${apps[@]}" <<'PYREVIEW' || {
+# listing-kit isolated review runner
+RUN
+  cat "$body"
+  cat <<'RUN'
+PYREVIEW
+  echo "listing-kit: Commit blocked. Fix the cause, or knowingly commit with --no-verify." >&2
+  exit 1
+}
+RUN
+} > "$tmp"
+install_file "$runner" runner
 
 if [ ! -f "$hook" ]; then
-  printf '#!/bin/sh\n%s\n' "$call" > "$hook"
-  chmod +x "$hook"
-elif grep -qF "$CALL_MARK" "$hook"; then
-  # v0.5.0 swallowed the runner's exit status on its marked line.
-  if grep -q "|| true[[:space:]]*$CALL_MARK$" "$hook"; then
-    tmp="$(mktemp)"
-    sed "/$CALL_MARK$/s/|| true\([[:space:]]*$CALL_MARK\)$/|| exit \$?\1/" "$hook" > "$tmp"
-    cat "$tmp" > "$hook"; rm -f "$tmp"
-  fi
-elif head -1 "$hook" | grep -qE '^#!.*[/ ](ba|da|k|z)?sh([[:space:]].*)?$' || ! head -1 "$hook" | grep -q '^#!'; then
-  tmp="$(mktemp)"
-  if head -1 "$hook" | grep -q '^#!'; then
-    { head -1 "$hook"; echo "$call"; tail -n +2 "$hook"; } > "$tmp"
-  else
-    { echo "$call"; cat "$hook"; } > "$tmp"
-  fi
-  cat "$tmp" > "$hook"; rm -f "$tmp"
-else
-  echo "Your pre-commit hook ($hook) is not a shell script, so it was left unchanged." >&2
-  echo "To refresh listing-review.html on commit, have your hook manager run this before committing:" >&2
-  echo "  $runner" >&2
-  echo "Installed listing-kit review runner: $runner (apps: ${apps[*]})"
-  exit 0
+  tmp="$(mktemp "${hook%/*}/.listing-kit.XXXXXX")"
+  printf '#!/bin/sh\n%s\n' "$call" > "$tmp"
+  install_file "$hook" hook
+elif shell_hook; then
+  tmp="$(mktemp "${hook%/*}/.listing-kit.XXXXXX")"
+  awk -v call="$call" '
+    NR == 1 && /^#!/ {print; print call; next}
+    NR == 1 {print call}
+    /# BEGIN listing-kit review hook/{skip=1;next}
+    /# END listing-kit review hook/{skip=0;next}
+    !skip && !/# listing-kit review refresh$/ {print}
+    END {if (NR == 0) print call}
+  ' "$hook" > "$tmp"
+  install_file "$hook" hook
 fi
-
+result="$(check_status)" || { echo "$result" >&2; exit 2; }
 echo "Installed listing-kit review hook: $hook (apps: ${apps[*]})"

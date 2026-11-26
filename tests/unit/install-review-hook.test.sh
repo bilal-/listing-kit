@@ -3,7 +3,7 @@
 
 # Fixture Git commands must never inherit a developer's hook manager.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-unset LISTING_KIT_HOME
+unset LISTING_KIT_HOME CODEX_HOME
 
 SUT="$SCRIPTS/package/install-review-hook.sh"
 
@@ -128,16 +128,43 @@ kit_commit agents
 assert_eq 0.9.0 "$(git -C "$T" show HEAD:listing-review.html)"
 for entry in '.codex/skills:0.10.0' '.gemini/extensions/listing-kit/skills:0.11.0' \
     '.cursor/skills:0.12.0' '.kiro/skills:0.13.0' \
-    '.claude/plugins/cache/vendor/kit/first/skills:0.14.1' \
-    '.claude/plugins/cache/vendor/kit/second/skills:0.14.2'; do
+    '.claude/plugins/cache/vendor/listing-kit/first/skills:0.14.1' \
+    '.claude/plugins/cache/vendor/listing-kit/second/skills:0.14.2' \
+             '.codex/plugins/cache/market/listing-kit/0.15.0/skills:0.15.0'; do
   make_kit "$test_home/${entry%:*}/listing-kit" "${entry#*:}"
   kit_commit "$entry"
   assert_eq "${entry#*:}" "$(git -C "$T" show HEAD:listing-review.html)"
 done
 
-it "warns visibly and permits the commit when no installed kit is available"
+it "discovers the listing-kit package in a configured Codex home"
+export CODEX_HOME="$installs/custom-codex"
+make_kit "$CODEX_HOME/plugins/cache/market/listing-kit/new/skills/listing-kit" 0.16.0
+make_kit "$test_home/.claude/plugins/cache/vendor/other/99/skills/listing-kit" 99.0.0
+kit_commit custom-codex
+assert_eq 0.16.0 "$(git -C "$T" show HEAD:listing-review.html)"
+unset CODEX_HOME
+
+it "blocks a relative override and an override missing VERSION"
+make_kit "$T/relative" 99.0.0
+echo override-test > "$T/fastlane/metadata/en-US/description.txt"
+git -C "$T" add fastlane
+for override in relative "$T/relative"; do
+  if [ "$override" != relative ]; then rm "$T/relative/VERSION"; fi
+  OUT="$(HOME="$test_home" LISTING_KIT_HOME="$override" git -C "$T" commit -qm override 2>&1)"; RC=$?
+  assert_ne 0 "$RC"
+  assert_contains "$OUT" '--no-verify'
+done
+
+it "warns visibly and blocks only listing commits when the kit disappears"
 remove_fixture "$test_home"
 OUT="$(kit_commit missing 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" "not refreshed"
+assert_contains "$OUT" "--no-verify"
+git -C "$T" reset -q HEAD
+touch "$T/readme"
+git -C "$T" add readme
+OUT="$(HOME="$test_home" git -C "$T" commit -qm unrelated 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "not refreshed"
 remove_fixture "$T" "$installs"
@@ -167,7 +194,9 @@ printf '#!/usr/bin/env python3\nimport sys\nsys.exit(3)\n' > "$T/.git/hooks/pre-
 chmod +x "$T/.git/hooks/pre-commit"
 BEFORE="$(cat "$T/.git/hooks/pre-commit")"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
-assert_eq 0 "$RC"
+assert_ne 0 "$RC"
+assert_contains "$OUT" inactive
+assert_contains "$(bash "$SUT" --status "$T" 2>&1)" inactive
 assert_eq "$BEFORE" "$(cat "$T/.git/hooks/pre-commit")" "hook untouched"
 assert_contains "$OUT" "listing-kit-review"
 assert_exec "$T/.git/hooks/listing-kit-review"
@@ -218,10 +247,13 @@ it "deletion-only commits refresh the page"
 make_app "Deletions"
 printf 'Promo to delete\n' > "$T/fastlane/metadata/en-US/promotional_text.txt"
 bash "$SUT" "$T" >/dev/null
-git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
+git -C "$T" add fastlane && git -C "$T" commit -qm "listing" || fail "initial commit failed"
+PAGE="$(git -C "$T" show HEAD:listing-review.html)" || fail "initial page missing"
+assert_contains "$PAGE" "Promo to delete"
 git -C "$T" rm -q fastlane/metadata/en-US/promotional_text.txt
-git -C "$T" commit -qm "drop promo" >/dev/null 2>&1
-assert_not_contains "$(git -C "$T" show HEAD:listing-review.html)" "Promo to delete"
+git -C "$T" commit -qm "drop promo" || fail "deletion commit failed"
+PAGE="$(git -C "$T" show HEAD:listing-review.html)" || fail "refreshed page missing"
+assert_not_contains "$PAGE" "Promo to delete"
 remove_fixture "$T"
 
 it "registers several app roots in one repo"
@@ -321,15 +353,34 @@ cat > "$T/.git/hooks/pre-commit" <<'EOF'
 r="$(git rev-parse --git-path hooks)/listing-kit-review"; [ ! -x "$r" ] || "$r" || true # listing-kit review refresh
 exit 0
 EOF
-printf '#!/bin/bash\napps=()\napps+=(\x27\x27)\nexit 0\n' > "$T/.git/hooks/listing-kit-review"
+# The runner body is the generated v0.5.0 code. Its builder path survives a
+# package update, while the two installed hook files stay byte-for-byte old.
+new_tempdir old_kit
+make_kit "$old_kit" 0.5.0
+{
+  printf '#!/usr/bin/env bash\nbuild_review=%q\napps=()\napps+=(%q)\n' "$old_kit/scripts/package/build-review.sh" ''
+  cat "$HELPER_DIR/fixtures/hooks/v0.5.0-runner-body"
+} > "$T/.git/hooks/listing-kit-review"
 chmod +x "$T/.git/hooks/pre-commit" "$T/.git/hooks/listing-kit-review"
-bash "$SUT" "$T" >/dev/null
+cp "$SCRIPTS/package/build-review.sh" "$old_kit/scripts/package/"
+ln -s "$SCRIPTS/validate" "$old_kit/scripts/validate"
+cp "$SUT" "$old_kit/scripts/package/"
+OUT="$(bash "$old_kit/scripts/package/install-review-hook.sh" --status "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" outdated
 printf 'AKIAIOSFODNN7EXAMPLE\n' > "$T/fastlane/metadata/en-US/name.txt"
+git -C "$T" add fastlane
+git -C "$T" commit -qm "old runner permits fixture" || fail "old hook did not allow commit"
+bash "$old_kit/scripts/package/install-review-hook.sh" "$T" >/dev/null || fail "migration failed"
+OUT="$(bash "$old_kit/scripts/package/install-review-hook.sh" --status "$T")"; RC=$?
+assert_eq 0 "$RC"
+assert_eq active "$OUT"
+echo 'trigger a listing commit' >> "$T/fastlane/metadata/en-US/description.txt"
 git -C "$T" add fastlane
 OUT="$(git -C "$T" commit -qm "secret" 2>&1)"; RC=$?
 assert_ne 0 "$RC"
 assert_contains "$OUT" 'fastlane/metadata/en-US/name.txt'
-if [ ! -e "$T/listing-review.html" ]; then pass "no review created"; else fail "wrote review"; fi
+if [ ! -e "$T/listing-review.html" ]; then pass "no review created"; else fail "wrote a review"; fi
 remove_fixture "$T"
 
 it "refuses a globally configured hooks path outside the repository before creating it"
@@ -366,9 +417,124 @@ it "preserves a pre-existing shell hook's non-executable mode on install and rei
 make_app "Disabled hook"
 echo '#!/bin/sh' > "$T/.git/hooks/pre-commit"
 chmod 640 "$T/.git/hooks/pre-commit"
-bash "$SUT" "$T" >/dev/null
-bash "$SUT" "$T" >/dev/null
+for mode in install reinstall --status; do
+  case "$mode" in
+    --status) OUT="$(bash "$SUT" --status "$T" 2>&1)" ;;
+    *) OUT="$(bash "$SUT" "$T" 2>&1)" ;;
+  esac
+  RC=$?
+  assert_ne 0 "$RC"
+  assert_contains "$OUT" inactive
+done
 if [ -x "$T/.git/hooks/pre-commit" ]; then fail "enabled existing hook"; else pass; fi
 remove_fixture "$T"
+
+it "rejects hooks in a nested repo and replaces hard-linked files atomically"
+make_app "Ownership"
+git -C "$T" init -q nested
+git -C "$T" config core.hooksPath nested/.git/hooks
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+git -C "$T" config --unset core.hooksPath
+for name in pre-commit listing-kit-review; do
+  echo '#!/bin/sh' > "$T/original-$name"
+  chmod +x "$T/original-$name"
+  ln "$T/original-$name" "$T/.git/hooks/$name"
+done
+bash "$SUT" "$T" >/dev/null
+for name in pre-commit listing-kit-review; do
+  if printf '#!/bin/sh\n' | cmp -s - "$T/original-$name"; then pass; else fail "modified hard-linked $name"; fi
+done
+
+it "isolates app-root Python names during installation, build and commit"
+make_app "isolated python"
+for module in re pathlib; do
+  echo 'raise ImportError("app-local test module")' > "$T/$module.py"
+done
+(cd "$T" && bash "$SUT" .) >/dev/null || fail "installer imported app code"
+(cd "$T" && bash "$SCRIPTS/package/build-review.sh" .) >/dev/null || fail "builder imported app code"
+rm -f "$T/listing-review.html"
+git -C "$T" add fastlane
+git -C "$T" commit -qm isolated || fail "commit failed"
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" "isolated python"
+
+it "checks index blobs before checkout conversion"
+make_app "blob scan"
+git -C "$T" config filter.fixture.smudge 'cat >/dev/null && echo clean'
+echo 'description.txt filter=fixture' > "$T/.gitattributes"
+echo AKIAIOSFODNN7EXAMPLE > "$T/fastlane/metadata/en-US/description.txt"
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add .gitattributes fastlane
+OUT="$(git -C "$T" commit -qm filtered 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" 'description.txt'
+
+it "fails closed on symlinks, temp allocation and checkout errors"
+make_app "scan failure"
+bash "$SUT" "$T" >/dev/null
+ln -s missing "$T/fastlane/link"
+git -C "$T" add fastlane
+OUT="$(git -C "$T" commit -qm link 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" '--no-verify'
+git -C "$T" rm -qf fastlane/link
+OUT="$(TMPDIR="$T/nonexistent" git -C "$T" commit -qm temp 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" '--no-verify'
+git -C "$T" config filter.unavailable.clean cat
+git -C "$T" config filter.unavailable.smudge false
+git -C "$T" config filter.unavailable.required true
+echo 'description.txt filter=unavailable' > "$T/.gitattributes"
+git -C "$T" add .gitattributes
+OUT="$(git -C "$T" commit -qm checkout 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" '--no-verify'
+
+it "rejects indexed private files even when clean and permits their deletion"
+make_app "local policy"
+bash "$SUT" "$T" >/dev/null
+for name in local.json secrets.local; do
+  mkdir -p "$T/.listing-kit"
+  echo harmless > "$T/.listing-kit/$name"
+  git -C "$T" add -f ".listing-kit/$name" || fail "could not stage private fixture"
+  OUT="$(git -C "$T" commit -qm private 2>&1)"; RC=$?
+  assert_ne 0 "$RC"
+  assert_contains "$OUT" ".listing-kit/$name"
+  git -C "$T" commit -qm fixture --no-verify || fail "could not seed tracked file"
+  echo changed >> "$T/.listing-kit/$name"
+  git -C "$T" add -u
+  OUT="$(git -C "$T" commit -qm tracked 2>&1)"; RC=$?
+  assert_ne 0 "$RC"
+  git -C "$T" rm -qf ".listing-kit/$name"
+  git -C "$T" commit -qm deletion || fail "could not delete private file"
+done
+
+it "checks device files under newline-containing directories and repository roots"
+make_app "newlines"
+bash "$SUT" "$T" >/dev/null || fail "installation failed"
+dir=$'native\nproject'
+mkdir -p "$T/$dir"
+echo AKIAIOSFODNN7EXAMPLE > "$T/$dir/Info.plist"
+git -C "$T" add "$dir"
+OUT="$(git -C "$T" commit -qm plist 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" Info.plist
+git -C "$T" rm -qf "$dir/Info.plist"
+mv "$T" "$T"$'\n'
+T="$T"$'\n'
+bash "$SUT" "$T" >/dev/null || fail "installation failed"
+echo AKIAIOSFODNN7EXAMPLE > "$T/Info.plist"
+git -C "$T" add Info.plist
+OUT="$(git -C "$T" commit -qm plist 2>&1)"; RC=$?
+assert_ne 0 "$RC"
+assert_contains "$OUT" Info.plist
+
+it "permits environment references and ordinary URLs at commit time"
+make_app "https://example.test/search?monkeytoken=springlaunch2026"
+echo 'clientSecret: process.env.CLIENT_SECRET' > "$T/app.config.js"
+bash "$SUT" "$T" >/dev/null
+git -C "$T" add fastlane app.config.js
+git -C "$T" commit -qm clean || fail "clean commit was blocked"
+assert_contains "$(git -C "$T" show HEAD:listing-review.html)" 'monkeytoken=springlaunch2026'
 
 summary

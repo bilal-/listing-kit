@@ -102,9 +102,13 @@ Then run `scripts/package/build-review.sh` (pass the app root) to emit `listing-
 
 If the app root is inside a git worktree, run `scripts/package/install-review-hook.sh` (pass the app root). This installs or updates a repo-local pre-commit hook that reruns `build-review.sh` and stages the refreshed `listing-review.html`.
 
-The hook watches staged changes to `fastlane/**`, `store-assets/**`, public files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable. A credential in the staged inputs blocks the commit before the page is written. Other validation failures appear on the staged page.
+The hook watches staged changes to `fastlane/**`, `store-assets/**`, files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app. Deletions and moves out of these paths also trigger a refresh. The page reflects the staged files, including configuration that determines whether iPad screenshots are required. If the app root is not in git, skip this hook and mention that automatic commit-time refresh is unavailable. A credential in the staged inputs blocks the commit before the page is written. Other validation failures appear on the staged page.
 
-Set `LISTING_KIT_HOME` to select a skill directory for the hook. Otherwise it uses the recorded installation while available, then looks for the highest installed `VERSION` in the supported skill folders. If it cannot find the kit, it warns and lets the commit proceed.
+The hook reads listing blobs directly from Git’s index before checking out the review inputs. Indexed `.listing-kit/**/local.json` and `*.local` files under `.listing-kit` block listing commits even when empty. Keep those files untracked. If the check cannot complete, fix the reported cause or knowingly bypass the hook with `git commit --no-verify`. Unrelated commits can proceed when the kit is missing.
+
+Set `LISTING_KIT_HOME` to an absolute skill directory to select the kit. Otherwise the hook uses its recorded installation, then checks supported skill directories and listing-kit’s Claude and Codex plugin caches for the highest installed `VERSION`.
+
+After updating listing-kit, run `scripts/package/install-review-hook.sh` with `--status <app-root>` in each registered app. It prints `active`, `outdated`, or `inactive (reason)` and exits zero for an active integration. Rerun the installer for outdated hooks. For an inactive integration, enable the pre-commit hook or configure the existing hook manager to run the installed runner and propagate its exit status.
 
 Then produce a **report**: per platform/locale, what exists vs. required vs. missing, with next actions.
 
