@@ -116,6 +116,9 @@ def guide(plan):
                   if path.parts[2:] in (("text", "name.txt"), ("text", "title.txt"))), "")
     yield "h1", "Upload your store listing" + (" — " + title if title else "")
     yield "p", "Built " + datetime.date.today().isoformat()
+    yield "p", ("Run listing-kit publish first and check its receipt. Then hand upload the remaining items "
+                "below, including Play graphics and console-only screenshots. An Apple gallery replacement "
+                "clears all screenshot sets for the uploaded locale.")
     yield "p", ("This folder is a copy. Edit the source files under fastlane/ or store-assets/ and rerun. "
                 "Rebuilds are refused if you edit files in this folder.")
     yield "p", ("Paths are relative to the folder containing INDEX.md. In the console, pick or add the language "

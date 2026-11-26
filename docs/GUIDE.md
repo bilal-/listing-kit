@@ -153,5 +153,4 @@ instead of hanging, and relies on the flows captured in a prior interactive run.
 
 - **Add a stack or store**: write a module in `skills/listing-kit/references/` —
   see [CONTRIBUTING.md](../CONTRIBUTING.md).
-- **Publish**: out of scope for v1, but the fastlane layout means
-  `fastlane deliver` / `supply` can publish what listing-kit produced.
+- **Manage a store listing** with `listing-kit fastlane setup`, `listing-kit pull`, and `listing-kit publish`. The publish preview shows the replacement scope before hand upload. [Store management](../skills/listing-kit/references/metadata/fastlane-layout.md#store-management)
