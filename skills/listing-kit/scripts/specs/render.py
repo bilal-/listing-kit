@@ -115,7 +115,7 @@ def graphics(store, rules):
 
 
 SOURCES = {
-    "apple": {"screenshots": ["appleScreenshots"], "fields": ["appleAppInfo", "appleVersionInfo"],
+    "apple": {"screenshots": ["appleScreenshots", "appleUpcomingRequirements"], "fields": ["appleAppInfo", "appleVersionInfo"],
               "graphics": ["appleCreativeAssets"]},
     "play": {"screenshots": ["playPreviewAssets"], "fields": ["playListing", "playReleaseNotes"],
              "graphics": ["playPreviewAssets"]},

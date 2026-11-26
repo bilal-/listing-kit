@@ -6,3 +6,4 @@ sizes = {
   DisplayType::APPLE_TV => [[1920, 1080]],
   # DisplayType::UNUSED => [[123, 456]],
 }
+lookup = { [1024, 768] => DisplayType::IPAD }

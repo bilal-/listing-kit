@@ -27,6 +27,9 @@ browser() {
 }
 rc=0
 report python3 'install Python 3.8 or later' python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' || rc=3
+if [ "$rc" = 0 ]; then
+  python3 -I -B "$scripts/lib/specs.py" doctor || rc=3
+fi
 report ImageMagick 'install ImageMagick' im_resolve
 report Chromium 'install Chrome or Chromium, or set LK_BROWSER' browser
 report maestro 'install Maestro CLI' command -v maestro

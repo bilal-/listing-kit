@@ -167,9 +167,16 @@ def check(data):
     if not _fields_ok(data, "$", ("schema", "verified", "stores"), {
         "schema": lambda v: type(v) is int and v == 1, "verified": _date,
         "stores": lambda v: isinstance(v, dict), "sources": string_map, "conditions": string_map,
+        "watch": lambda v: isinstance(v, list),
         "appleCategories": strings, "unverified": strings, "_override": lambda v: v is None or _string(v),
     }, problems):
         return problems
+    if isinstance(data.get("watch"), list):
+        _entries(data["watch"], "watch", "id", ("id", "url", "kind", "extract"), {
+            "id": identifier, "url": lambda v: _string(v) and v.startswith("https://"),
+            "kind": ("html", "source").__contains__,
+            "extract": ("pixel-sizes", "limits", "dated-list", "ruby-constants").__contains__,
+        }, problems)
     stores = data.get("stores")
     if not isinstance(stores, dict):
         return problems
@@ -516,6 +523,11 @@ if __name__ == "__main__":
     try:
         if a[:1] == ["verified"]:
             print(load(a[1] if len(a) > 1 else None)["verified"])
+        elif a == ["doctor"]:
+            verified, age, stale = staleness(load())
+            print("store rules verified " + verified)
+            if stale:
+                print(f"store rules are {age} days old: update listing-kit")
         elif a[:1] == ["play-crop"] and len(a) == 4:
             phone = slot(load("."), "play", "phone")
             w, h = promotion_crop(int(a[1]), int(a[2]), phone["promotion"]["ratios"])

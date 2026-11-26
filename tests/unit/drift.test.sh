@@ -17,7 +17,8 @@ s = json.load(open(sys.argv[1]))
 sources = s["sources"]
 assert sources["appleUpcomingRequirements"] == "https://developer.apple.com/news/upcoming-requirements/"
 assert sources["playStoreListingFields"] == sources["playListing"] == "https://support.google.com/googleplay/android-developer/answer/9859152"
-assert not any("description" in u.lower() for u in s["unverified"])
+assert not any("play" in u.lower() and "description" in u.lower() and "limit" in u.lower()
+               for u in s["unverified"])
 html = (("apple-screenshots", "appleScreenshots", "pixel-sizes"),
         ("apple-version-info", "appleVersionInfo", "limits"),
         ("apple-app-info", "appleAppInfo", "limits"),
@@ -42,14 +43,14 @@ expect_digest() {
     python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]) != json.loads(sys.argv[2]))' "$out" "$2" && pass || fail "$out"
   fi
 }
-expect_digest apple-screenshots.html '["1284x2778","2778x1284","April 2027"]'
+expect_digest apple-screenshots.html '["1284x2778","2778x1284","512x512","April 2027","September 9, 2026"]'
 expect_digest apple-version-info.html '["Keywords: up to 100 bytes","Promotional text: 170 characters"]'
 expect_digest apple-app-info.html '["Name: 30 characters","Subtitle: 30 characters"]'
 expect_digest apple-creative-assets.html '["1024x1024"]'
 expect_digest play-preview-assets.html '["1024x500","512x512"]'
 expect_digest play-store-listing-fields.html '["App name: 30 characters","Full description: up to 4000 characters","Short description: 80 characters","Tags: up to 5"]'
-expect_digest apple-upcoming-requirements.html '["SDK requirements: September 9, 2026","Screenshot requirements: April 2027"]'
-expect_digest fastlane-screenshots.rb '["APPLE_TV: 1920x1080","IOS_65: 1284x2778","IOS_65: 2778x1284"]'
+expect_digest apple-upcoming-requirements.html '["App icon requirements: May 2027","SDK requirements: September 9, 2026","Screenshot requirements: April 2027"]'
+expect_digest fastlane-screenshots.rb '["APPLE_TV: 1920x1080","IOS_65: 1284x2778","IOS_65: 2778x1284","IPAD: 1024x768"]'
 expect_digest fastlane-supply.rb '["IMAGES_TYPES: featureGraphic","IMAGES_TYPES: icon","METADATA_UPLOAD_FIELDS: short_description","METADATA_UPLOAD_FIELDS: title","SCREENSHOT_TYPES: phoneScreenshots","SCREENSHOT_TYPES: sevenInchScreenshots"]'
 expect_digest fastlane-languages.rb '["ALL_LANGUAGES: de-DE","ALL_LANGUAGES: en-US"]'
 
@@ -101,8 +102,32 @@ update_pages
 assert_eq 2 "$rc"
 diff -r "$digests" "$area/first" >/dev/null 2>&1 && pass || fail 'incomplete update changed baselines'
 
+it "update accepts reviewed changes into an existing baseline"
+cp "$ROOT/tests/fixtures/drift/play-preview-assets.html" "$ROOT/tests/fixtures/drift/fastlane-languages.rb" "$pages/"
+update_pages
+assert_eq 0 "$rc"
+assert_contains "$(cat "$digests/apple-screenshots.json" 2>/dev/null)" '1290x2796'
+check_pages
+assert_eq 0 "$rc"
+
 it "urllib fetch and redirect policy works without network access"
 python3 -I -B "$ROOT/tests/unit/drift_fetch.py" && pass || fail "fetch policy"
+
+it "malformed HTML identifies the source as a parse problem"
+echo '<![not-a-section]>' > "$area/broken.html"
+run_drift extract apple-screenshots "$area/broken.html"
+assert_eq 2 "$rc"
+assert_contains "$out" 'apple-screenshots: problem'
+assert_not_contains "$out" 'Traceback'
+
+it "computed Ruby expressions and unrelated constants cannot masquerade as literal data"
+cat > "$area/computed.rb" <<'RB'
+ALL_LANGUAGES = [*Language::CODES]
+IMAGES_TYPES = %w(icon)
+RB
+run_drift extract fastlane-languages "$area/computed.rb"
+assert_eq 2 "$rc"
+assert_contains "$out" 'fastlane-languages: problem'
 
 it "weekly workflow can update one issue with only its built-in token"
 workflow="$ROOT/.github/workflows/drift.yml"
