@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 mode, tool, root = sys.argv[1:]
 args = ["publish", "--store", "apple", "--app-identifier", "example.apple"]
+if mode == "resolve-play":
+    args = ["publish", "--package-name", "example.play"]
 os.chdir(root)
 if mode == "lock":
     fd = os.open(".listing-kit", os.O_RDONLY)
@@ -21,6 +23,10 @@ if mode == "lock":
 else:
     # Inject terminal input at the prompt without requiring a controlling TTY in CI.
     sys.argv = [str(Path(tool).parent / "fastlane/lk_fastlane.py"), *args]
-    error = EOFError if mode == "eof" else KeyboardInterrupt
-    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=error):
+    if mode in ("resolve", "resolve-play"):
+        sys.argv.extend(["--resolve", "play" if mode == "resolve-play" else "apple"])
+        response = patch("builtins.input", return_value="yes")
+    else:
+        response = patch("builtins.input", side_effect=EOFError if mode == "eof" else KeyboardInterrupt)
+    with patch("sys.stdin.isatty", return_value=True), response:
         runpy.run_path(sys.argv[0], run_name="__main__")
