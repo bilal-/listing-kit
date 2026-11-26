@@ -4,6 +4,34 @@
 set -uo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
+# rev-parse emits Git's own list of repository-local variable names.
+git_vars="$(git rev-parse --local-env-vars)" || exit 1
+for git_var in $git_vars; do unset "$git_var"; done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export PYTHONDONTWRITEBYTECODE=1
+
+# The suite owns one private temporary directory. Standalone tests own theirs.
+if [ "${1:-}" = --suite-root ]; then
+  SUITE_ROOT="${2:-}"
+  # Children receive the private root as TMPDIR from the suite owner.
+  python3 -I - "$SUITE_ROOT" <<'PYROOT' || exit 1
+import os, stat, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+if not (p.is_absolute() and p == p.resolve() and p.is_dir()
+        and p.name.startswith("listing-kit-suite.") and str(p) == os.environ.get("TMPDIR")
+        and p.stat().st_uid == os.getuid() and stat.S_IMODE(p.stat().st_mode) == 0o700):
+    sys.exit("Invalid test suite root")
+PYROOT
+else
+  suite_parent="$(cd -P "${TMPDIR:-/tmp}" && pwd -P)" || exit 1
+  SUITE_ROOT="$(python3 -I -c 'import sys,tempfile; print(tempfile.mkdtemp(prefix="listing-kit-suite.", dir=sys.argv[1]))' "$suite_parent")" || exit 1
+  trap 'if [ "$(cd -P "$SUITE_ROOT" && pwd -P)" = "$SUITE_ROOT" ] && [ "${SUITE_ROOT%/*}" = "$suite_parent" ]; then rm -rf -- "$SUITE_ROOT"; fi' EXIT
+fi
+export HOME="$SUITE_ROOT/home"
+mkdir -p "$HOME" || exit 1
+export TMPDIR="$SUITE_ROOT" GIT_CEILING_DIRECTORIES="$SUITE_ROOT"
+
 HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HELPER_DIR/.." && pwd)"
 SCRIPTS="$ROOT/skills/listing-kit/scripts"
@@ -32,10 +60,30 @@ json_get()      { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))
 json_valid()    { python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$1" >/dev/null 2>&1; }
 json_path()     { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));exec('print('+sys.argv[2]+')')" "$1" "d$2"; }
 
-# --- command stubbing: shim a binary onto PATH and record its invocations ---
-STUB_DIRS=()
-new_stubdir() { STUB_BIN="$(mktemp -d)"; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; STUB_DIRS+=("$STUB_BIN"); }
-trap 'for d in ${STUB_DIRS[@]+"${STUB_DIRS[@]}"}; do rm -rf "$d"; done' EXIT
+# Assign in the calling shell so allocation failure stops the entire test file.
+new_tempdir() {
+  local created
+  if ! created="$(mktemp -d "$SUITE_ROOT/listing-kit-test.XXXXXX")" || [ -z "$created" ] || [ ! -d "$created" ] || [ -L "$created" ] ||
+     [ "$(cd -P "$created/.." && pwd -P)" != "$SUITE_ROOT" ] ||
+     [ "$(cd -P "$created" && pwd -P)" != "$created" ]; then
+    echo "Could not create test fixture directory (mktemp -d)." >&2
+    exit 1
+  fi
+  printf -v "$1" '%s' "$created"
+}
+
+# Resolve paths again before deleting, including intermediate symlinks.
+remove_fixture() {
+  python3 -I -c 'from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+if any(root not in Path(p).resolve().parents for p in sys.argv[2:]):
+    sys.exit("Refusing cleanup outside suite root")' "$SUITE_ROOT" "$@" || exit 1
+  rm -rf -- "$@"
+}
+
+# --- command stubbing: put a shim binary on PATH and record invocations ---
+new_stubdir() { new_tempdir STUB_BIN; STUB_LOG="$STUB_BIN/.calls"; : > "$STUB_LOG"; }
 stub() {
   local name="$1" code="${2:-0}"
   cat > "$STUB_BIN/$name" <<EOF

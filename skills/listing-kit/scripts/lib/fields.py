@@ -36,18 +36,21 @@ FIELDS = {
 }
 
 
-class NotUTF8(Exception):
+class InvalidFieldText(ValueError):
     pass
 
 
 def read(path):
     """File text with trailing whitespace stripped (how fastlane measures), or None.
-    Raises NotUTF8 for undecodable files (the stores require UTF-8)."""
+    Raises InvalidFieldText for malformed store copy."""
     try:
         with open(path, encoding="utf-8") as f:
-            return f.read().rstrip()
+            text = f.read()
+            if "\0" in text:
+                raise InvalidFieldText("contains NUL")
+            return text.rstrip()
     except UnicodeDecodeError as e:
-        raise NotUTF8(path) from e
+        raise InvalidFieldText("not valid UTF-8") from e
     except OSError:
         return None
 
@@ -94,8 +97,8 @@ def rows(store, locale_dir, fallback_dir=None):
                 path = cand
                 try:
                     value = read(cand)
-                except NotUTF8:
-                    error = "not valid UTF-8"
+                except InvalidFieldText as exc:
+                    error = str(exc)
                 break
         out.append(dict(stem=stem, label=label, path=path, value=value, limit=limit, unit=unit,
                         required=required, error=error, minimum=minimum,

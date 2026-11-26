@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; R=$'\033[31m'; Z=$'\033[0m'; else B=; G=; R=; Z=; fi
 
+. tests/helpers.sh
 total_pass=0
 total_fail=0
 files_errored=0
@@ -13,7 +14,7 @@ file_count=0
 for f in $(find tests -name '*.test.sh' | sort); do
   file_count=$((file_count + 1))
   printf '\n%s▶ %s%s\n' "$B" "${f#tests/}" "$Z"
-  out="$(bash "$f" 2>&1)"; rc=$?
+  out="$(bash "$f" --suite-root "$SUITE_ROOT" 2>&1)"; rc=$?
   echo "$out" | grep -v '^##SUMMARY' || true
 
   s="$(echo "$out" | grep '^##SUMMARY' | tail -1)"

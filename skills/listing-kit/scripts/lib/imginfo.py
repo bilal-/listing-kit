@@ -367,7 +367,83 @@ def _jpeg(f):
             f.seek(length - 2, os.SEEK_CUR)
 
 
+def _png_header(f, signature):
+    d = signature + f.read(31)
+    if len(d) < 33 or d[:8] != b"\x89PNG\r\n\x1a\n" or d[8:16] != b"\x00\x00\x00\x0dIHDR":
+        return UNKNOWN
+    w, h = struct.unpack(">II", d[16:24])
+    if not w or not h:
+        return UNKNOWN
+    depth, ct = d[24], d[25]
+    # Walk chunks to the image data. A tRNS chunk adds transparency to RGB/gray;
+    # a file that ends (or hits IEND) before any IDAT is truncated, not an image.
+    trns = False
+    while True:
+        head = f.read(8)
+        if len(head) < 8:
+            return UNKNOWN
+        length, kind = struct.unpack(">I4s", head)
+        if kind == b"tRNS":
+            trns = True
+        elif kind == b"IDAT":
+            return w, h, depth, f"{ct}+tRNS" if trns else ct
+        elif kind == b"IEND":
+            return UNKNOWN
+        f.seek(length + 4, os.SEEK_CUR)  # data + CRC
+
+
+def _jpeg_header(f):
+    while True:
+        b = f.read(1)
+        while b and b != b"\xff":
+            b = f.read(1)
+        while b == b"\xff":
+            b = f.read(1)
+        if not b:
+            return UNKNOWN
+        marker = b[0]
+        if marker in (0x01, *range(0xD0, 0xDA)):  # standalone markers, no length
+            continue
+        seg = f.read(2)
+        if len(seg) < 2:
+            return UNKNOWN
+        length = struct.unpack(">H", seg)[0]
+        # SOF0..SOF15 carry the frame size, except DHT (C4), JPG (C8), DAC (CC).
+        if length < 2:
+            return UNKNOWN
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            d = f.read(length - 2)
+            if len(d) < 6:
+                return UNKNOWN
+            precision, h, w, comps = struct.unpack(">BHHB", d[:6])
+            if not w or not h or not comps or len(d) < 6 + 3 * comps:
+                return UNKNOWN
+            return w, h, precision, {3: 2, 1: 0}.get(comps, 99)
+        f.seek(length - 2, os.SEEK_CUR)
+
+
+def stream_info(stream):
+    sig = stream.read(2)
+    return _jpeg_header(stream) if sig == b"\xff\xd8" else _png_header(stream, sig)
+
+
+def snapshot_facts():
+    manifest = os.environ.get("LK_REVIEW_IMAGE_INFO")
+    if not manifest:
+        return {}
+    import json
+    with open(manifest, encoding="ascii") as stream:
+        return json.load(stream)
+
+
+SNAPSHOT = snapshot_facts()
+
+
 def _inspect(path):
+    entry = SNAPSHOT.get(os.path.realpath(path)) if SNAPSHOT else None
+    if entry:
+        info = tuple(entry[0])
+        return info, "bad" if info == UNKNOWN else "could not decode: staged review uses image headers"
     try:
         with open(path, "rb") as f:
             sig = f.read(2)
@@ -497,6 +573,17 @@ def apple_class(w, h):
     return APPLE_SIZES.get((min(w, h), max(w, h)))
 
 
+def image_bytes(path):
+    entry = SNAPSHOT.get(os.path.realpath(path)) if SNAPSHOT else None
+    return entry[1] if entry else (os.path.getsize(path) if os.path.exists(path) else 0)
+
+
+def validation_rows(paths):
+    for p, (info, status) in zip(paths, validate_many(paths)):
+        w, h, depth, ct = info
+        yield "\t".join(map(str, (w, h, depth, ct, image_bytes(p), apple_class(w, h) or "-", status, p)))
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--decode":
         paths = sys.argv[2:]
@@ -504,12 +591,10 @@ if __name__ == "__main__":
             print("\t".join((st, p)))
     elif len(sys.argv) > 1 and sys.argv[1] == "--validate":
         paths = sys.argv[2:]
-        for p, (info, st) in zip(paths, validate_many(paths)):
-            w, h, depth, ct = info
-            size = os.path.getsize(p) if os.path.exists(p) else 0
-            print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", st, p))))
+        for row in validation_rows(paths):
+            print(row)
     else:
         for p in sys.argv[1:]:
             w, h, depth, ct = image_info(p)
-            size = os.path.getsize(p) if os.path.exists(p) else 0
+            size = image_bytes(p)
             print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", p))))

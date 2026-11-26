@@ -8,14 +8,14 @@ OUT="$(bash "$SUT" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 
 it "exits 2 when a directory is missing"
-TMP="$(mktemp -d)"
+new_tempdir TMP
 OUT="$(bash "$SUT" /no/such/dir "$TMP" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
-rm -rf "$TMP"
+remove_fixture "$TMP"
 
 # --- byte-compare fallback (LK_NO_IMAGEMAGICK) — deterministic, CI-safe ---
 # Forces the fallback regardless of whether ImageMagick is installed on the runner.
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'AAAA' > "$P/01.png"; printf 'AAAA' > "$C/01.png"   # unchanged
 printf 'AAAA' > "$P/02.png"; printf 'BBBB' > "$C/02.png"   # changed (bytes differ)
 printf 'X'    > "$P/03.png"                                # removed (prev only)
@@ -51,26 +51,26 @@ assert_not_contains "$OUT" "byte-compare only" "pixel mode, not the fallback"
 assert_contains "$OUT" "02.png (42 px differ)" "reports the pixel count"
 assert_contains "$(stub_log)" "identify -format" "dimensions come from identify"
 assert_not_contains "$OUT" "magick" "never calls magick"
-rm -rf "$STUB_BIN"
+remove_fixture "$STUB_BIN"
 
-rm -rf "$P" "$C"
+remove_fixture "$P" "$C"
 
 it "JPEG screenshots are compared too"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'AAAA' > "$P/01.jpg"; printf 'BBBB' > "$C/01.jpg"
 OUT="$(LK_NO_IMAGEMAGICK=1 bash "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "01.jpg (bytes differ)"
-rm -rf "$P" "$C"
+remove_fixture "$P" "$C"
 
 it "an ImageMagick 6 install without identify falls back to byte-compare"
-P="$(mktemp -d)"; C="$(mktemp -d)"; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
+new_tempdir P; new_tempdir C; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
 new_stubdir; stub compare
 OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"
-rm -rf "$P" "$C"
+remove_fixture "$P" "$C"
 
 it "reports an ImageMagick identify decode error as a comparison failure, not px differ or resized"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'bad1' > "$P/01.png"; printf 'bad2' > "$C/01.png"
 printf 'bad1' > "$P/02.png"; printf 'good' > "$C/02.png"
 new_stubdir
@@ -99,7 +99,7 @@ assert_contains "$OUT" "0 changed"
 rm -rf "$P" "$C"
 
 it "reports an ImageMagick compare error as a comparison failure, not px differ"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'trunc1' > "$P/01.png"; printf 'trunc2' > "$C/01.png"
 new_stubdir
 cat > "$STUB_BIN/identify" <<'EOF'
@@ -121,7 +121,7 @@ assert_contains "$OUT" "0 changed"
 rm -rf "$P" "$C"
 
 it "suppresses non-fatal compare warnings (-quiet) so valid screens are not reported as errors"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'img1' > "$P/01.png"; printf 'img1' > "$C/01.png"
 printf 'img2a' > "$P/02.png"; printf 'img2b' > "$C/02.png"
 new_stubdir
@@ -149,7 +149,7 @@ assert_contains "$OUT" "02.png (7 px differ)"
 rm -rf "$P" "$C"
 
 it "byte-compare fallback reports cmp exit >=2 as an error, not bytes differ"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 printf 'AAAA' > "$P/01.png"; printf 'AAAA' > "$C/01.png"
 new_stubdir
 cat > "$STUB_BIN/cmp" <<'EOF'
@@ -168,7 +168,7 @@ assert_contains "$OUT" "1 errors"
 rm -rf "$P" "$C"
 
 it "reports a failed directory enumeration as an error before classifying additions and removals"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 mkdir -p "$P/sub" "$C/sub"
 printf 'AAAA' > "$P/sub/01.png"; printf 'AAAA' > "$C/sub/01.png"
 new_stubdir
@@ -191,7 +191,7 @@ rm -rf "$P" "$C"
 
 if command -v magick >/dev/null 2>&1; then
   it "real ImageMagick: corrupt PNG reports comparison failed instead of px differ"
-  P="$(mktemp -d)"; C="$(mktemp -d)"
+  new_tempdir P; new_tempdir C
   fake_png "$P/01.png" 10 10
   printf 'not a png' > "$C/01.png"
   OUT="$(bash "$SUT" "$P" "$C" 2>&1)"; RC=$?
@@ -202,7 +202,7 @@ if command -v magick >/dev/null 2>&1; then
 fi
 
 it "pairs filenames containing newlines and counts a failed final merge"
-P="$(mktemp -d)"; C="$(mktemp -d)"
+new_tempdir P; new_tempdir C
 name=$'two\nlines.png'
 touch "$P/$name" "$C/$name"
 OUT="$(LK_NO_IMAGEMAGICK=1 bash "$SUT" "$P" "$C" 2>&1)"

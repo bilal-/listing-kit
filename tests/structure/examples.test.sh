@@ -33,7 +33,7 @@ assert_eq 0 "$RC" "flows are secret-clean"
 # checkout, so an untracked local capture cannot change the answer), with no fixture
 # added, and examples/README.md must say what the validator says.
 it "examples/README.md tells the truth about the example's validation state"
-SNAP="$(mktemp -d)"; [ -n "$SNAP" ] && [ -d "$SNAP" ] || { fail "mktemp failed"; summary; exit 1; }
+new_tempdir SNAP
 if git -C "$ROOT" rev-parse --verify -q HEAD >/dev/null 2>&1 \
    && git -C "$ROOT" archive HEAD examples/expo-recipe-box 2>/dev/null | tar -x -C "$SNAP" 2>/dev/null \
    && [ -d "$SNAP/examples/expo-recipe-box/fastlane" ]; then
@@ -43,7 +43,7 @@ else
 fi
 # Detection overrides in the caller's environment must not change what is checked.
 OUT="$(env -u LK_SUPPORTS_IPHONE -u LK_SUPPORTS_IPAD bash "$SCRIPTS/validate/validate-listing.sh" "$EX" 2>&1)"; RC=$?
-rm -rf "$SNAP"
+remove_fixture "$SNAP"
 README="$(cat "$ROOT/examples/README.md")"
 ROWS="$(grep -c '^| \[`expo-recipe-box`\](expo-recipe-box) |' "$ROOT/examples/README.md")"
 assert_eq 1 "$ROWS" "one status row for the example"

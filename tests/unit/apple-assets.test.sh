@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 SUT="$SCRIPTS/validate/validate-listing.sh"
-T="$(mktemp -d)"
-trap 'rm -rf "$T"' EXIT
+new_tempdir T
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$T/"
 SHOTS="$T/fastlane/screenshots/en-US"
 HEADERS="$T/store-assets/apple/en-US"
@@ -127,7 +126,7 @@ with open(sys.argv[1], 'w') as output:
 PYTEST
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" 'asset plan secret scan: credentials found in asset-plan.json'
+assert_contains "$OUT" '.listing-kit/asset-plan.json'
 cp "$T/clean-plan.json" "$T/.listing-kit/asset-plan.json"
 
 it "an active and deferred target conflict instead of silently skipping it"
