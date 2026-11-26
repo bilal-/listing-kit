@@ -4,7 +4,7 @@
 SUT="$SCRIPTS/handoff/handoff.py"
 assert_no_file() { if [ -e "$1" ]; then fail "should not exist: $1"; else pass "absent: ${1##*/}"; fi; }
 T="$(mktemp -d)"; [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }
-T="$(cd "$T" && pwd -P)"
+T="$(cd "$T" && pwd -P)" || exit 1
 trap 'rm -rf "$T"' EXIT
 A="$T/app"; S="$A/fastlane/screenshots/en-US"; M="$A/fastlane/metadata"; P="$M/android/en-US"
 mkdir -p "$S" "$M/en-US" "$M/default" "$P/images/phoneScreenshots" "$P/images/tenInchScreenshots" "$P/changelogs" "$A/store-assets/apple/en-US"
@@ -31,20 +31,21 @@ OUT="$(python3 "$SUT" "$A" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exit 0"
 assert_contains "$OUT" "Upload folder: "
 # Expected layout, written out by hand (not derived from the rules file).
-EXPECT='.listing-kit-upload
+EXPECT='.gitignore
+.listing-kit-upload
 INDEX.md
-apple/en-US/01 iPhone Dynamic Island (medium display)/01-01_home_iphone-medium.png
-apple/en-US/01 iPhone Dynamic Island (medium display)/02-02_list_iphone-medium.png
-apple/en-US/02 iPhone Duo (outer display)/01-01_home_duo-outer.png
-apple/en-US/03 iPhone Duo (inner display)/01-01_home_duo-inner.png
-apple/en-US/04 iPad 13in/01-01_home_ipad.png
+apple/en-US/01 iPhone Dynamic Island (medium display)/01-home_iphone-medium.png
+apple/en-US/01 iPhone Dynamic Island (medium display)/02-list_iphone-medium.png
+apple/en-US/02 iPhone Duo (outer display)/01-home_duo-outer.png
+apple/en-US/03 iPhone Duo (inner display)/01-home_duo-inner.png
+apple/en-US/04 iPad 13in/01-home_ipad.png
 apple/en-US/graphics/header-16x9.png
-apple/en-US/text/copyright.txt
+apple/app-wide/copyright.txt
 apple/en-US/text/name.txt
 apple/en-US/text/support_url.txt
-play/en-US/01 Phone/01-01_home.png
-play/en-US/01 Phone/02-02_list.png
-play/en-US/02 10-inch tablet/01-01_home.png
+play/en-US/01 Phone/01-home.png
+play/en-US/01 Phone/02-list.png
+play/en-US/02 10-inch tablet/01-home.png
 play/en-US/graphics/featureGraphic.png
 play/en-US/graphics/icon.png
 play/en-US/text/release-notes-default.txt
@@ -53,16 +54,16 @@ GOT="$(cd "$O" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
 assert_eq "$(printf '%s\n' "$EXPECT" | LC_ALL=C sort)" "$GOT" "exact file inventory"
 
 it "copies are byte-identical and text falls back to metadata/default as deliver does"
-if cmp -s "$S/01_home_ipad.png" "$O/apple/en-US/04 iPad 13in/01-01_home_ipad.png"; then pass "screenshot bytes"; else fail "screenshot differs"; fi
+if cmp -s "$S/01_home_ipad.png" "$O/apple/en-US/04 iPad 13in/01-home_ipad.png"; then pass "screenshot bytes"; else fail "screenshot differs"; fi
 if cmp -s "$P/images/featureGraphic.png" "$O/play/en-US/graphics/featureGraphic.png"; then pass "feature graphic bytes"; else fail "feature graphic differs"; fi
 assert_eq "https://example.com/help" "$(cat "$O/apple/en-US/text/support_url.txt")" "default fallback"
 
-it "the index names every file, where it goes, and its hash"
+it "the index names every file and its console field"
 IDX="$(cat "$O/INDEX.md")"
-assert_contains "$IDX" 'apple/en-US/02 iPhone Duo (outer display)/01-01_home_duo-outer.png'
-assert_contains "$IDX" "App Store Connect > en-US > Screenshots > iPhone Duo (outer display)"
-assert_contains "$IDX" "Play Console > Main store listing > en-US > Feature graphic"
-assert_eq 16 "$(grep -c '^| [0-9]' "$O/INDEX.md")" "one row per file"
+assert_contains "$IDX" 'apple/en-US/02 iPhone Duo (outer display)/01-home_duo-outer.png'
+assert_contains "$IDX" "Version page > Screenshots > iPhone Duo (outer display)"
+assert_contains "$IDX" "Main store listing > Feature graphic"
+assert_eq 16 "$(grep -c '^| `' "$O/INDEX.md")" "one row per file"
 
 it "a rebuild replaces the folder, so a file removed from the listing does not linger"
 rm "$S/02_list_iphone-medium.png"
@@ -74,7 +75,7 @@ assert_file "$O/stale.txt"
 rm "$O/stale.txt"
 python3 "$SUT" "$A" >/dev/null 2>&1
 assert_no_file "$O/stale.txt"
-assert_no_file "$O/apple/en-US/01 iPhone Dynamic Island (medium display)/02-02_list_iphone-medium.png"
+assert_no_file "$O/apple/en-US/01 iPhone Dynamic Island (medium display)/02-list_iphone-medium.png"
 assert_eq "" "$(ls -a "$A/.listing-kit" | grep '^\.upload' || true)" "no temporary folders left behind"
 
 it "a screenshot that fits no slot stops the build and leaves the previous folder untouched"
@@ -89,7 +90,7 @@ rm "$S/09_odd.png"
 it "a folder with no listing exits 1 and writes nothing"
 mkdir -p "$T/empty"
 python3 "$SUT" "$T/empty" >/dev/null 2>&1; assert_eq 1 "$?" "exit 1"
-assert_no_file "$T/empty/.listing-kit/upload/INDEX.md"
+assert_no_file "$T/empty/.listing-kit"
 
 it "rejects --out and other bad usage with exit 2"
 OUT="$(python3 "$SUT" "$A" --out "$T/elsewhere" 2>&1)"; RC=$?

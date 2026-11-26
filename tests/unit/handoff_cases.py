@@ -3,7 +3,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import struct
 import subprocess
 import sys
@@ -12,7 +11,6 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import unquote
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "skills/listing-kit/scripts"
 sys.path.insert(0, str(SCRIPTS / "handoff"))
@@ -24,7 +22,7 @@ class HandoffTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.temp = Path(temp.name).resolve()
-        self.app = self.temp / "project/app"
+        self.app = self.temp / "watchlist/television-guide/2nd/app"
         self.out = self.app / ".listing-kit/upload"
         self.name = self.put("fastlane/metadata/en-US/name.txt", b"Example")
 
@@ -47,7 +45,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_01_ownership(self):
         self.run_build()
-        for name in ("extra", "empty-folder", "apple/en-US/text/name.txt", "INDEX.md"):
+        for name in ("untracked-recipe.txt", "empty-folder", "apple/en-US/text/name.txt", "INDEX.md"):
             with self.subTest(name=name):
                 path = self.out / name
                 original = path.read_bytes() if path.is_file() else None
@@ -55,7 +53,9 @@ class HandoffTests(unittest.TestCase):
                     path.mkdir()
                 else:
                     path.write_bytes(b"important")
-                self.assertIn(name, self.run_build(success=False))
+                message = self.run_build(success=False).rstrip()
+                self.assertIn(name, message)
+                self.assertTrue(message.endswith("move or delete these, then rerun"), message)
                 if original is not None:
                     self.assertEqual(path.read_bytes(), b"important")
                     path.write_bytes(original)
@@ -98,51 +98,69 @@ class HandoffTests(unittest.TestCase):
     def test_02_rollback(self):
         self.run_build()
         self.name.write_bytes(b"Changed")
-        rename = os.rename
+        rename = Path.rename
         for error in (OSError("install failed"), KeyboardInterrupt()):
             def fail_install(src, dst):
                 if Path(dst) == self.out and (Path(src) / "apple/en-US/text/name.txt").read_bytes() == b"Changed":
                     raise error
                 rename(src, dst)
-            with self.subTest(error=type(error).__name__), patch.object(os, "rename", fail_install):
+            with self.subTest(error=type(error).__name__), patch.object(Path, "rename", fail_install):
                 with self.assertRaises(type(error)):
                     handoff.build(str(self.app))
                 self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
                 self.assertEqual(list(self.out.parent.iterdir()), [self.out])
 
-    def interrupt_install(self, action):
+    def test_recovery_before_invalid_input(self):
         self.run_build()
-        self.name.write_bytes(b"Changed")
-        script = """
-import os, signal, sys
-from pathlib import Path
-sys.path.insert(0, sys.argv[1])
-import handoff
-rename = os.rename
-def interrupt(src, dst):
-    if Path(src).name == "stage":
-        if sys.argv[3] == "exit":
-            os._exit(77)
-        os.kill(os.getpid(), signal.SIGTERM)
-    return rename(src, dst)
-os.rename = interrupt
-handoff.build(sys.argv[2])
-"""
-        return subprocess.run([sys.executable, "-c", script, str(SCRIPTS / "handoff"),
-                               str(self.app), action]).returncode
-
-    def test_02_recover_after_process_death(self):
-        self.assertEqual(self.interrupt_install("exit"), 77)
+        self.out.rename(self.out.with_name(".upload-previous"))
+        for n in ("one", "two"):
+            self.put(".listing-kit/.upload-stage-" + n + "/.listing-kit-upload", b"")
+            self.put(".listing-kit/.upload-stage-" + n + "/partial", b"partial")
+        personal = self.put(".listing-kit/.upload-stage-personal/recipe", b"mine")
         self.name.write_bytes(b"\xff")
         self.run_build(success=False)
         self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
-        self.assertEqual(list(self.out.parent.iterdir()), [self.out])
+        self.assertEqual(set(self.out.parent.iterdir()), {self.out, personal.parent})
+        self.assertEqual(personal.read_bytes(), b"mine")
 
-    @unittest.skipUnless(os.name == "posix", "POSIX termination signals")
-    def test_02_termination_during_install(self):
-        self.assertLess(self.interrupt_install("signal"), 0)
-        self.assertIn((self.out / "apple/en-US/text/name.txt").read_bytes(), [b"Example", b"Changed"])
+    def test_user_file_added_during_rebuild(self):
+        self.run_build()
+        with handoff.output.locked_upload(self.app) as upload:
+            plan = handoff.Plan()
+            plan.add(None, Path("apple/en-US/text/name.txt"), "App Information > Name", b"Changed")
+            personal = self.put(".listing-kit/upload/notes-to-self.txt", b"mine")
+            with self.assertRaisesRegex(ValueError, "notes-to-self.txt"):
+                handoff.output.install(upload, plan)
+        self.assertEqual(personal.read_bytes(), b"mine")
+        self.assertEqual((self.out / "apple/en-US/text/name.txt").read_bytes(), b"Example")
+
+    def test_concurrent_first_install(self):
+        args = [sys.executable, str(SCRIPTS / "handoff/handoff.py"), str(self.app)]
+        with subprocess.Popen(args, stdout=subprocess.PIPE) as first:
+            subprocess.run(args, check=True, stdout=subprocess.PIPE)
+            first.communicate(timeout=15)
+            self.assertEqual(first.returncode, 0)
         self.assertEqual(list(self.out.parent.iterdir()), [self.out])
+        self.run_build()
+
+    def test_finder_rebuild(self):
+        self.run_build()
+        for name in (".DS_Store", "._name.txt", "Thumbs.db", "desktop.ini"):
+            (self.out / "apple/en-US/text" / name).touch()
+        self.run_build()
+        self.assertEqual([p.name for p in (self.out / "apple/en-US/text").iterdir()], ["name.txt"])
+
+    def test_internal_links(self):
+        self.name.unlink()
+        self.name.symlink_to(self.put("shared/name", b"Shared"))
+        (self.name.parent.parent / "en-GB").symlink_to("en-US")
+        self.run_build()
+        self.assertEqual((self.out / "apple/en-GB/text/name.txt").read_bytes(), b"Shared")
+        self.name.unlink()
+        outside = self.temp / "external-name"
+        outside.write_bytes(b"private")
+        self.name.symlink_to(outside)
+        self.assertIn("name.txt", self.run_build(success=False))
 
     def test_03_source_links(self):
         target = self.temp / "outside"
@@ -155,44 +173,25 @@ handoff.build(sys.argv[2])
         self.name.parent.symlink_to(self.temp, target_is_directory=True)
         self.assertIn("en-US", self.run_build(success=False))
 
-    def test_03_override_paths(self):
-        self.put(".listing-kit/specs.override.json", json.dumps({"stores": {"apple": {"fields": [
-            {"stem": "../../../escaped", "scope": "app", "label": "Bad"}]}}}).encode())
+    def test_override_destination(self):
+        # A real override and source whose destination would escape the staging folder.
+        source = self.temp / "escaped.txt"
+        source.write_bytes(b"source")
+        override = {"stores": {"apple": {"fields": [
+            {"stem": os.path.relpath(source.with_suffix(""), self.name.parent), "scope": "locale", "label": "Bad"}]}}}
+        self.put(".listing-kit/specs.override.json", json.dumps(override).encode())
         self.assertIn("escaped", self.run_build(success=False))
-
-    def test_03_stage_destination(self):
-        for dest in (Path("../escape"), self.temp / "escape"):
-            plan = handoff.Plan()
-            plan.add(None, dest, "test", b"escaped")
-            with patch.object(handoff, "inventory", return_value=(plan, {"verified": "today"})):
-                self.assertIn("staging", self.run_build(success=False))
-            self.assertFalse((self.temp / "escape").exists())
-            self.assertFalse(self.out.exists())
-
-    def test_03_copy_rechecks_source(self):
-        header = self.put("store-assets/apple/en-US/header.mov", b"header")
-        outside = self.temp / "private"
-        outside.write_bytes(b"secret")
-        install = handoff.output.install
-        def change(*args):
-            header.unlink()
-            header.symlink_to(outside)
-            return install(*args)
-        with patch.object(handoff.output, "install", side_effect=change):
-            self.assertIn("header.mov", self.run_build(success=False))
+        self.assertFalse((self.out / "escaped.txt").exists())
         self.assertFalse(self.out.exists())
+        self.assertEqual(list(self.temp.rglob("escaped.txt")), [source])
+        self.assertEqual(source.read_bytes(), b"source")
 
-    def test_03_index_cannot_follow_a_staging_link(self):
-        outside = self.temp / "private"
-        outside.write_bytes(b"mine")
-        write = handoff.output._write
-        def link_index(stage, *args):
-            (stage / "INDEX.md").symlink_to(outside)
-            return write(stage, *args)
-        with patch.object(handoff.output, "_write", side_effect=link_index):
-            self.run_build(success=False)
-        self.assertEqual(outside.read_bytes(), b"mine")
-        self.assertFalse(self.out.exists())
+    def test_incomplete_override(self):
+        for entry in ({"stem": "custom", "label": "Custom"}, {"stem": "custom", "scope": "locale"}):
+            self.put("fastlane/metadata/en-US/custom.txt", b"value")
+            self.put(".listing-kit/specs.override.json", json.dumps(
+                {"stores": {"apple": {"fields": [entry]}}}).encode())
+            self.assertIn("override", self.run_build(success=False))
 
     def test_04_special_roots(self):
         self.put("fastlane/metadata/default/subtitle.txt", b"Sub")
@@ -213,35 +212,57 @@ handoff.build(sys.argv[2])
         self.run_build()
         self.assertEqual((self.out / "apple/default/text/name.txt").read_bytes(), b"Default")
         self.put("store-assets/apple/de-DE/header.jpg", b"header")
-        self.png("store-assets/play/it-IT/screenshots/android-xr/x.png", 1920, 1200)
+        self.png("store-assets/play/it-IT/screenshots/xr/x.png", 1920, 1200)
         self.png("fastlane/screenshots/fr-FR/a.png", 1206, 2622)
         self.run_build()
         for loc in ("de-DE", "fr-FR"):
-            self.assertEqual((self.out / "apple" / loc / "text/name.txt").read_bytes(), b"Default")
-        self.assertFalse((self.out / "apple/default").exists())
+            self.assertFalse((self.out / "apple" / loc / "text/name.txt").exists())
+        self.assertTrue((self.out / "apple/default/text/name.txt").is_file())
         self.assertTrue(list((self.out / "play/it-IT").glob("*Android XR/*x.png")))
 
     def test_06_shared_sizes(self):
-        for name, wh in (("tv", (3840, 2160)), ("vision", (3840, 2160)), ("ipad", (2048, 2732)),
-                         ("12.9", (2732, 2048)), ("2nd", (2048, 2732)), ("app_ipad_pro_129", (2048, 2732))):
-            self.png("fastlane/screenshots/en-US/" + name + ".png", *wh)
+        cases = (("home_tv", 3840, 2160, "Apple TV"), ("home_vision", 3840, 2160, "Apple Vision Pro"),
+                 ("home_ipad13", 2048, 2732, "iPad 13in"), ("home_ipad-12.9", 2732, 2048, "iPad 12.9in"))
+        for name, w, h, _ in cases:
+            self.png("fastlane/screenshots/en-US/" + name + ".png", w, h)
+        self.png("fastlane/screenshots/appleTV/en-US/else_vision.png", 3840, 2160)
         self.run_build()
-        for name, label in (("tv", "Apple TV"), ("vision", "Apple Vision Pro"), ("ipad", "iPad 13in"),
-                            ("12.9", "iPad 12.9in"), ("2nd", "iPad 12.9in"), ("app_ipad_pro_129", "iPad 12.9in")):
+        for name, _, _, label in cases:
             self.assertTrue(list((self.out / "apple/en-US").glob("*" + label + "/*" + name + ".png")), name)
+        self.assertTrue(list((self.out / "apple/en-US").glob("*Apple TV/*else_vision.png")))
 
-    def test_06_manual_slot_size(self):
-        for store, slot in (("apple", "vision-pro"), ("play", "xr")):
-            path = self.png("store-assets/%s/en-US/screenshots/%s/wrong.png" % (store, slot), 1206, 2622)
-            self.assertIn("wrong.png", self.run_build(success=False))
-            path.unlink()
+    def test_ambiguous_size(self):
+        self.png("fastlane/screenshots/en-US/home.png", 2048, 2732)
+        log = self.run_build(success=False)
+        for hint in ("home.png", "ambiguous", "ipad13", "ipad-12.9"):
+            self.assertIn(hint, log)
+
+    def test_manual_slot(self):
+        self.png("store-assets/play/en-US/screenshots/xr/x.png", 1206, 2622)
+        self.run_build()
+        self.png("store-assets/apple/en-US/screenshots/vision-pro/wrong.png", 1206, 2622)
+        self.assertIn("wrong.png", self.run_build(success=False))
+
+    def test_xr_alias_removed(self):
+        self.png("store-assets/play/en-US/screenshots/android-xr/x.png", 1920, 1200)
+        self.assertIn("android-xr", self.run_build(success=False))
+
+    def test_framed_notes_are_ignored(self):
+        new_app = self.temp / "recipes"
+        self.app.rename(new_app)
+        self.app = new_app
+        self.out = self.app / ".listing-kit/upload"
+        self.png("fastlane/screenshots/en-US/home.png", 1206, 2622)
+        self.put("fastlane/screenshots/en-US/notes_framed.txt", b"draft")
+        self.run_build()
+        self.assertTrue(list(self.out.rglob("01-home.png")))
 
     def test_07_active_set(self):
-        for name, wh in (("duo_framed", (1398, 2034)), ("2_framed", (1206, 2622)), ("2", (1206, 2622)), ("watch", (422, 514))):
+        for name, wh in (("duo_framed", (1398, 2034)), ("2_framed", (1206, 2622)), ("2", (1206, 2622)), ("unframed", (1206, 2622)), ("watch", (422, 514))):
             self.png("fastlane/screenshots/en-US/" + name + ".png", *wh)
         self.put(".listing-kit/asset-plan.json", b'{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"Later"}}}}')
         self.run_build()
-        self.assertEqual(sorted(p.name.split("-", 1)[-1] for p in self.out.rglob("*.png")), ["2_framed.png", "watch.png"])
+        self.assertEqual(sorted(p.name.split("-", 1)[-1] for p in self.out.rglob("*.png")), ["framed.png", "watch.png"])
 
     def test_07_review_and_handoff_manual_set(self):
         self.png("store-assets/apple/en-US/screenshots/mac/mac.png", 1280, 800)
@@ -299,27 +320,87 @@ handoff.build(sys.argv[2])
         self.assertIn("TVBanner.JPG", log)
         self.assertIn("tvBanner.JPEG", log)
 
-    def test_11_index(self):
-        self.put("fastlane/metadata/copyright.txt", b"Mine")
-        name = "a|`%0A\nb.mov"
-        self.put("store-assets/apple/en-US/" + name, b"movie")
+    def test_header_candidates(self):
+        base = "store-assets/apple/en-US/"
+        for name in (".DS_Store", "._header.png", ".hidden.jpg", "layout.psd", "notes.txt"):
+            self.put(base + name, b"draft")
+        self.put(base + "header-21x9.mov", b"movie")
+        self.png(base + "wide.png", 5244, 2950)
+        self.png(base + "cinema.png", 3840, 1646)
         self.run_build()
-        rows = [s.split(" | ") for s in (self.out / "INDEX.md").read_text().splitlines() if re.match(r"^\| \d+ ", s)]
-        found = {}
-        for i, (number, path, place, digest) in enumerate(rows, 1):
-            self.assertEqual(int(number[2:]), i)
-            path = unquote(path.strip("`"))
-            self.assertEqual(digest.rstrip(" |").strip("`"), hashlib.sha256((self.out / path).read_bytes()).hexdigest())
-            found[path] = place.strip("`")
-        self.assertIn("apple/en-US/graphics/" + name, found)
-        self.assertEqual(found["apple/en-US/text/copyright.txt"], "App Store Connect > Version > Copyright")
+        index = (self.out / "INDEX.md").read_text()
+        self.assertEqual(sorted(p.name for p in (self.out / "apple/en-US/graphics").iterdir()), ["cinema.png", "header-21x9.mov", "wide.png"])
+        for name, ratio in (("cinema.png", "21:9"), ("wide.png", "16:9"), ("header-21x9.mov", "21:9")):
+            self.assertTrue(any(name in line and ("Header Asset " + ratio) in line for line in index.splitlines()))
+
+    def test_play_only_and_empty_text(self):
+        self.name.unlink()
+        self.name.parent.rmdir()
+        for name, raw in (("title", b"Play"), ("video", b""), ("changelogs/1", b"")):
+            self.put("fastlane/metadata/android/fr-FR/" + name + ".txt", raw)
+        self.run_build()
+        self.assertEqual([p.name for p in self.out.rglob("*.txt")], ["title.txt"])
+        self.assertFalse((self.out / "apple").exists())
+        index = (self.out / "INDEX.md").read_text()
+        self.assertIn("fr-FR", index)
+        self.assertNotIn("## App Store Connect", index)
+
+    def test_empty_assets(self):
+        self.png("fastlane/screenshots/en-US/home.png", 1206, 2622)
+        self.put("fastlane/screenshots/en-US/empty_framed.png", b"")
+        for path in ("store-assets/apple/en-US/header.png",
+                     "store-assets/apple/en-US/screenshots/vision-pro/empty.png",
+                     "fastlane/metadata/android/en-US/images/icon.jpg",
+                     "fastlane/metadata/android/en-US/images/phoneScreenshots/empty.png"):
+            self.put(path, b"")
+        self.png("fastlane/metadata/android/en-US/images/icon.png", 512, 512)
+        self.run_build()
+        self.assertEqual(sorted(p.name for p in self.out.rglob("*.png")), ["01-home.png", "icon.png"])
+        self.assertFalse(list(self.out.rglob("*.jpg")))
+
+    def test_manifest(self):
+        self.put("store-assets/apple/en-US/a|`%0A\nb.mov", b"movie")
+        self.run_build()
+        files = {str(p.relative_to(self.out)): hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in self.out.rglob("*") if p.is_file() and p.name != ".listing-kit-upload"}
+        self.assertEqual(json.loads((self.out / ".listing-kit-upload").read_text()), files)
+        self.assertEqual((self.out / ".gitignore").read_text().splitlines(), ["*"])
+        index = (self.out / "INDEX.md").read_text()
+        self.assertNotIn("SHA-256", index)
+        self.assertNotIn("a|`", index)
         self.run_build()
 
+    def test_first_time_index(self):
+        self.put("fastlane/metadata/copyright.txt", b"Mine")
+        self.put("fastlane/metadata/default/privacy_url.txt", b"url")
+        self.put("fastlane/metadata/fr-FR/description.txt", b"Bonjour")
+        self.put(".listing-kit/asset-plan.json", b'{"apple":{"en-US":{"deferredScreenshots":{"iPhone Duo":"Awaiting artwork"}}}}')
+        self.run_build()
+        index = (self.out / "INDEX.md").read_text()
+        for term in ("copy", "paste", "drag", "file-name order", "cmd+shift+.", "use for every language",
+                     "english (u.s.)", "## not included", "review contact", "demo account", "age rating",
+                     "privacy answers", "pricing", "the build", "iphone duo", "awaiting artwork"):
+            self.assertIn(term, index.lower())
+        for filename, instruction in (("copyright.txt", "Version page"), ("name.txt", "App Information"),
+                                      ("description.txt", "Version page"), ("privacy_url.txt", "App Privacy"),
+                                      ("privacy_url.txt", "from default")):
+            self.assertTrue(any(filename in line and instruction in line for line in index.splitlines()))
+        self.assertEqual(list(self.out.rglob("copyright.txt")), [self.out / "apple/app-wide/copyright.txt"])
+
+    def test_open_nonzero(self):
+        opener = self.put("bin/open", b'#!/bin/sh\nprintf "%s" "$1" > "$0.called"\nexit 2\n')
+        opener.chmod(0o755)
+        with patch.object(sys, "platform", "darwin"), patch.dict(os.environ, PATH=str(opener.parent)):
+            log = io.StringIO()
+            with redirect_stdout(log):
+                self.assertEqual(handoff.main([str(self.app), "--open"]), 0)
+            self.assertEqual(opener.with_suffix(".called").read_text(), str(self.out))
+            self.assertIn("Could not open", log.getvalue())
+            self.assertIn("Cmd+Shift+.", log.getvalue())
+
     def test_12_opener(self):
-        for platform, command in (("darwin", "open"), ("linux", "xdg-open"), ("win32", None)):
+        for platform, command in (("darwin", "open"), ("linux", "xdg-open")):
             with self.subTest(platform=platform), patch.object(sys, "platform", platform), \
-                    patch.object(os, "name", "nt" if not command else "posix"), \
-                    patch.object(os, "startfile", create=True) as start, \
                     patch.object(handoff.shutil, "which", return_value=command), \
                     patch.object(subprocess, "call", return_value=0) as call, patch.object(subprocess, "Popen") as popen:
                 self.assertTrue(handoff.open_folder("folder"))
@@ -327,10 +408,8 @@ handoff.build(sys.argv[2])
                     self.assertEqual(popen.call_args[0][0], [command, "folder"])
                     self.assertTrue(popen.call_args[1]["start_new_session"])
                     self.assertFalse(popen.return_value.method_calls)
-                elif platform == "darwin":
-                    self.assertEqual(call.call_args[0][0], [command, "folder"])
                 else:
-                    start.assert_called_once_with("folder")
+                    self.assertEqual(call.call_args[0][0], [command, "folder"])
 
 
 if __name__ == "__main__":

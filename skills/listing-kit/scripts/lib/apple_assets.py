@@ -71,10 +71,11 @@ def is_deferred(path, deferred):
 def active_screenshots(root, locale, deferred):
     """Yield (deliver platform folder, path) after deliver's framing and plan filters."""
     for platform, directory in apple_screenshot_dirs(os.path.join(root, "fastlane"), locale):
-        paths = images(directory)
-        framed = any(p.is_file() for p in Path(directory).glob("*_framed.*"))
+        paths = [p for p in images(directory) if os.path.getsize(p)]
+        framed = any(Path(p).stem.lower().endswith("_framed") for p in paths)
         for path in paths:
-            if framed and not any(word in path.lower() for word in ("framed", "watch")):
+            name = Path(path).stem.lower()
+            if framed and not (name.endswith("_framed") or "watch" in name):
                 continue
             if is_deferred(path, deferred):
                 continue

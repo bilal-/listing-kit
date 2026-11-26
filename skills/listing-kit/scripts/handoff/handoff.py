@@ -1,25 +1,6 @@
 #!/usr/bin/env python3
-"""Build a folder for uploading a listing by hand, sorted the way the consoles ask.
+"""Build .listing-kit/upload from an app's listing for manual console upload."""
 
-fastlane needs Apple screenshots in one flat folder per locale. That is awkward to
-upload from by hand, so this writes a throwaway copy organised by store, locale and
-console slot, with the text fields, graphics and an index:
-
-  <app-root>/.listing-kit/upload/
-    INDEX.md
-    apple/<locale>/01 iPhone Dynamic Island (medium display)/01-home_iphone-medium.png
-    apple/<locale>/text/name.txt ...
-    apple/<locale>/graphics/header-16x9.png
-    play/<locale>/01 Phone/01-home.png
-    play/<locale>/graphics/icon.png  featureGraphic.png
-    play/<locale>/text/title.txt ...
-
-The fastlane tree stays the source. The folder is built in a temporary directory and
-swapped in only when complete. Standard library only.
-
-Usage: handoff.py <app-root> [--open]
-Exit:  0 built, 1 nothing to hand over or a file could not be placed, 2 usage.
-"""
 import argparse
 import os
 import re
@@ -27,146 +8,132 @@ import shutil
 import subprocess
 import sys
 from collections import defaultdict
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import apple_assets
 import imginfo
 import listing
 import specs
+
 import handoff_output as output
 
 
 class Plan:
     def __init__(self):
         self.items = []
-        self.problems = []
+        self.deferred = []
+        self.paths = set()
 
     def add(self, src, dest, place, content=None):
+        if dest.is_absolute() or ".." in dest.parts:
+            raise ValueError("invalid upload path: %s" % dest)
+        key = str(dest).casefold()
+        if key in self.paths:
+            raise ValueError("two files map to %s" % dest)
+        self.paths.add(key)
         self.items.append((src, dest, place, content))
 
 
-def _check_inputs(root):
-    """Reject links before discovery helpers can traverse them, including config links."""
+def check_inputs(root):
+    """Follow internal links once, including links reached through a locale alias."""
+    seen = set()
+
     def check(path):
-        if output.is_link(path):
-            raise ValueError("symlink in listing: %s" % path)
-        if path.exists() and not (path.is_dir() or path.is_file()):
+        real = path.resolve()
+        if root != real and root not in real.parents:
+            raise ValueError("listing path points outside the app: %s" % path)
+        if real in seen or not real.exists():
+            return
+        seen.add(real)
+        if real.is_dir():
+            for child in path.iterdir():
+                check(child)
+        elif not real.is_file():
             raise ValueError("not a regular listing file: %s" % path)
 
-    def raise_error(error):
-        raise error
-
-    for name in ("fastlane", "store-assets", ".listing-kit", specs.OVERRIDE, ".listing-kit/asset-plan.json"):
+    for name in ("fastlane/metadata", "fastlane/screenshots", "store-assets/apple",
+                 "store-assets/play", specs.OVERRIDE, ".listing-kit/asset-plan.json"):
         check(root / name)
-    for name in ("fastlane/metadata", "fastlane/screenshots", "store-assets/apple", "store-assets/play"):
-        base = root / name
-        check(base)
-        if base.exists():
-            for directory, dirs, files in os.walk(base, onerror=raise_error):
-                for entry in dirs + files:
-                    check(Path(directory) / entry)
 
 
-def _check_rules(data):
-    def basename(value):
-        if (not isinstance(value, str) or value in ("", ".", "..") or "/" in value
-                or "\\" in value or "\0" in value or PureWindowsPath(value).drive):
-            raise ValueError("invalid path component in store rules: %r" % value)
-
-    for store in ("apple", "play"):
-        for field in specs.fields(data, store):
-            basename(field["stem"])
-        for slot in specs.slots(data, store):
-            basename(slot["id"])
-            if slot.get("folder") is not None:
-                basename(slot["folder"])
-    for graphic in data["stores"]["play"]["graphics"]:
-        basename(graphic["file"])
+def child(directory, name):
+    if not name or Path(name).name != name or name == "..":
+        raise ValueError("invalid store rule path: %s" % name)
+    return directory / name
 
 
-def _read(path, apple=False):
+def read_text(path, apple=False):
     try:
-        with output.open_source(path) as source:
-            raw = source.read()
+        raw = path.read_bytes()
     except FileNotFoundError:
         return None
     try:
         raw.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ValueError("%s: invalid UTF-8 (%s)" % (path, error))
-    # Ruby String#strip removes ASCII whitespace and NUL at either end.
     return raw.strip(b" \t\r\n\v\f\0") if apple else raw
 
 
-def _apple_text(plan, data, meta, locale, base):
+def apple_text(plan, data, meta, locale):
+    app_wide = locale is None
     for field in specs.fields(data, "apple"):
+        if (field["scope"] == "app") != app_wide:
+            continue
         name = field["stem"] + ".txt"
-        if field["scope"] == "app":
-            text = _read(meta / name, apple=True)
-            section = "Version" if name == "copyright.txt" else "App Information"
-        else:
-            text = _read(meta / locale / name, apple=True)
-            if text is None and locale != "default":
-                text = _read(meta / "default" / name, apple=True)
-            section = locale
-        if text:
-            plan.add(None, base / "text" / name, "App Store Connect > %s > %s" % (section, field["label"]), text)
+        directory = meta if app_wide else meta / locale
+        content = read_text(child(directory, name), apple=True)
+        source = ""
+        if content is None and not app_wide and locale != "default" and directory.is_dir():
+            content = read_text(meta / "default" / name, apple=True)
+            source = " (from default)"
+        if content:
+            page = "Version page"
+            if name in ("name.txt", "subtitle.txt") or (app_wide and name != "copyright.txt"):
+                page = "App Information"
+            elif name == "privacy_url.txt":
+                page = "App Privacy"
+            base = Path("apple/app-wide") if app_wide else Path("apple") / locale / "text"
+            plan.add(None, base / name, page + " > " + field["label"] + source, content)
 
 
-def _apple_slot(data, path, w, h):
-    candidates = specs.apple_slots_for_size(data, w, h)
-    if len(candidates) < 2:
-        return candidates[0] if candidates else None
-    hint = str(path).lower()
-    preferred = None
-    if (w, h) == (3840, 2160):
-        preferred = "vision-pro" if "vision" in hint else "apple-tv"
-    elif sorted((w, h)) == [2048, 2732]:
-        legacy = any(word in hint for word in ("app_ipad_pro_129", "12.9", "2nd"))
-        preferred = "ipad-12-9" if legacy else "ipad-13"
-    return next((s for s in candidates if s["id"] == preferred), candidates[0])
+def apple_slot(data, path, platform):
+    w, h = imginfo.image_info(path)[:2]
+    slots = specs.apple_slots_for_size(data, w, h)
+    if platform == "appleTV":
+        slots = [s for s in slots if s["id"] == "apple-tv"]
+    if len(slots) > 1:
+        suffixes = [s["suffix"] for s in slots]
+        # A framed screenshot keeps the slot suffix before the framing suffix.
+        stem = re.sub(r"_framed$", "", path.stem.lower())
+        matches = [s for s in slots if re.search(r"(?:^|[-_ ])" + re.escape(s["suffix"]) + "$", stem)]
+        if len(matches) != 1:
+            raise ValueError("%s: ambiguous %sx%s; end the name with %s" % (path, w, h, " or ".join(suffixes)))
+        return matches[0]
+    if not slots:
+        raise ValueError("%s: %sx%s matches no App Store slot" % (path, w, h))
+    return slots[0]
 
 
-def _play_accepts(slot, w, h):
-    if min(w, h) <= 0:
-        return False
-    if "sizes" in slot and [w, h] not in slot["sizes"]:
-        return False
-    side = slot.get("side", {})
-    if min(w, h) < side.get("min", 0) or max(w, h) > side.get("max", float("inf")):
-        return False
-    if max(w, h) > min(w, h) * slot.get("maxRatio", float("inf")):
-        return False
-    mw, mh = slot.get("minSize", [0, 0])
-    ratios = slot.get("ratios", [slot["ratio"]] if "ratio" in slot else [])
-    pairs = [tuple(map(int, ratio.split(":"))) for ratio in ratios]
-    return w >= mw and h >= mh and (not pairs or any(w * b == h * a for a, b in pairs))
-
-
-def _manual(plan, data, root, store, locale, groups, deferred=()):
+def manual(data, root, store, locale, groups, deferred=()):
     for slot_id, name in listing.manual_screenshots(root, store, locale):
         path = Path(name)
+        if not path.stat().st_size:
+            continue
         slot = specs.slot(data, store, slot_id)
-        if store == "play" and slot_id == "android-xr" and slot is None:
-            slot = specs.slot(data, store, "xr")
-        w, h = imginfo.image_info(path)[:2]
-        if store == "apple":
-            accepts = slot in specs.apple_slots_for_size(data, w, h)
-        else:
-            accepts = slot and _play_accepts(slot, w, h)
-        if not accepts:
-            plan.problems.append("%s: %sx%s does not fit %s slot %s" % (path, w, h, store, slot_id))
-        elif not apple_assets.is_deferred(path, deferred):
-            groups["", slot["id"]].append(path)
+        if not slot:
+            raise ValueError("%s: unknown %s slot %s" % (path, store, slot_id))
+        if store == "apple" and slot not in specs.apple_slots_for_size(data, *imginfo.image_info(path)[:2]):
+            raise ValueError("%s does not fit Apple slot %s" % (path, slot_id))
+        if not apple_assets.is_deferred(path, deferred):
+            groups["", slot_id].append(path)
 
 
-def _natural(path):
-    return [int(part) if i % 2 else part.lower() for i, part in enumerate(re.split(r"([0-9]+)", str(path)))]
+def natural(path):
+    return [int(part) if i % 2 else part.lower() for i, part in enumerate(re.split(r"([0-9]+)", path.name))]
 
 
-def _screenshots(plan, data, store, base, groups, place):
+def screenshots(plan, data, store, base, groups, place):
     number = 0
     for platform in ("", "iMessage"):
         for slot in specs.slots(data, store):
@@ -175,45 +142,51 @@ def _screenshots(plan, data, store, base, groups, place):
                 continue
             number += 1
             label = (platform + " " if platform else "") + slot["label"]
-            safe = "".join("in" if c == '"' else "-" if c in '\\/:*?<>|' else c for c in label)
-            folder = base / ("%02d %s" % (number, safe.strip(" .")))
-            for i, path in enumerate(sorted(paths, key=_natural if store == "apple" else str), 1):
-                plan.add(path, folder / ("%02d-%s" % (i, path.name)), place + label)
+            safe = re.sub(r'[\\/:*?<>|]', "-", label.replace('"', "in")).strip(" .")
+            folder = base / ("%02d %s" % (number, safe))
+            for i, path in enumerate(sorted(paths, key=natural if store == "apple" else str), 1):
+                name = re.sub(r"^(?:[0-9]+[-_])+", "", path.name)
+                plan.add(path, folder / ("%02d-%s" % (i, name)), place + " > Screenshots > " + label)
 
 
-def _apple(root, data, plan):
-    assets = root / "store-assets/apple"
+def apple(root, data, plan):
     meta = root / "fastlane/metadata"
-    try:
-        targets = apple_assets.load_plan(root)
-    except ValueError as error:
-        raise ValueError("asset-plan.json: %s" % error)
-    for directory in apple_assets.apple_locales(root, data, targets):
-        locale = Path(directory).name
+    targets = apple_assets.load_plan(root)
+    apple_text(plan, data, meta, None)
+    locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets)}
+    if (meta / "default").is_dir() and not any((meta / loc).is_dir() for loc in locales):
+        locales.add("default")
+    for locale in sorted(locales):
         base = Path("apple") / locale
-        _apple_text(plan, data, meta, locale, base)
+        apple_text(plan, data, meta, locale)
         groups = defaultdict(list)
         deferred = targets.get(locale, {}).get("deferredScreenshots", {})
+        for display, reason in deferred.items():
+            plan.deferred.append("- %s (%s) — %s" % (display, locale, reason))
         for platform, name in apple_assets.active_screenshots(root, locale, deferred):
             path = Path(name)
-            w, h = imginfo.image_info(path)[:2]
-            slot = _apple_slot(data, path, w, h)
-            if platform == "appleTV" and slot and slot["id"] not in ("apple-tv", "vision-pro"):
-                slot = None
-            if slot:
-                groups["iMessage" if platform == "iMessage" else "", slot["id"]].append(path)
-            else:
-                plan.problems.append("%s: %sx%s matches no App Store slot" % (path, w, h))
-        headers = assets / locale
-        _manual(plan, data, root, "apple", locale, groups, deferred)
-        _screenshots(plan, data, "apple", base, groups, "App Store Connect > %s > Screenshots > " % locale)
-        if headers.is_dir():
-            for path in sorted(headers.iterdir()):
-                if path.is_file():
-                    plan.add(path, base / "graphics" / path.name, "App Store Connect > %s > Header Asset" % locale)
+            slot = apple_slot(data, path, platform)
+            groups["iMessage" if platform == "iMessage" else "", slot["id"]].append(path)
+        manual(data, root, "apple", locale, groups, deferred)
+        screenshots(plan, data, "apple", base, groups, "Version page")
+        headers = data["stores"]["apple"]["graphics"]
+        for path in sorted((root / "store-assets/apple" / locale).glob("*")):
+            if (path.name.startswith(".") or not path.is_file() or not path.stat().st_size or
+                    path.suffix.lower() not in imginfo.EXTENSIONS + (".mov", ".mp4")):
+                continue
+            size = list(imginfo.image_info(path)[:2])
+            variant = next((g for g in headers if g["size"] == size), None)
+            if variant is None:
+                variant = next((g for g in headers if g["id"] == path.stem.lower()), None)
+            label = variant["label"] if variant else "Header Asset (16:9 or 21:9)"
+            plan.add(path, base / "graphics" / path.name, "Product page > " + label)
 
 
-def _play(root, data, plan):
+def play_images(directory):
+    return [Path(p) for p in listing.images(directory) if os.path.getsize(p)]
+
+
+def play(root, data, plan):
     android = root / "fastlane/metadata/android"
     assets = root / "store-assets/play"
     locales = {p.name for d in (android, assets) if d.is_dir() for p in d.iterdir()
@@ -221,76 +194,57 @@ def _play(root, data, plan):
     for locale in sorted(locales):
         loc = android / locale
         base = Path("play") / locale
-        place = "Play Console > Main store listing > %s > " % locale
+        page = "Main store listing"
         for field in specs.fields(data, "play"):
             name = field["stem"] + ".txt"
-            raw = _read(loc / name)
-            if raw is not None:
-                plan.add(None, base / "text" / name, place + field["label"], raw)
+            raw = read_text(child(loc, name))
+            if raw:
+                plan.add(None, base / "text" / name, page + " > " + field["label"], raw)
         for path in sorted((loc / "changelogs").glob("*.txt")):
-            plan.add(None, base / "text" / ("release-notes-" + path.name),
-                     "Play Console > Release > Release notes > %s (%s)" % (locale, path.stem), _read(path))
+            raw = read_text(path)
+            if raw:
+                plan.add(None, base / "text" / ("release-notes-" + path.name),
+                         "Release > Release notes (%s)" % path.stem, raw)
         images = loc / "images"
-        graphics = [Path(p) for p in listing.images(images)]
+        graphics = play_images(images)
         for graphic in data["stores"]["play"]["graphics"]:
             matches = [p for p in graphics if p.stem.casefold() == graphic["file"].casefold()]
             if len(matches) > 1:
-                plan.problems.append("duplicate %s: %s" % (graphic["label"], ", ".join(map(str, matches))))
-            elif matches:
+                raise ValueError("duplicate %s: %s" % (graphic["label"], ", ".join(map(str, matches))))
+            if matches:
                 path = matches[0]
-                plan.add(path, base / "graphics" / path.name, place + graphic["label"])
+                plan.add(path, base / "graphics" / path.name, page + " > " + graphic["label"])
         groups = defaultdict(list)
         for slot in specs.slots(data, "play"):
             if slot.get("folder"):
-                groups["", slot["id"]].extend(map(Path, listing.images(images / slot["folder"])))
-        _manual(plan, data, root, "play", locale, groups)
-        _screenshots(plan, data, "play", base, groups, place + "Screenshots > ")
-
-
-def inventory(root):
-    root = Path(root)
-    plan = Plan()
-    data = None
-    try:
-        _check_inputs(root)
-        data = specs.load(root)
-        _check_rules(data)
-        _apple(root, data, plan)
-        _play(root, data, plan)
-    except (OSError, ValueError) as error:
-        plan.problems.append(str(error))
-    seen = set()
-    for _, dest, _, _ in plan.items:
-        key = str(dest).casefold()
-        if key in seen:
-            plan.problems.append("two files map to %s" % dest)
-        seen.add(key)
-    return plan, data
+                groups["", slot["id"]].extend(play_images(child(images, slot["folder"])))
+        manual(data, root, "play", locale, groups)
+        screenshots(plan, data, "play", base, groups, page)
 
 
 def build(root):
-    """Write the folder. Returns (upload path, item count, problems)."""
     root = Path(root).resolve()
     with output.locked_upload(root) as destination:
-        previous = output.owned_files(destination)
-        plan, data = inventory(root)
-        if not plan.items and not plan.problems:
-            plan.problems.append("nothing to hand over from %s" % root)
-        if not plan.problems:
-            output.install(root, previous, plan.items, data["verified"])
-    return str(destination), len(plan.items), plan.problems
+        check_inputs(root)
+        plan = Plan()
+        data = specs.load(root)
+        try:
+            apple(root, data, plan)
+            play(root, data, plan)
+        except KeyError as error:
+            raise ValueError("store rules override is missing %s" % error)
+        if not plan.items:
+            raise ValueError("nothing to hand over from %s" % root)
+        output.install(destination, plan)
+    return str(destination), len(plan.items)
 
 
 def open_folder(path):
-    """Reveal a folder with the system's opener. Returns False when there is none."""
+    cmd = "open" if sys.platform == "darwin" else "xdg-open"
+    if not shutil.which(cmd):
+        return False
+    streams = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        if os.name == "nt":
-            os.startfile(path)
-            return True
-        cmd = "open" if sys.platform == "darwin" else "xdg-open"
-        if not shutil.which(cmd):
-            return False
-        streams = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if sys.platform == "darwin":
             return subprocess.call([cmd, path], **streams) == 0
         subprocess.Popen([cmd, path], stdin=subprocess.DEVNULL, start_new_session=True, **streams)
@@ -311,18 +265,14 @@ def main(argv):
         parser.print_usage(sys.stderr)
         return 2
     try:
-        path, count, problems = build(args.root)
-    except (OSError, ValueError, specs.SpecsError) as e:
-        sys.stderr.write("handoff: %s\n" % e)
+        path, count = build(args.root)
+    except (OSError, ValueError, RuntimeError, specs.SpecsError) as error:
+        print("handoff: %s" % error, file=sys.stderr)
         return 1
-    if problems:
-        for p in problems:
-            sys.stderr.write("handoff: %s\n" % p)
-        sys.stderr.write("handoff: nothing was written.\n")
-        return 1
-    print("Upload folder: %s (%d files; see INDEX.md)" % (path, count))
+    print("Upload folder: %s (%d listing files). Open INDEX.md for instructions." % (path, count))
+    print("Drag from the opened Finder window or press Cmd+Shift+. in a file picker to show the hidden folder.")
     if args.open and not open_folder(path):
-        print("Could not open a file manager here; open the folder above yourself.")
+        print("Could not open a file manager. Open the folder above.")
     return 0
 
 
