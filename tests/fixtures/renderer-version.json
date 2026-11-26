@@ -7,8 +7,8 @@
   ],
   "sha256": {
     "scripts/compose/cdp.py": "e66d5003ddbd0622fffeb37b4a31b0437739704ca3f9c6cf36d0193c23040158",
-    "scripts/compose/compose.py:Job": "15c45ad9f9699b35be6629f201b0b155545d77afdd86b07e33a40d89090bb0d8",
-    "scripts/compose/compose.py:build": "546814a16758d1a35e1021fd9916f53a745c5d5e8d3667ba4a3ddf17a1f350f4",
+    "scripts/compose/compose.py:Job": "fbc2b667c76ba9c306ec7e97ddafa9c1c5b3d2f697dad0883e8210e831c9c1a6",
+    "scripts/compose/compose.py:build": "aec0ef3f6e0f47afd5976f8ca0e2c8ff72125f8bf6e801da484689e977de4214",
     "scripts/compose/compose.py:flatten_rgb": "05e0faefa89a91ef2fcb535f789d798f8dbcfa200d299b48d27e1922f8a95f5d",
     "scripts/compose/compose.py:text_of": "bf7d5c4e2fe6af59a34ffcdc4ca2b0b1cde6d46db180786e86b00522abec459c",
     "scripts/compose/compose.py:verify_rgb": "1f84fb451cea5623292ade78aa44bc0cf07e01b4dbb8151056b8dafe0dbef3e5",

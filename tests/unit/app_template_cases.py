@@ -138,8 +138,9 @@ class UserTemplates(unittest.TestCase):
         locale = meta / "en-US"
         locale.mkdir(parents=True)
         title = locale / "title.txt"
-        other = self.root / "other"
-        other.mkdir()
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        other = Path(outside.name)
         (other / title.name).write_text("other name")
         def name():
             return compose.listing_name(self.root, {"trees": {"play": {"metadata": "store"}}},
@@ -160,15 +161,51 @@ class UserTemplates(unittest.TestCase):
             str(KIT / "scripts/compose")], cwd=self.root, timeout=3, check=True, capture_output=True)
         self.assertEqual(result.stdout.strip(), b"None")
         title.unlink()
-        title.write_text("x" * 64_000)
+        title.write_text("x" * 4097)
         self.assertIsNone(name())
-        title.write_text("Example")
-        self.assertEqual(name(), "Example")
+        title.write_text("x" * 4096)
+        self.assertEqual(name(), "x" * 4096)
 
-    def test_render_uses_fingerprinted_inputs(self):
+    def test_brand_uses_locale_alias_before_other_locales(self):
+        meta = self.root / "metadata"
+        for code, name in (("de-DE", "Deutsch"), ("en-US", "English")):
+            (meta / code).mkdir(parents=True)
+            (meta / code / "name.txt").write_text(name)
+        (meta / "en-GB").symlink_to("en-US")
+        self.assertEqual(compose.listing_name(self.root, {"trees": {"apple": {"metadata": "metadata"}}},
+                                              {"store": "apple", "storeCode": "en-GB"}), "English")
+
+    def test_plan_font_and_logo_size_limits(self):
+        for key, name, size in (("fonts", "local.ttf", (8 << 20) + 1), ("logo", "logo.png", (16 << 20) + 1)):
+            with self.subTest(asset=key):
+                path = self.root / name
+                with path.open("wb") as stream:
+                    stream.truncate(size)
+                self.data["style"].pop("fonts", None)
+                self.data["style"][key] = {"default": {"headline": [name]}} if key == "fonts" else name
+                self.save()
+                man, templates, roots = plan.compose_inputs(self.root)
+                row = man["outputs"][0]
+                job = compose.Job(self.root, row, templates, roots)
+                job.keys()
+                args = job.asset_args()
+                asset = args["fonts"]["headline"][0] if key == "fonts" else args["logo"]
+                self.assertEqual(len(asset.data), size)
+                with path.open("ab") as stream:
+                    stream.truncate((64 << 20) + 1)
+                with self.assertRaisesRegex(ValueError, "67108864 byte limit"):
+                    compose.Job(self.root, row, templates, roots).keys()
+
+    def test_template_font_size_limit(self):
+        with (self.folder / "local.ttf").open("wb") as stream:
+            stream.truncate((8 << 20) + 1)
+        (self.folder / "acorn.css").write_text('@font-face{src:url(local.ttf)}')
+        with self.assertRaisesRegex(ValueError, "8388608 byte limit"):
+            compose.user_templates.resolve(self.root, "user:acorn")
+
+    def test_render_rechecks_fingerprinted_inputs(self):
         font = self.root / "local.ttf"
-        original_font = (KIT / "assets/fonts/Inter.ttf").read_bytes()
-        font.write_bytes(original_font)
+        font.write_bytes((KIT / "assets/fonts/Inter.ttf").read_bytes())
         logo = self.root / "logo.png"
         logo.write_bytes(png())
         self.data["style"].update(logo="logo.png", fonts={"default": dict.fromkeys(
@@ -176,21 +213,24 @@ class UserTemplates(unittest.TestCase):
         self.save()
         man, templates, roots = plan.compose_inputs(self.root)
         row = man["outputs"][0]
-        job = compose.Job(self.root, row, templates, roots)
-        keys = job.keys()
-        raw = self.root / row["rawPath"]
-        for path in (font, logo, raw):
-            path.unlink()
-            path.symlink_to(self.folder / "stamp.png")
-        args = job.asset_args()
-        assets = compose.render.page_assets(**args)
-        self.assertEqual(args["shot_size"], (3, 5))
-        self.assertEqual(assets["/raw.png"], png(3, 5))
-        self.assertEqual(assets["/logo.png"], png())
-        self.assertEqual(assets["/fonts/headline-0.ttf"], original_font)
-        self.assertEqual(job.keys(), keys)
-        with self.assertRaises((ValueError, OSError)):
-            compose.Job(self.root, row).keys()
+        for path in (font, logo, self.root / row["rawPath"]):
+            with self.subTest(path=path.name):
+                job = compose.Job(self.root, row, templates, roots)
+                job.keys()
+                original = path.read_bytes()
+                try:
+                    replacement = self.root / "replacement"
+                    replacement.write_bytes(original + b"changed")
+                    replacement.replace(path)
+                    with self.assertRaisesRegex(ValueError, "changed during"):
+                        job.asset_args()
+                    path.unlink()
+                    path.symlink_to(self.folder / "stamp.png")
+                    with self.assertRaises((ValueError, OSError)):
+                        job.asset_args()
+                finally:
+                    path.unlink()
+                    path.write_bytes(original)
 
     def test_repo_font_and_logo_use_the_validated_root(self):
         app = self.root / "app"
@@ -206,17 +246,15 @@ class UserTemplates(unittest.TestCase):
         man, templates, roots = plan.compose_inputs(app)
         row = man["outputs"][0]
         job = compose.Job(app, row, templates, roots)
-        with patch.object(compose, "read_regular", wraps=compose.read_regular) as reads:
-            job.keys()
-            moved = self.root / "moved"
-            art.rename(moved)
-            art.symlink_to(moved)
-            assets = compose.render.page_assets(**job.asset_args())
-            self.assertEqual(assets["/logo.png"], png())
-            self.assertEqual(assets["/fonts/detail-0.ttf"], (moved / "font.ttf").read_bytes())
-            self.assertEqual(reads.call_count, 3)
+        job.keys()
+        assets = compose.render.page_assets(**job.asset_args())
+        self.assertEqual(assets["/logo.png"], png())
+        self.assertEqual(assets["/fonts/detail-0.ttf"], (art / "font.ttf").read_bytes())
+        moved = self.root / "moved"
+        art.rename(moved)
+        art.symlink_to(moved)
         with self.assertRaises((ValueError, OSError)):
-            compose.Job(app, row, templates, roots).keys()
+            job.asset_args()
 
     def test_capture_dependency_for_each_output(self):
         self.data["screens"][1] = dict(id="panel", panel=dict(headline={"en-US": "Example"}, rows=[]))

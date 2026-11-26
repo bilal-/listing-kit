@@ -30,9 +30,8 @@ def directory(root, relative, create=False):
         yield fd
 
 
-def read_regular(root, relative, limit):
-    if limit < 0:
-        raise ValueError(f"{relative}: byte limit exhausted")
+@contextmanager
+def open_regular(root, relative):
     path = Path(relative)
     with directory(root, path.parent) as parent:
         # Avoid opening devices at all. Recheck the descriptor after open in case
@@ -45,9 +44,16 @@ def read_regular(root, relative, limit):
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise ValueError(f"{relative}: expected a regular file")
             with os.fdopen(fd, "rb", closefd=False) as stream:
-                data = stream.read(limit + 1)
-                if len(data) > limit:
-                    raise ValueError(f"{relative}: exceeds {limit} byte limit")
-                return data
+                yield stream
         finally:
             os.close(fd)
+
+
+def read_regular(root, relative, limit):
+    if limit < 0:
+        raise ValueError(f"{relative}: byte limit exhausted")
+    with open_regular(root, relative) as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"{relative}: exceeds {limit} byte limit")
+    return data

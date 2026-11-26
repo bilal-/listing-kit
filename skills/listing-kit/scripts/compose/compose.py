@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB = os.path.normpath(os.path.join(HERE, "..", "lib"))
@@ -43,13 +44,14 @@ import render  # noqa: E402
 import ownership
 import template_values
 import user_templates
-from regular_files import directory, read_regular
+from regular_files import directory, open_regular, read_regular
 import fontcheck  # noqa: E402
 
 def listing_name(root, man, rec):
     """The app's display name for brand text, read from the listing itself (Apple name.txt,
     Play title.txt) for this output's locale, then any locale. Never the bundle id: with
     no name on file the brand line is left out."""
+    root = Path(root).resolve()
     trees = man.get("trees", {})
     order = [rec.get("store")] + [s for s in ("apple", "play") if s != rec.get("store")]
     for store in order:
@@ -59,28 +61,36 @@ def listing_name(root, man, rec):
         stem = "name.txt" if store == "apple" else "title.txt"
         codes = [rec.get("storeCode")] if store == rec.get("store") else []
         try:
-            with directory(root, meta) as parent:
+            metadata = (root / meta).resolve(strict=True).relative_to(root)
+            with directory(root, metadata) as parent:
                 codes.extend(sorted(os.listdir(parent)))
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             continue
         for code in dict.fromkeys(codes):
             if not specs.component(code):
                 continue
             try:
-                name = read_regular(root, Path(meta) / code / stem, 4096).decode("utf-8").strip()
-            except (OSError, ValueError):
+                relative = (root / metadata / code / stem).resolve(strict=True).relative_to(root)
+                name = read_regular(root, relative, 4096).decode("utf-8").strip()
+            except (OSError, RuntimeError, ValueError):
                 continue
             if name:
                 return name
     return None
 
 
-def sha_file(path):
+def sha_stream(stream, copy_to=None):
     h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
+    for chunk in iter(lambda: stream.read(1 << 20), b""):
+        h.update(chunk)
+        if copy_to is not None:
+            copy_to.write(chunk)
     return h.hexdigest()
+
+
+def sha_file(path):
+    with open(path, "rb") as stream:
+        return sha_stream(stream)
 
 
 def sha_obj(obj):
@@ -136,8 +146,11 @@ def flatten_rgb(png, deadline):
     return result.stdout
 
 
+MAX_PLAN_ASSET_BYTES = 64 << 20
+
+
 class Job:
-    def __init__(self, root, rec, templates=None, input_roots=None, assets=None):
+    def __init__(self, root, rec, templates=None, input_roots=None, digests=None):
         self.root, self.rec = root, rec
         self.out = os.path.join(root, rec["outputPath"])
         self.raw = os.path.join(root, rec["rawPath"]) if rec.get("rawPath") else None
@@ -162,7 +175,7 @@ class Job:
             self.user = (templates[self.template] if templates is not None
                          else user_templates.resolve(root, self.template))
         self.input_roots = input_roots or {}
-        self.assets = {} if assets is None else assets
+        self.digests = {} if digests is None else digests
         self.branded = self.user is not None or self.template in ("feature", "header", "panel")
         self.fonts = {role: [os.path.normpath(os.path.join(root, p)) for p in paths]
                       for role, paths in (style.get("fonts") or {}).items()}
@@ -170,48 +183,45 @@ class Job:
         if not self.branded:
             self.logo = None
         self.source = os.path.normpath(os.path.join(root, rec["from"])) if rec.get("from") else None
-        self.raw_data = None
+        self.icon_digest = None
         self.adopted = None
         self.problems = []
 
-    def capture(self):
-        if self.raw_data is None and self.raw:
-            self.raw_data = read_regular(self.root, self.rec["rawPath"], 64 << 20)
-        return self.raw_data
+    def location(self, path):
+        file = Path(path)
+        base = Path(self.root) if path == self.raw else self.input_roots.get(file, Path(self.root))
+        return base, file.relative_to(base)
 
-    def asset(self, path, limit):
-        if not path:
-            return None
-        key = (path, limit)
-        if key not in self.assets:
-            file = Path(path)
-            base = self.input_roots.get(file, Path(self.root))
-            data = read_regular(base, file.relative_to(base), limit)
-            self.assets[key] = render.Asset(path, data)
-        return self.assets[key]
+    def read_input(self, path):
+        base, relative = self.location(path)
+        data = read_regular(base, relative, MAX_PLAN_ASSET_BYTES)
+        expected = self.digests.get(path)
+        if expected is not None and hashlib.sha256(data).hexdigest() != expected:
+            raise ValueError(f"{relative}: input changed during compose")
+        return data
 
-    def font_assets(self):
-        return {role: [self.asset(p, user_templates.MAX_FONT_BYTES) for p in paths]
-                for role, paths in self.fonts.items()}
-
-    def logo_asset(self):
-        return self.asset(self.logo, user_templates.MAX_IMAGE_BYTES)
+    def digest(self, path):
+        if path not in self.digests:
+            self.digests[path] = hashlib.sha256(self.read_input(path)).hexdigest()
+        return self.digests[path]
 
     def keys(self):
         """(content key, style key): content is what the image shows, style is how it is drawn."""
         size = self.rec["size"]
         if self.mode == "raw":
-            return sha_obj([size, hashlib.sha256(self.capture()).hexdigest()]), sha_obj(["png24", 1])
+            return sha_obj([size, self.digest(self.raw)]), sha_obj(["png24", 1])
         if self.mode == "icon":
-            return sha_obj([size, sha_file(self.source)]), sha_obj(["png32", 1])
+            with open_regular(*self.location(self.source)) as stream:
+                self.icon_digest = sha_stream(stream)
+            return sha_obj([size, self.icon_digest]), sha_obj(["png32", 1])
         content = {"size": size, "text": self.text}
         if self.raw:
-            content["capture"] = hashlib.sha256(self.capture()).hexdigest()
+            content["capture"] = self.digest(self.raw)
         if self.branded and not self.logo:
             content["brand"] = self.rec.get("appName")
-        fonts = {role: [hashlib.sha256(font.data).hexdigest() for font in files] for role, files in self.font_assets().items()}
+        fonts = {role: [self.digest(p) for p in paths] for role, paths in self.fonts.items()}
         style = {"template": template_hash(self.template, self.user), "palette": self.style.get("palette"), "fonts": fonts,
-                 "logo": hashlib.sha256(self.logo_asset().data).hexdigest() if self.logo else None, "locale": self.rec.get("storeCode")}
+                 "logo": self.digest(self.logo) if self.logo else None, "locale": self.rec.get("storeCode")}
         if self.user or self.kind == "shot":
             style["fit"] = self.fit()
             if self.user or self.template == "caption-top":
@@ -222,17 +232,22 @@ class Job:
         return self.style.get("fit") or ("bleed" if (self.style.get("bezel") or {}).get("bleed") else "contain")
 
     def asset_args(self):
+        data = None
         shot_size = None
         if self.raw and self.kind == "shot":
-            data = self.capture()
+            data = self.read_input(self.raw)
             inspect = imginfo._jpeg if data.startswith(b"\xff\xd8") else imginfo._png
             w, h, _, _ = inspect(io.BytesIO(data))
             if not w:
                 raise render.RenderError("raw capture is not a readable image: %s" % self.rec["rawPath"])
             shot_size = (w, h)
+        font_paths = dict.fromkeys(p for paths in self.fonts.values() for p in paths)
+        assets = {p: render.Asset(p, self.read_input(p)) for p in font_paths}
+        fonts = {role: [assets[p] for p in paths] for role, paths in self.fonts.items()}
+        logo = render.Asset(self.logo, self.read_input(self.logo)) if self.logo else None
         return dict(template=self.template, user=self.user, locale=self.rec.get("storeCode") or "en-US", style=self.style,
-                    fonts=self.font_assets(), text=self.text, raw=self.capture() if self.kind == "shot" else None,
-                    shot_size=shot_size, logo=self.logo_asset(), app_name=self.rec.get("appName"), fit=self.fit())
+                    fonts=fonts, text=self.text, raw=data,
+                    shot_size=shot_size, logo=logo, app_name=self.rec.get("appName"), fit=self.fit())
 
     def missing_inputs(self):
         out = []
@@ -256,7 +271,7 @@ def build(job, renderer):
     deadline = render.cdp.new_deadline()
     w, h = job.rec["size"]
     if job.mode == "raw":
-        data = job.capture()
+        data = job.read_input(job.raw)
         iw, ih, _, _ = imginfo._png(io.BytesIO(data))
         if (iw, ih) != (w, h):
             job.problems.append("raw mode needs a %dx%d capture in PNG format; %s is %sx%s" %
@@ -272,7 +287,12 @@ def build(job, renderer):
             return None
         with tempfile.TemporaryDirectory() as d:
             dst = os.path.join(d, "icon.png")
-            subprocess.run(cmd + [job.source, "-resize", "%dx%d!" % (w, h), "-strip", "-depth", "8", "PNG32:" + dst], check=True, timeout=render.cdp.time_left(deadline))
+            source = Path(d) / ("source" + Path(job.source).suffix)
+            with open_regular(*job.location(job.source)) as stream, source.open("wb") as snapshot:
+                digest = sha_stream(stream, snapshot)
+            if job.icon_digest is not None and digest != job.icon_digest:
+                raise ValueError("%s: input changed during compose" % job.rec["from"])
+            subprocess.run(cmd + [str(source), "-resize", "%dx%d!" % (w, h), "-strip", "-depth", "8", "PNG32:" + dst], check=True, timeout=render.cdp.time_left(deadline))
             with open(dst, "rb") as f:
                 return f.read()
     try:
@@ -329,7 +349,7 @@ def preview_page(jobs, renderer=None):
                 source = job.out
             key = "/image" + Path(source).suffix.lower()
             page = ('<!doctype html><style>*{margin:0}img{width:100vw;height:100vh;object-fit:contain}</style>'
-                    '<img alt="" src="%s">' % inline_asset(key, {key: job.capture() if job.raw else source}))
+                    '<img alt="" src="%s">' % inline_asset(key, {key: job.read_input(job.raw) if job.raw else source}))
         scale = min(300 / w, 420 / h, 1)
         label = html.escape(job.rec["outputPath"])
         frames.append('<figure><figcaption>%s</figcaption><div style="width:%gpx;height:%gpx">'
@@ -353,8 +373,8 @@ def report_failures(failed):
 
 def compose_outputs(args, man, state, templates, input_roots):
     root = state.root
-    assets = {}
-    jobs = [Job(root, rec, templates, input_roots, assets) for rec in man["outputs"] if args.preview or
+    digests = {}
+    jobs = [Job(root, rec, templates, input_roots, digests) for rec in man["outputs"] if args.preview or
             ((not args.target or rec.get("targetId") in args.target) and
              (not args.screen or rec.get("screenId") in args.screen))]
     for job in jobs:
@@ -414,11 +434,15 @@ def compose_outputs(args, man, state, templates, input_roots):
             if prev.get("style") == job.stylekey and (not job.template or renderer_os == sys.platform):
                 if job.template and compare_browser:
                     cached.append(job)
-                else:
-                    job.raw_data = None
                 unchanged += 1
                 continue
             restyled.append(job)
+        elif current and not job.adopted and job.branded and not job.logo and not job.rec.get("appName"):
+            if prev.get("hasBrandName") is not False:
+                # Older lock entries cannot say whether the previous image had a name.
+                print("compose: %s: no listing brand name found for the replacement image" % rel)
+            if prev.get("hasBrandName"):
+                restyled.append(job)
         todo.append(job)
 
     if restyled and not args.restyle:
@@ -475,13 +499,12 @@ def compose_outputs(args, man, state, templates, input_roots):
                     browser, renderer = render.open_browser(path)
                     fingerprint = {"os": sys.platform, "browser": browser.version_major()}
                 data = build(job, renderer)
-            except (OSError, ValueError, subprocess.SubprocessError, render.cdp.BrowserError) as exc:
-                if browser and isinstance(exc, (render.cdp.BrowserError, subprocess.TimeoutExpired)):
+            except (OSError, ValueError, zlib.error, subprocess.SubprocessError, render.cdp.BrowserError) as exc:
+                if browser and isinstance(exc, (render.cdp.BrowserError, BrokenPipeError, subprocess.TimeoutExpired)):
                     browser.close()
                     browser = renderer = None
                 job.problems.append(str(exc))
                 data = None
-            job.raw_data = None
             if data is None:
                 failed.append(job)
                 continue
@@ -489,6 +512,8 @@ def compose_outputs(args, man, state, templates, input_roots):
             entry = dict(content=job.content, style=job.stylekey, sha256=hashlib.sha256(data).hexdigest(),
                          size=job.rec["size"], renderer=fingerprint if job.template else None,
                          checks={k: report.get(k) for k in ("worstContrast", "textShare", "bleedCut")} if job.template else None)
+            if job.branded and not job.logo:
+                entry["hasBrandName"] = bool(job.rec.get("appName"))
             try:
                 state.publish(rel, data, entry, job.adopted)
             except ownership.OwnershipConflict as exc:
@@ -551,7 +576,7 @@ def main(argv):
                 print("compose: invalid plan: %s" % exc, file=sys.stderr)
                 return 2
             return compose_outputs(args, man, state, templates, input_roots)
-    except (OSError, ValueError, render.RenderError, render.cdp.BrowserError) as exc:
+    except (OSError, ValueError, zlib.error, render.RenderError, render.cdp.BrowserError) as exc:
         print("compose: %s" % exc, file=sys.stderr)
         return 1
 

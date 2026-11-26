@@ -24,11 +24,11 @@ import cdp
 import render
 
 
-def png(w=2, h=2):
+def png(w=2, h=2, idat=None):
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(bytes(h * (w * 3 + 1)))) + chunk(b"IEND", b""))
+            + chunk(b"IDAT", idat if idat is not None else zlib.compress(bytes(h * (w * 3 + 1)))) + chunk(b"IEND", b""))
 
 
 class RendererVersion(unittest.TestCase):
@@ -340,14 +340,124 @@ class Composer(unittest.TestCase):
         render._vars(dict(palette=dict(palette, ink="#11223380")))
 
     @unittest.skipUnless(compose.magick(), "ImageMagick required")
-    def test_08_raw_snapshot_always_normalized(self):
+    def test_08_raw_input_always_normalized(self):
         job = self.job()
         with patch.object(compose, "flatten_rgb", wraps=compose.flatten_rgb) as flatten:
             job.keys()
-            self.raw.write_bytes(png(3, 2))
             self.assertIsNotNone(compose.build(job, None), job.problems)
             self.assertEqual(flatten.call_count, 1)
             self.assertEqual(flatten.call_args[0][0], png())
+
+    def test_pending_jobs_release_shared_capture_after_keys(self):
+        capture = b"capture data" * 100_000
+        self.raw.write_bytes(capture)
+        digests = {}
+        jobs = [compose.Job(self.root, dict(self.rec, storeCode=locale, styleMode="framed"), digests=digests)
+                for locale in ("de-DE", "en-US")]
+
+        def retained_bytes(obj):
+            if isinstance(obj, (bytes, bytearray, memoryview)):
+                return len(obj)
+            if isinstance(obj, dict):
+                return sum(retained_bytes(value) for value in obj.values())
+            if isinstance(obj, (list, tuple)):
+                return sum(map(retained_bytes, obj))
+            if hasattr(obj, "__dict__"):
+                return retained_bytes(vars(obj))
+            return 0
+
+        with patch.object(compose, "read_regular", wraps=compose.read_regular) as read:
+            for job in jobs:
+                job.keys()
+            read.assert_called_once()
+        for job in jobs:
+            self.assertLessEqual(retained_bytes(job), hashlib.sha256().digest_size)
+
+    @unittest.skipUnless(compose.magick(), "ImageMagick required")
+    def test_changed_capture_fails_only_its_build(self):
+        other = self.root / "other.png"
+        other.write_bytes(png())
+        self.man["outputs"].append(dict(self.rec, rawPath=other.name, outputPath="shots/b.png"))
+        original_build = compose.build
+
+        def build(job, renderer):
+            if job.out == str(self.out):
+                replacement = self.root / "replacement.png"
+                replacement.write_bytes(png(3, 2))
+                replacement.replace(self.raw)
+            return original_build(job, renderer)
+
+        with patch.object(compose, "build", side_effect=build):
+            self.assertEqual(self.run_cli(), 1, self.log)
+        self.assertIn("shots/a.png:", self.log)
+        self.assertIn("raw.png", self.log)
+        self.assertIn("changed during", self.log)
+        self.assertIn("1 written, 0 unchanged, 0 held, 1 failed", self.log)
+        self.assertFalse(self.out.exists())
+
+    def test_changed_icon_source_fails_build(self):
+        self.rec.update(kind="graphic", slotId="icon", rawPath=None)
+        self.rec["from"] = self.raw.name
+        job = self.job()
+        job.keys()
+        self.raw.write_bytes(png(3, 2))
+        with patch.object(compose, "magick", return_value=["fixture"]), self.assertRaisesRegex(
+                ValueError, "raw.png.*changed during"):
+            compose.build(job, None)
+
+    @unittest.skipUnless(compose.magick(), "ImageMagick required")
+    def test_corrupt_capture_fails_only_its_output(self):
+        other = self.root / "other.png"
+        other.write_bytes(png())
+        self.man["outputs"].append(dict(self.rec, rawPath=other.name, outputPath="shots/b.png"))
+        self.raw.write_bytes(png(idat=b"invalid deflate stream"))
+        self.assertEqual(self.run_cli(), 1, self.log)
+        self.assertIn("shots/a.png:", self.log)
+        self.assertIn("1 written, 0 unchanged, 0 held, 1 failed", self.log)
+        self.assertFalse(self.out.exists())
+
+    def test_branded_output_unchanged_through_symlinked_tree(self):
+        self.rec.update(kind="graphic", slotId="featureGraphic", rawPath=None, store="apple", storeCode="en-US")
+        self.man["trees"] = {"apple": {"metadata": "fastlane/metadata"}}
+        tree = self.root / "fastlane"
+        locale = tree / "metadata/en-US"
+        locale.mkdir(parents=True)
+        (locale / "name.txt").write_text("My App")
+
+        def build(job, renderer):
+            self.assertEqual(job.rec["appName"], "My App")
+            return png()
+
+        browser = Mock()
+        browser.version_major.return_value = "123"
+        with patch.object(compose, "magick", return_value=["fixture"]), patch.object(
+                cdp, "find_browser", return_value="fixture"), patch.object(render, "open_browser",
+                return_value=(browser, None)), patch.object(compose, "build", side_effect=build):
+            self.assertEqual(self.run_cli(), 0, self.log)
+            (self.root / "ios").mkdir()
+            tree.rename(self.root / "ios/fastlane")
+            tree.symlink_to("ios/fastlane")
+            self.assertEqual(self.run_cli(), 0, self.log)
+            self.assertIn("0 written, 1 unchanged", self.log)
+
+    def test_missing_brand_preserves_existing_output_until_restyle(self):
+        self.rec.update(kind="graphic", slotId="featureGraphic", rawPath=None, store="play", storeCode="en-US")
+        self.man["trees"] = {"play": {"metadata": "store"}}
+        title = self.root / "store/en-US/title.txt"
+        title.parent.mkdir(parents=True)
+        title.write_text("Example")
+        browser = Mock()
+        browser.version_major.return_value = "123"
+        with patch.object(compose, "magick", return_value=["fixture"]), patch.object(
+                cdp, "find_browser", return_value="fixture"), patch.object(render, "open_browser",
+                return_value=(browser, None)), patch.object(compose, "build", side_effect=[png(), png(3, 2)]) as build:
+            self.assertEqual(self.run_cli(), 0, self.log)
+            title.unlink()
+            self.assertEqual(self.run_cli(), 4, self.log)
+            self.assertIn("brand name", self.log)
+            self.assertEqual(self.out.read_bytes(), png())
+            self.assertEqual(self.run_cli("--restyle"), 0, self.log)
+            self.assertEqual(build.call_count, 2)
 
     def test_09_raw_key_uses_only_build_inputs(self):
         before = self.job().keys()
@@ -368,6 +478,31 @@ class Composer(unittest.TestCase):
                     self.assertEqual([call.args[1] for call in build.call_args_list], ["first", "second"])
                     first.close.assert_called_once()
                     second.close.assert_called_once()
+
+    def test_restart_when_dead_browser_cannot_close_target(self):
+        self.rec.update(styleMode="framed")
+        self.man["outputs"].append(dict(self.rec, outputPath="shots/b.png"))
+        dead, replacement = Mock(), Mock()
+        dead.version_major.return_value = replacement.version_major.return_value = "123"
+        dead.call.side_effect = [{"targetId": "first"}, BrokenPipeError("closed pipe")]
+        renderer = cdp.Renderer(dead)
+        replacement_renderer = Mock()
+        replacement_renderer.render.return_value = (png(), {"problems": []})
+
+        def build(job, active):
+            data, _ = active.render({}, 2, 2, deadline=cdp.new_deadline())
+            return data
+
+        with patch.object(compose, "magick", return_value=["fixture"]), patch.object(
+                cdp, "find_browser", return_value="fixture"), patch.object(render, "open_browser",
+                side_effect=[(dead, renderer), (replacement, replacement_renderer)]), patch.object(
+                renderer, "_page", side_effect=cdp.BrowserError("connection closed")), patch.object(
+                compose, "build", side_effect=build):
+            self.assertEqual(self.run_cli(), 1, self.log)
+        self.assertEqual(dead.call.call_args.args[0], "Target.closeTarget")
+        dead.close.assert_called_once()
+        replacement_renderer.render.assert_called_once()
+        self.assertIn("1 written, 0 unchanged, 0 held, 1 failed", self.log)
 
     def test_14_timeout_validated_before_spawning(self):
         with patch.dict(os.environ, LK_BROWSER_TIMEOUT="bad"), patch("subprocess.Popen", side_effect=AssertionError("spawned")):
