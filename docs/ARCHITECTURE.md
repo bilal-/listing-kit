@@ -90,7 +90,9 @@ The agent handles judgment; anything that must be exact is a script with tests.
 
 Shared logic lives once in `scripts/lib/`:
 
-- `imginfo.py` reads PNG/JPEG headers (size, depth, alpha) with no ImageMagick.
+- `imginfo.py` checks PNG/JPEG stream structure (size, depth, alpha, CRCs, row
+  filters, tables) in pure Python and runs a full pixel decode via ImageMagick
+  when installed (`--decode`).
 - `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
 - `fields.py` defines every copy field's limit, unit, and required flag.
 - `listing.py` discovers locales and images within the fastlane tree.
@@ -114,10 +116,9 @@ The committed tree is the source of truth for non-secrets only. Login
 credentials, API tokens, and seed-data secrets live in a git-ignored
 `.listing-kit/secrets.local` or environment variables, and flows reference them
 rather than inlining them. `validate-listing.sh` runs `secret-scan.sh` on `fastlane/`,
-`store-assets/`, `.listing-kit/flows/`, and the public `.listing-kit/asset-plan.json`
-file. It checks known credential formats and generic `key = value` assignments;
-Assemble and Validate fail on a hit. Private `.listing-kit/secrets.local` files
-remain outside these scans.
+`store-assets/`, and public files under `.listing-kit/`, including raw captures. Manual tools skip Git-ignored
+inputs and untracked `local.json` and `*.local` settings under `.listing-kit/`.
+Credentials in staged listing inputs block the commit before the review page is written.
 
 ## Store rules drift
 
@@ -142,5 +143,7 @@ screenshots grouped by device class, the validator's output) for reviewing the
 listing and pasting copy into the store consoles. `install-review-hook.sh` adds a
 pre-commit hook that rebuilds the page from the staged tree whenever
 [staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
-change, without altering how an existing hook behaves. One path filter selects
-both the changes that trigger a refresh and the files copied into its snapshot.
+change. The runner scans index blobs and caches clean results in the Git common
+directory.
+The staged review snapshot uses image headers and dimensions for media links. A clean scan
+allows the commit even if refreshing or staging the page fails.
