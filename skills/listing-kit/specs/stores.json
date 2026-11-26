@@ -7,7 +7,9 @@
   "appleAppInfo": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/",
   "appleCreativeAssets": "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
   "playPreviewAssets": "https://support.google.com/googleplay/android-developer/answer/9866151",
-  "appleLocales": "https://github.com/fastlane/fastlane/blob/2.242.0/fastlane_core/lib/fastlane_core/languages.rb"
+  "appleLocales": "https://github.com/fastlane/fastlane/blob/2.242.0/fastlane_core/lib/fastlane_core/languages.rb",
+  "playListing": "https://support.google.com/googleplay/android-developer/answer/9859152",
+  "playReleaseNotes": "https://support.google.com/googleplay/android-developer/answer/9859348"
  },
  "conditions": {
   "supportsIphone": "The app runs on iPhone (not iPad-only).",
@@ -21,7 +23,7 @@
   "hasWearOs": "The app is distributed to Wear OS.",
   "hasAndroidXr": "The app is distributed to Android XR.",
   "isUpdate": "This listing is for an update, not the first version.",
-  "iosSdkBelow:27.1": "The app is built with an iOS SDK older than 27.1 (pass --ios-sdk)."
+  "iosSdkBelow:27.1": "The app is built with an iOS SDK older than 27.1."
  },
  "stores": {
   "apple": {
@@ -121,7 +123,7 @@
       "lifecycle": "active",
       "upload": "fastlane",
       "suffix": "iphone-faceid-large",
-      "note": "Apple's table: required if the app runs on iPhone and Dynamic Island (large display) screenshots aren't provided. The page's list of required sizes names only Dynamic Island (medium). The kit warns, it does not fail."
+      "note": "Apple's table: required if the app runs on iPhone and Dynamic Island (large display) screenshots aren't provided. The page's list of required sizes names only Dynamic Island (medium)."
      },
      {
       "id": "iphone-faceid-medium",
@@ -539,7 +541,7 @@
        "condition": "hasVisionApp"
       },
       "framing": "allowed",
-      "lifecycle": "active",
+      "lifecycle": "console-only",
       "upload": "console",
       "orientation": "fixed",
       "suffix": "vision"
@@ -713,7 +715,11 @@
       "png"
      ],
      "alpha": false,
-     "upload": "console"
+     "upload": "console",
+     "file": "header-16x9",
+     "required": {
+      "rule": "never"
+     }
     },
     {
      "id": "header-21x9",
@@ -727,7 +733,11 @@
       "jpeg"
      ],
      "alpha": false,
-     "upload": "console"
+     "upload": "console",
+     "file": "header-21x9",
+     "required": {
+      "rule": "never"
+     }
     }
    ],
    "nonLocaleFolders": [
@@ -859,14 +869,9 @@
       "lifecycle": "active",
       "upload": "fastlane",
       "side": {
-       "min": 1080,
+       "min": 320,
        "max": 7680
       },
-      "recommendedMin": 4,
-      "ratios": [
-       "16:9",
-       "9:16"
-      ],
       "defaultTemplate": "band",
       "capture": {
        "deviceType": "Nexus 7"
@@ -875,7 +880,17 @@
        1920,
        1080
       ],
-      "note": "Google asks for at least 4 for large screens and for no extra text that could be cut off."
+      "note": "Google asks for at least 4 for large screens and for no extra text that could be cut off.",
+      "promotion": {
+       "count": 4,
+       "shortSideMin": 1080,
+       "longSideMax": 7680,
+       "ratios": [
+        "16:9",
+        "9:16"
+       ]
+      },
+      "maxRatio": 2.3
      },
      {
       "id": "ten-inch",
@@ -896,14 +911,9 @@
       "lifecycle": "active",
       "upload": "fastlane",
       "side": {
-       "min": 1080,
+       "min": 320,
        "max": 7680
       },
-      "recommendedMin": 4,
-      "ratios": [
-       "16:9",
-       "9:16"
-      ],
       "defaultTemplate": "band",
       "capture": {
        "deviceType": "pixel_tablet"
@@ -911,7 +921,17 @@
       "defaultSize": [
        1920,
        1080
-      ]
+      ],
+      "promotion": {
+       "count": 4,
+       "shortSideMin": 1080,
+       "longSideMax": 7680,
+       "ratios": [
+        "16:9",
+        "9:16"
+       ]
+      },
+      "maxRatio": 2.3
      },
      {
       "id": "chromebook",
@@ -932,15 +952,20 @@
       "lifecycle": "console-only",
       "upload": "console",
       "side": {
-       "min": 1080,
+       "min": 320,
        "max": 7680
       },
-      "recommendedMin": 4,
-      "ratios": [
-       "16:9",
-       "9:16"
-      ],
-      "defaultTemplate": "band"
+      "defaultTemplate": "band",
+      "promotion": {
+       "count": 4,
+       "shortSideMin": 1080,
+       "longSideMax": 7680,
+       "ratios": [
+        "16:9",
+        "9:16"
+       ]
+      },
+      "maxRatio": 2.3
      },
      {
       "id": "tv",
@@ -961,12 +986,7 @@
       "framing": "allowed",
       "lifecycle": "active",
       "upload": "fastlane",
-      "note": "A 1280x720 TV banner is also required.",
-      "side": {
-       "min": 720,
-       "max": 3840
-      },
-      "ratio": "16:9"
+      "note": "A 1280x720 TV banner is also required."
      },
      {
       "id": "wear",
@@ -988,8 +1008,7 @@
       "lifecycle": "active",
       "upload": "fastlane",
       "side": {
-       "min": 384,
-       "max": 3840
+       "min": 384
       },
       "ratio": "1:1",
       "note": "Google: no device frames, added text, graphics or backgrounds; no transparency or masking."
@@ -1013,10 +1032,6 @@
       "framing": "allowed",
       "lifecycle": "console-only",
       "upload": "console",
-      "side": {
-       "min": 1200,
-       "max": 7680
-      },
       "minSize": [
        1920,
        1200
@@ -1042,7 +1057,7 @@
       "framing": "allowed",
       "lifecycle": "console-only",
       "upload": "console",
-      "note": "At least 2 portrait (800x1280) and 2 landscape (1024x768) unless the app is in a parked category.",
+      "note": "If screenshots are supplied, both sizes require at least two each. Parked categories may omit the set.",
       "sizes": [
        [
         800,
@@ -1052,7 +1067,8 @@
         1024,
         768
        ]
-      ]
+      ],
+      "minPerSize": 2
      }
     ]
    },
@@ -1114,13 +1130,14 @@
      "formats": [
       "png"
      ],
-     "alpha": "required",
+     "alpha": true,
      "bitDepth": 8,
      "maxBytes": 1048576,
      "required": {
       "rule": "always"
      },
-     "note": "Google asks for a 32-bit PNG with alpha."
+     "note": "32-bit PNG with an alpha channel. Opaque pixels are allowed.",
+     "upload": "fastlane"
     },
     {
      "id": "featureGraphic",
@@ -1138,7 +1155,8 @@
      "bitDepth": 8,
      "required": {
       "rule": "always"
-     }
+     },
+     "upload": "fastlane"
     },
     {
      "id": "tvBanner",
@@ -1157,7 +1175,8 @@
      "required": {
       "rule": "if",
       "condition": "hasAndroidTv"
-     }
+     },
+     "upload": "fastlane"
     }
    ],
    "taglineDiscouraged": [
@@ -1206,7 +1225,10 @@
  "unverified": [
   "appleCategories (from memory of fastlane's category list)",
   "capture.deviceType names (must match what `xcrun simctl list devicetypes` and `avdmanager list device` print)",
-  "play changelogs limit 500 (not on the preview-assets page)",
-  "play title/short/full description limits (not on the preview-assets page)"
+  "Android TV screenshot-specific 720–3840 px and 16:9 bounds (the banner has its own rule).",
+  "Wear OS screenshot maximum of 3840 px.",
+  "Android XR screenshot maximum of 7680 px.",
+  "Play foldable slot mapping to upload tooling.",
+  "iPhone Face ID large-display conditional requirement (Apple's display table and required-size summary differ)."
  ]
 }

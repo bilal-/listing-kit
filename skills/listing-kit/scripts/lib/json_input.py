@@ -56,3 +56,9 @@ def read(stream):
         raise ValueError("JSON nesting too deep")
     validate(value)
     return value
+
+
+def diagnostic(value):
+    """Escape row delimiters and nonprinting characters in a TSV field."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+                   for c in value)

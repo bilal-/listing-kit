@@ -1,6 +1,5 @@
 {
-  "schema": 0,
-  "format": 1,
+  "format": 2,
   "app": {
     "ios": "sh.bilal.shellbell",
     "android": "sh.bilal.shellbell",
@@ -65,7 +64,8 @@
       "capture": {
         "deviceType": "iPhone 17 Pro"
       },
-      "suffix": "iphone-medium"
+      "suffix": "iphone-medium",
+      "status": "prepared"
     },
     {
       "id": "iphone-duo",
@@ -80,7 +80,8 @@
         "deviceType": "iPhone Duo",
         "display": "external"
       },
-      "suffix": "iphone-duo"
+      "suffix": "iphone-duo",
+      "status": "prepared"
     },
     {
       "id": "ipad",
@@ -130,7 +131,7 @@
   "screens": [
     {
       "id": "agents",
-      "flow": "flows/01_agents.yaml",
+      "flow": ".listing-kit/flows/01_agents.yaml",
       "route": "/c/[fp]",
       "state": "Agents view on Studio Mac: Antigravity waiting for you, Claude Code and Gemini working, Codex idle, each with how long it has been in that state.",
       "caption": {
@@ -145,7 +146,7 @@
     },
     {
       "id": "conversation",
-      "flow": "flows/02_conversation.yaml",
+      "flow": ".listing-kit/flows/02_conversation.yaml",
       "route": "/c/[fp]/s/[sid]",
       "state": "Claude Code session in Conversation view: the request, the plan, one-line tool steps and the reply.",
       "caption": {
@@ -160,7 +161,7 @@
     },
     {
       "id": "terminal",
-      "flow": "flows/03_terminal.yaml",
+      "flow": ".listing-kit/flows/03_terminal.yaml",
       "route": "/c/[fp]/s/[sid]",
       "state": "Gemini working in its terminal, with the key bar.",
       "caption": {
@@ -175,7 +176,7 @@
     },
     {
       "id": "terminals",
-      "flow": "flows/04_terminals.yaml",
+      "flow": ".listing-kit/flows/04_terminals.yaml",
       "route": "/c/[fp]",
       "state": "Terminals view grouped by Herdr and tmux workspaces shown in Ghostty, and an iTerm2 window.",
       "caption": {
@@ -190,7 +191,7 @@
     },
     {
       "id": "answer",
-      "flow": "flows/05_answer.yaml",
+      "flow": ".listing-kit/flows/05_answer.yaml",
       "route": "/c/[fp]/s/[sid]",
       "state": "Antigravity asking to write a migration, with its numbered choices as reply buttons.",
       "caption": {
@@ -205,7 +206,7 @@
     },
     {
       "id": "direct",
-      "flow": "flows/06_direct.yaml",
+      "flow": ".listing-kit/flows/06_direct.yaml",
       "route": "/c/[fp]",
       "state": "Direct row expanded: peer to peer on your network, round trip and setup time.",
       "caption": {
@@ -220,7 +221,7 @@
     },
     {
       "id": "reading",
-      "flow": "flows/07_reading.yaml",
+      "flow": ".listing-kit/flows/07_reading.yaml",
       "route": "/c/[fp]/s/[sid]",
       "state": "Reading mode over a build and test run.",
       "caption": {
@@ -296,30 +297,8 @@
     }
   ],
   "graphics": {
-    "playFeature": {
-      "template": "feature",
-      "headline": {
-        "en-US": "Your terminal,\nfrom anywhere."
-      },
-      "detail": {
-        "en-US": "Claude Code · Codex · Herdr · tmux · iTerm2"
-      },
-      "altText": {
-        "en-US": "Shellbell on an amber background: Your terminal, from anywhere. Claude Code, Codex, Herdr, tmux and iTerm2."
-      },
-      "palette": {
-        "background": [
-          "#F6BC4A",
-          "#E79B19"
-        ],
-        "ink": "#151719",
-        "detail": "#493416"
-      },
-      "logo": "repo:brand/png/horizontal-black@2x.png"
-    },
-    "appleHeaders": [
-      {
-        "canvas": "16x9",
+    "apple": {
+      "header-16x9": {
         "headline": {
           "en-US": "Your terminal,\nfrom anywhere."
         },
@@ -337,10 +316,11 @@
           "ink": "#151719",
           "detail": "#493416"
         },
-        "logo": "repo:brand/png/horizontal-black@2x.png"
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "template": "shellbell-header-16x9",
+        "status": "prepared"
       },
-      {
-        "canvas": "21x9",
+      "header-21x9": {
         "headline": {
           "en-US": "Your terminal,\nfrom anywhere."
         },
@@ -358,11 +338,37 @@
           "ink": "#151719",
           "detail": "#493416"
         },
-        "logo": "repo:brand/png/horizontal-black@2x.png"
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "template": "shellbell-header-21x9",
+        "status": "prepared"
       }
-    ],
-    "playIcon": {
-      "from": "fastlane/metadata/android/en-US/images/icon.png"
+    },
+    "play": {
+      "featureGraphic": {
+        "template": "feature",
+        "headline": {
+          "en-US": "Your terminal,\nfrom anywhere."
+        },
+        "detail": {
+          "en-US": "Claude Code · Codex · Herdr · tmux · iTerm2"
+        },
+        "altText": {
+          "en-US": "Shellbell on an amber background: Your terminal, from anywhere. Claude Code, Codex, Herdr, tmux and iTerm2."
+        },
+        "palette": {
+          "background": [
+            "#F6BC4A",
+            "#E79B19"
+          ],
+          "ink": "#151719",
+          "detail": "#493416"
+        },
+        "logo": "repo:brand/png/horizontal-black@2x.png",
+        "status": "prepared"
+      },
+      "icon": {
+        "from": "repo:brand/android/play-store-512.png"
+      }
     }
   },
   "console": {
@@ -391,5 +397,9 @@
       "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
       "https://developer.apple.com/app-store/asset-best-practices/"
     ]
+  },
+  "approved": {
+    "metadata": true,
+    "screens": true
   }
 }

@@ -1,0 +1,75 @@
+{
+  "format": 2,
+  "app": {
+    "ios": "example.ios",
+    "android": "example.android"
+  },
+  "trees": {
+    "apple": {
+      "fastlaneDir": "ios/fastlane"
+    },
+    "play": {
+      "fastlaneDir": "android/fastlane",
+      "metadata": "android/fastlane/metadata/android"
+    },
+    "storeAssets": "artwork"
+  },
+  "locales": [
+    "en-US",
+    {
+      "id": "zh",
+      "apple": "zh-Hans",
+      "play": "zh-CN"
+    },
+    {
+      "id": "play-only",
+      "play": "iw-IL"
+    }
+  ],
+  "targets": [
+    {
+      "id": "iphone",
+      "store": "apple",
+      "slot": "iphone-di-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "state": "active"
+    },
+    {
+      "id": "phone",
+      "store": "play",
+      "slot": "phone",
+      "size": [
+        1080,
+        1920
+      ],
+      "state": "active",
+      "captureLocales": "all"
+    }
+  ],
+  "screens": [
+    {
+      "id": "one",
+      "flow": ".listing-kit/flows/open.yaml",
+      "caption": {
+        "en-US": "Open the app"
+      }
+    },
+    {
+      "id": "two",
+      "flow": ".listing-kit/flows/open.yaml"
+    }
+  ],
+  "graphics": {
+    "apple": {
+      "header-16x9": {
+        "headline": {
+          "en-US": "Welcome",
+          "zh": "歡迎"
+        }
+      }
+    }
+  }
+}

@@ -3,13 +3,41 @@
 
 PLAN="$SCRIPTS/lib/plan.py"
 FIXTURES="$ROOT/tests/fixtures"
-T="$(mktemp -d)" || exit 1
-trap 'rm -rf "$T"' EXIT
-git init -q "$T" || exit 1
+REPO="$(mktemp -d)" || exit 1
+trap 'rm -rf "$REPO"' EXIT
+T="$REPO/apps/demo"
+mkdir -p "$REPO/.git"
 mkdir -p "$T/.listing-kit"
 FILE="$T/.listing-kit/listing.json"
 export PYTHONPATH="$SCRIPTS/lib${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
+
+# The fixtures describe an app, so create its referenced files in this isolated repo.
+python3 - "$REPO" "$T" "$FIXTURES" <<'PYINPUT'
+import json
+from pathlib import Path
+import sys
+
+repo, app, fixtures = map(Path, sys.argv[1:])
+for file in (fixtures / "plan-example.json", fixtures / "shellbell/listing.new.json"):
+    data = json.loads(file.read_text())
+    refs = [data["app"]["demoEntry"], data["style"]["logo"], data["graphics"]["play"]["icon"]["from"]]
+    for profile in data["style"]["fonts"].values():
+        for fonts in profile.values():
+            refs.extend(fonts)
+    for screen in data["screens"]:
+        if "flow" in screen:
+            refs.append(screen["flow"])
+        refs.extend(screen.get("flows", {}).values())
+    for entries in data["graphics"].values():
+        refs.extend(g["logo"] for g in entries.values() if "logo" in g)
+    for ref in refs + [".listing-kit/flows/one.yaml", ".listing-kit/flows/two.yaml"]:
+        if ref.startswith("bundled:"):
+            continue
+        path = repo / ref[5:] if ref.startswith("repo:") else app / ref
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+PYINPUT
 
 it "missing plan has status 2"
 python3 "$PLAN" check "$T" > "$T/result" 2>&1
@@ -31,11 +59,11 @@ except ValueError as exc:
 PYROW
 assert_eq 0 "$?"
 
-it "the design example passes check with no warnings"
+it "the design example flags the deferred-only screen"
 cp "$FIXTURES/plan-example.json" "$FILE"
 OUT="$(python3 "$PLAN" check "$T")"
 assert_eq 0 "$?"
-assert_eq "" "$OUT"
+assert_eq $'WARN\tscreens[1]\tscreen applies to no active target' "$OUT"
 
 it "malformed plans report the offending field without raising"
 if python3 - "$FILE" <<'PY'
@@ -46,6 +74,8 @@ import sys
 import plan
 import specs
 
+from pathlib import Path
+root = Path(sys.argv[1]).parents[1]
 with open(sys.argv[1], encoding="utf-8") as f:
     example = json.load(f)
 rules = specs.load()
@@ -65,22 +95,22 @@ def change(key, value, path=None, message=""):
         obj[k] = value
     if path is None:
         path = parts[0] + "".join("[" + n + "]" if n.isdigit() else "." + n for n in parts[1:])
-    problems = plan.check(data, rules)
+    problems = plan.check(data, rules, root)
     assert any(level == "ERROR" and p == path and message in m for level, p, m in problems), (
         key, value, path, message, problems)
 
 for value in (True, [], None, "plan"):
-    assert plan.check(value, rules)[0][:2] == ("ERROR", "$")
-for key in ("schema", "format", "app", "locales", "targets", "screens",
+    assert plan.check(value, rules, root)[0][:2] == ("ERROR", "$")
+for key in ("format", "app", "locales", "targets", "screens",
             "targets.0.id", "targets.0.store", "targets.0.slot", "targets.0.state",
             "targets.0.size", "screens.0.id", "screens.3.panel.headline", "screens.3.panel.rows",
-            "screens.3.panel.rows.0.text", "graphics.appleHeaders.0.canvas", "graphics.playIcon.from"):
+            "screens.3.panel.rows.0.text", "graphics.apple.header-16x9.headline", "graphics.play.icon.from"):
     change(key, missing, message="required")
 for key, value in (
     ("schema", 1), ("schema", False), ("format", True), ("format", "1"), ("format", 1.0),
     ("app", []), ("app", {}), ("app", {"id": "x", "ios": "y"}), ("app.ios", 5),
-    ("locales", []), ("locales", "en-US"), ("locales", ["en-US", "en-US"]),
-    ("locales.0", "../en"), ("targets.0.suffix", "../path"),
+    ("locales", []), ("locales", "en-US"),
+     ("targets.0.suffix", "../path"),
     ("targets", {}), ("targets.0", 1), ("targets.0.store", "ios"),
     ("targets.0.slot", "phone"), ("targets.0.size", "1206x2622"),
     ("targets.0.size", [1206]), ("targets.0.size", [True, 2622]), ("targets.0.size", [0, 2622]),
@@ -90,7 +120,7 @@ for key, value in (
     ("targets.1.reason", missing), ("targets.1.reason", "  "), ("targets.1.reason", 1),
     ("targets.1.reason", "later\ntoday"), ("targets.1.reason", "later\n"),
     ("targets.2.size", [319, 500]), ("targets.2.size", [3841, 3841]), ("targets.2.size", [1000, 2301]),
-    ("targets.3.size", [1920, 1200]), ("targets.3.size", [1280, 720]),
+    ("targets.3.size", [200, 1200]),
     ("screens", {}), ("screens.0", "agents"), ("screens.3.id", "agents"), ("screens.0.id", "a/b"),
     ("screens.0.id", "Upper"), ("screens.0.id", "-start"), ("screens.0.id", "a_b"),
     ("screens.0.flow", ""), ("screens.0.flows", []), ("screens.0.flows.play-tablet", 1),
@@ -100,13 +130,13 @@ for key, value in (
     ("screens.3.panel.headline.de", "..."), ("screens.1.only", "duo-outer"),
     ("style.mode", 0), ("style.palette.background", "amber"), ("style.bezel.bleed", 1),
     ("style.fonts.default.headline", "font.ttf"),
-    ("graphics", []), ("graphics.appleHeaders.0.canvas", "square"),
-    ("graphics.appleHeaders.1.headline", "..."), ("graphics.playFeature.detail.de", "..."),
-    ("graphics.playFeature.altText.en-US", 1), ("console.contactEmail", False), ("notes", [])
+    ("graphics", []), ("graphics.apple.header-16x9.headline", "square"),
+    ("graphics.apple.header-21x9.headline", "..."), ("graphics.play.featureGraphic.detail.de", "..."),
+    ("graphics.play.featureGraphic.altText.en-US", 1), ("console.contactEmail", False), ("notes", [])
 ):
     change(key, value)
 change("targets.0.locales", ["de"], "targets[0].locales[0]")
-change("style.fonts.ar-SA.detail", [True], "style.fonts.ar-SA.detail[0]")
+change("style.fonts.default.detail", [True], "style.fonts.default.detail[0]")
 change("format", plan.FORMAT + 1, message="update listing-kit")
 change("screens.1.only", ["typo"], "screens[1].only[0]", "unknown target")
 change("screens.3.except", ["typo"], "screens[3].except[0]", "unknown target")
@@ -117,7 +147,7 @@ change("screens.3.flow", "path", "screens[3]", "exactly one")
 change("screens.3.flows", {"play-phone":"path"})
 for key, nearest in (("targtes", "targets"), ("targets.0.capture.devcieType", "deviceType"),
                      ("style.fonts.default.headlien", "headline"), ("screens.0.capton", "caption"),
-                     ("graphics.appleHeaders.1.altTetx", "altText"), ("console.playCategroy", "playCategory")):
+                     ("graphics.apple.header-21x9.altTetx", "altText"), ("console.playCategroy", "playCategory")):
     change(key, "typo", message="did you mean %r" % nearest)
 PY
 then pass; else fail "one or more checker cases failed"; fi
@@ -129,6 +159,8 @@ import sys
 import plan
 import specs
 
+from pathlib import Path
+root = Path(sys.argv[1]).parents[1]
 with open(sys.argv[1], encoding="utf-8") as f:
     data = json.load(f)
 rules = specs.load()
@@ -139,7 +171,7 @@ def slot(store, name, size, mode="raw", target_style=None, upload=None):
     if upload:
         t["upload"] = upload
     data.update(targets=[t], style={"mode":mode}, screens=[])
-    return [path for level, path, _ in plan.check(data, rules) if level == "ERROR"]
+    return [path for level, path, _ in plan.check(data, rules, root) if level == "ERROR"]
 
 size = ["targets[0].size"]
 style = ["targets[0].style.mode"]
@@ -168,30 +200,35 @@ import sys
 import plan
 import specs
 
+from pathlib import Path
+root = Path(sys.argv[1]).parents[1]
 with open(sys.argv[1], encoding="utf-8") as f:
     data = json.load(f)
 rules = specs.load()
-capture = {"id":"one", "flow":"flows/one.yaml"}
-second = {"id":"two", "flow":"flows/two.yaml"}
+capture = {"id":"one", "flow":".listing-kit/flows/one.yaml"}
+second = {"id":"two", "flow":".listing-kit/flows/two.yaml"}
 panel = {"id":"panel", "panel":data["screens"][-1]["panel"]}
 target = data["targets"][0]
 target_id = target["id"]
 def problems(*screens):
     data["screens"] = list(screens)
-    return plan.check(data, rules)
+    return plan.check(data, rules, root)
 few = ("ERROR", "targets[0]", "panels require at least three applicable screens")
 half = ("ERROR", "targets[0]", "panels must be fewer than half of the applicable screens")
 warn = ("WARN", "targets[0]", "the first applicable screen is a panel")
 data["targets"] = [target]
-assert problems(panel) == [few, warn]
+assert problems(panel) == [few, warn], problems(panel)
 assert problems(capture, panel) == [few]
 assert problems(panel, capture, second) == [warn]
 assert problems(capture, panel, second) == []
 assert problems(capture, panel, second, dict(panel, id="end")) == [half]
-assert problems(capture, panel, dict(second, **{"except":[target_id]})) == [few]
+assert problems(capture, panel, dict(second, **{"except":[target_id]})) == [few, ("WARN", "screens[2]", "screen applies to no active target")]
 for state in ("retired", "deferred"):
     target.update(state=state, reason="Unavailable")
-    assert problems(panel) == []
+    expected = [("WARN", "$", "no active targets"), ("WARN", "screens[0]", "screen applies to no active target")]
+    if state == "deferred":
+        expected.append(("WARN", "targets", "missing required apple slot iphone-di-medium"))
+    assert problems(panel) == expected, problems(panel)
 PY
 then pass; else fail "panel limits failed"; fi
 
@@ -238,11 +275,11 @@ assert plan.output_name(data, phone, closing, rules) == "02_closing_iphone-mediu
 assert plan.flow_for(agents, tablet) == agents["flows"]["play-tablet"]
 assert plan.flow_for(agents, play_phone) == agents["flow"]
 assert plan.flow_for(closing, phone) is None
-assert plan.raw_path(duo, layout) == ".listing-kit/raw/duo-outer/duo-layout.png"
+assert plan.raw_path(duo, layout, "en-US") == ".listing-kit/raw/duo-outer/en-US/duo-layout.png"
 value = {"en-US":"Hello", "de":"Hallo"}
-assert plan.text(value, "de", ["en-US","de"]) == "Hallo"
-assert plan.text(value, "fr", ["de","en-US","fr"]) == "Hallo"
-assert plan.text({"en-US":"Hello", "de":""}, "de", ["en-US","de"]) == ""
+assert plan.text(value, "de", ["en-US","de"]) == ("Hallo", False)
+assert plan.text(value, "fr", ["de","en-US","fr"]) == ("Hallo", True)
+assert plan.text({"en-US":"Hello", "de":""}, "de", ["en-US","de"]) == ("", False)
 # An invalid plan must never reach callers of load.
 data["format"] += 1
 (root / plan.LISTING).write_text(json.dumps(data))
@@ -292,8 +329,8 @@ for t in plan.targets(data, "apple"):
     label = next(k for k in assets["screenshots"] if k in [slot["label"]] + slot.get("legacyLabels", []))
     assert len(plan.screens_for(data, t["id"])) == assets["screenshots"][label]
 graphics = data["graphics"]
-assert ["header-" + g["canvas"] + ".png" for g in graphics["appleHeaders"]] == assets["headers"]
-feature, headers = graphics["playFeature"], graphics["appleHeaders"]
+assert [key + ".png" for key in graphics["apple"]] == assets["headers"]
+feature, headers = graphics["play"]["featureGraphic"], list(graphics["apple"].values())
 for g in [feature] + headers:
     assert g["headline"] == {"en-US": "Your terminal,\nfrom anywhere."}
     assert g["palette"] == {"background": ["#F6BC4A", "#E79B19"], "ink": "#151719", "detail": "#493416"}
@@ -306,7 +343,7 @@ for h in headers:
 notes = {key: old[key] for key in ("capture", "manualConsoleFields", "releaseNotes", "sources")}
 assert data["app"]["demoEntry"] == notes["capture"].pop("demoMode")
 assert data["notes"] == notes
-assert graphics["playIcon"]["from"] == "fastlane/metadata/android/en-US/images/icon.png"
+assert graphics["play"]["icon"]["from"] == "repo:brand/android/play-store-512.png"
 PY
 then pass; else fail "ShellBell port differs from its sources"; fi
 
@@ -325,10 +362,12 @@ for target, suffix, folder in (("iphone", "_iphone", ""), ("iphone-medium", "_ip
     directory = "fastlane/metadata/android/en-US/images/" + folder if folder else "fastlane/screenshots/en-US"
     screens = "agents conversation terminal terminals answer direct reading shellbell".split()
     for n, screen in enumerate(screens, 1):
-        expected.append([target, screen, ".listing-kit/raw/%s/%s.png" % (target, screen),
+        expected.append([target, screen, "" if screen == "shellbell" else ".listing-kit/raw/%s/en-US/%s.png" % (target, screen),
                          "%s/%02d_%s%s.png" % (directory, n, screen, suffix)])
+expected.extend([["apple", key, "", "store-assets/apple/en-US/" + key + ".png"] for key in ("header-16x9", "header-21x9")])
+expected.extend([["play", key, "", "fastlane/metadata/android/en-US/images/" + key + ".png"] for key in ("featureGraphic", "icon")])
 assert rows == expected
-assert len({r[3].casefold() for r in rows}) == 48
+assert len({r[3].casefold() for r in rows}) == 52
 PYROWS
 then pass; else fail "ShellBell output manifest differs"; fi
 
@@ -349,7 +388,7 @@ data = plan.load(root)
 rules = specs.load(root)
 ipad = plan.targets(data, "apple")[-1]
 assert plan.output_name(data, ipad, data["screens"][0], rules) == "01_agents_tablet-special.png"
-data["locales"].append("de")
+data["locales"].append({"id":"de", "apple":"de-DE", "play":"de"})
 ipad["locales"] = ["de"]
 phone, tablet = plan.targets(data, "play")
 phone["state"] = "retired"
@@ -359,12 +398,15 @@ PY
 then pass; else fail "app override was lost"; fi
 OUT="$(python3 "$PLAN" outputs "$T")"
 assert_eq 0 "$?"
-assert_contains "$OUT" "store-assets/apple/de/screenshots/ipad-13/01_agents_tablet-special.png"
-assert_not_contains "$OUT" "store-assets/apple/en-US/"
+assert_contains "$OUT" "store-assets/apple/de-DE/screenshots/ipad-13/01_agents_tablet-special.png"
+assert_not_contains "$OUT" "store-assets/apple/en-US/screenshots/ipad-13"
 assert_contains "$OUT" "store-assets/play/en-US/screenshots/ten-inch/08_shellbell.png"
 assert_contains "$OUT" "store-assets/play/de/screenshots/ten-inch/08_shellbell.png"
 assert_not_contains "$OUT" "phoneScreenshots"
-assert_contains "$OUT" "fastlane/screenshots/de/07_reading_iphone.png"
+assert_contains "$OUT" "fastlane/screenshots/de-DE/07_reading_iphone.png"
+
+it "format 2 manifest, rules, and review regressions"
+if python3 "$ROOT/tests/unit/plan_format2.py"; then pass; else fail "format 2 regressions"; fi
 
 it "adversarial plan and store-rule regressions"
 if python3 "$ROOT/tests/unit/plan_review.py"; then pass; else fail "regression cases failed"; fi

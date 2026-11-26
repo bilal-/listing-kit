@@ -1,6 +1,5 @@
 {
-  "schema": 0,
-  "format": 1,
+  "format": 2,
   "app": {
     "ios": "sh.bilal.shellbell",
     "android": "sh.bilal.shellbell",
@@ -33,11 +32,6 @@
         "detail": [
           "assets/fonts/Brand-Regular.ttf",
           "bundled:Inter"
-        ]
-      },
-      "ar-SA": {
-        "headline": [
-          "assets/fonts/Arabic-Bold.ttf"
         ]
       }
     },
@@ -106,9 +100,9 @@
   "screens": [
     {
       "id": "agents",
-      "flow": "flows/01_agents.yaml",
+      "flow": ".listing-kit/flows/01_agents.yaml",
       "flows": {
-        "play-tablet": "flows/01_agents_tablet.yaml"
+        "play-tablet": ".listing-kit/flows/01_agents_tablet.yaml"
       },
       "route": "/c/[fp]",
       "state": "Agents view, one agent waiting, two working.",
@@ -125,7 +119,7 @@
     },
     {
       "id": "duo-layout",
-      "flow": "flows/duo-layout.yaml",
+      "flow": ".listing-kit/flows/duo-layout.yaml",
       "caption": {
         "en-US": "..."
       },
@@ -135,7 +129,7 @@
     },
     {
       "id": "terminal",
-      "flow": "flows/terminal.yaml",
+      "flow": ".listing-kit/flows/terminal.yaml",
       "caption": {
         "en-US": "The real terminal, live"
       }
@@ -163,21 +157,29 @@
     }
   ],
   "graphics": {
-    "playFeature": {
-      "template": "feature",
-      "headline": {
-        "en-US": "..."
+    "apple": {
+      "header-16x9": {
+        "headline": {
+          "en-US": "..."
+        },
+        "detail": {
+          "en-US": "..."
+        },
+        "altText": {
+          "en-US": "..."
+        },
+        "template": "header-16x9"
       },
-      "detail": {
-        "en-US": "..."
-      },
-      "altText": {
-        "en-US": "..."
+      "header-21x9": {
+        "headline": {
+          "en-US": "..."
+        },
+        "template": "header-21x9"
       }
     },
-    "appleHeaders": [
-      {
-        "canvas": "16x9",
+    "play": {
+      "featureGraphic": {
+        "template": "feature",
         "headline": {
           "en-US": "..."
         },
@@ -188,15 +190,9 @@
           "en-US": "..."
         }
       },
-      {
-        "canvas": "21x9",
-        "headline": {
-          "en-US": "..."
-        }
+      "icon": {
+        "from": "assets/icon.png"
       }
-    ],
-    "playIcon": {
-      "from": "assets/icon.png"
     }
   },
   "console": {

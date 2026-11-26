@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Store rules as data: the one place sizes, limits, required rules and dates live.
+"""Store rules for the listing plan checker and its consumers.
 
 Reads skills/listing-kit/specs/stores.json and, when an app root is given, merges
 <app-root>/.listing-kit/specs.override.json over it. Standard library only.
@@ -65,8 +65,8 @@ def _list_of(test):
 
 
 def _range(v):
-    return (isinstance(v, dict) and set(v) == {"min", "max"} and _positive(v.get("min")) and _positive(v.get("max"))
-            and v["min"] <= v["max"])
+    return (isinstance(v, dict) and bool(v) and set(v) <= {"min", "max"} and all(_positive(n) for n in v.values())
+            and v.get("min", 1) <= v.get("max", float("inf")))
 
 
 def _ratio(v):
@@ -98,7 +98,8 @@ def _capture(v):
 def _promotion(v):
     return (isinstance(v, dict) and _positive(v.get("count")) and _positive(v.get("shortSideMin"))
             and _list_of(_ratio)(v.get("ratios")) and ("note" not in v or _string(v["note"]))
-            and set(v) <= {"count", "shortSideMin", "ratios", "note"})
+            and ("longSideMax" not in v or _positive(v["longSideMax"]))
+            and set(v) <= {"count", "shortSideMin", "longSideMax", "ratios", "note"})
 
 
 _UPLOAD = ("fastlane", "console")
@@ -108,7 +109,7 @@ _SLOT_FIELDS = {
     "framing": ("allowed", "forbidden").__contains__, "upload": _UPLOAD.__contains__,
     "lifecycle": ("active", "console-only", "legacy").__contains__, "note": _string,
     "min": _count, "max": _positive, "side": _range, "sizes": _list_of(_size),
-    "ratio": _ratio, "ratios": _list_of(_ratio), "minSize": _size, "defaultSize": _size,
+    "ratio": _ratio, "ratios": _list_of(_ratio), "minPerSize": _positive, "minSize": _size, "defaultSize": _size,
     "maxRatio": lambda v: type(v) in (float, int) and v >= 1,
     "orientation": ("fixed", "either").__contains__, "capture": _capture,
     "formats": _list_of(_string), "alpha": lambda v: type(v) is bool, "bitDepth": _positive,
@@ -174,7 +175,8 @@ def check(data):
         st = stores.get(store)
         array = lambda v: isinstance(v, list)
         obj = lambda v: isinstance(v, dict)
-        if not _fields_ok(st, path, ("screenshots", "fields", "graphics"), {
+        required_sections = ("screenshots", "fields", "graphics") + (("locales",) if store == "apple" else ())
+        if not _fields_ok(st, path, required_sections, {
             "label": _string, "screenshots": obj, "fields": array, "graphics": array,
             "nonLocaleFolders": _list_of(component), "locales": strings,
             "changelogs": obj, "taglineDiscouraged": strings,
@@ -189,7 +191,7 @@ def check(data):
                 "limit": _count, "required": _required, "note": _string, "values": _string,
             }, problems)
         if array(st.get("graphics")):
-            _entries(st["graphics"], path + ".graphics", "id", ("id", "label", "size", "formats"), {
+            _entries(st["graphics"], path + ".graphics", "id", ("id", "label", "size", "formats", "file", "upload", "required"), {
                 "id": component, "file": component, "size": _size, "label": _string, "formats": strings,
                 "required": _required, "upload": _UPLOAD.__contains__, "bitDepth": _positive,
                 "maxBytes": _positive, "note": _string, "alpha": lambda v: type(v) is bool or v == "required",
@@ -209,10 +211,26 @@ def check(data):
                 problems.append(("ERROR", entry + ".sizes", "expected accepted sizes"))
             if store == "apple" and "folder" in row and row["folder"] is None:
                 problems.append(("ERROR", entry + ".folder", "expected a folder name"))
-            if store == "play" and not row.get("sizes") and "side" not in row:
-                problems.append(("ERROR", entry, "expected size bounds or exact sizes"))
+            if "ratio" in row and "ratios" in row:
+                problems.append(("ERROR", entry + ".ratios", "ratio and ratios cannot both be set"))
+            if row.get("sizes") == []:
+                problems.append(("ERROR", entry + ".sizes", "expected at least one size"))
+            if "minPerSize" in row and not row.get("sizes"):
+                problems.append(("ERROR", entry + ".minPerSize", "requires exact sizes"))
             if store == "play" and row.get("upload") == "fastlane" and not row.get("folder"):
                 problems.append(("ERROR", entry + ".folder", "fastlane requires a folder"))
+        conditions = data.get("conditions", {})
+        if isinstance(conditions, dict):
+            for section, rows in (("fields", st.get("fields")), ("graphics", st.get("graphics")),
+                                  ("screenshots.slots", shots["slots"])):
+                for i, row in enumerate(rows if isinstance(rows, list) else []):
+                    rule = row.get("required") if isinstance(row, dict) else None
+                    if isinstance(rule, dict):
+                        for key in ("condition", "unless"):
+                            name = rule.get(key)
+                            if isinstance(name, str) and name not in conditions:
+                                problems.append(("ERROR", f"stores.{store}.{section}[{i}].required.{key}",
+                                                 f"unknown condition {name!r}"))
     return problems
 
 
@@ -242,8 +260,12 @@ def _merge_list(base, extra, where):
 def _merge(base, extra, where="override"):
     out = dict(base)
     for k, v in extra.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _merge(out[k], v, where + "." + k)
+        if v is None:
+            out.pop(k, None)
+        elif k == "required" and isinstance(v, dict):
+            out[k] = _merge({}, v)
+        elif isinstance(v, dict):
+            out[k] = _merge(out[k] if isinstance(out.get(k), dict) else {}, v, where + "." + k)
         elif isinstance(v, list) and isinstance(out.get(k), list) and k in ("slots", "fields", "graphics"):
             out[k] = _merge_list(out[k], v, where + "." + k)
         else:
@@ -311,22 +333,15 @@ def apple_slot_for_size(data, w, h):
 
 def apple_slot_for_file(data, w, h, path=""):
     """The slot for a screenshot file, resolving shared sizes the way fastlane deliver does
-    (deliver/lib/deliver/app_screenshot.rb, 2.242.0): 3840x2160 is Vision Pro only when the
-    path contains "vision"; 2048x2732 is the 12.9-inch class only when the path contains
-    "app_ipad_pro_129", or both "12.9" and "2nd generation". Otherwise the first listed wins.
+    (deliver/lib/deliver/app_screenshot.rb, 2.242.0):     3840x2160 uses the vision marker outside an appleTV directory.
     """
     found = apple_slots_for_size(data, w, h)
     if len(found) < 2:
         return found[0] if found else None
     low = path.lower()
     ids = {s["id"]: s for s in found}
-    if "vision-pro" in ids and "vision" in low:
+    if "vision-pro" in ids and "vision" in low and "appletv" not in low.split("/")[:-1]:
         return ids["vision-pro"]
-    if "ipad-12-9" in ids and ("app_ipad_pro_129" in low or ("12.9" in low and "2nd generation" in low)):
-        return ids["ipad-12-9"]
-    for s in found:
-        if s["id"] not in ("vision-pro", "ipad-12-9"):
-            return s
     return found[0]
 
 
@@ -343,6 +358,31 @@ def parse_date(text):
     return datetime.date(*(int(x) for x in text.split("-")))
 
 
+def conditions_from_plan(plan, detected=None, rules=None):
+    """Infer capabilities from selected slots. Detection and explicit flags refine those facts."""
+    rules = load() if rules is None else rules
+    facts = {}
+    for target in plan.get("targets", []):
+        if target["state"] == "retired":
+            continue
+        store, name = target["store"], target["slot"]
+        selected = slot(rules, store, name)
+        if selected and selected["required"].get("rule") == "if":
+            facts[selected["required"]["condition"]] = True
+        if store == "apple" and name.startswith("iphone-"):
+            facts["supportsIphone"] = True
+        if store == "apple" and name.startswith("ipad-"):
+            facts["supportsIpad"] = True
+    facts.update(detected or {})
+    for name, flag in plan.get("platforms", {}).items():
+        if name not in rules.get("conditions", {}):
+            raise SpecsError(f"unknown condition {name!r}")
+        if type(flag) is not bool:
+            raise SpecsError(f"expected a boolean for {name!r}")
+        facts[name] = flag
+    return facts
+
+
 def requirement(rule, conditions, as_of=None):
     """(level, reason) for a "required" rule: level is "required", "upcoming" or "optional".
 
@@ -356,6 +396,8 @@ def requirement(rule, conditions, as_of=None):
         raise SpecsError("invalid requirement: expected a known rule, condition names and a valid date")
     if not isinstance(conditions, dict):
         raise SpecsError("expected a mapping of condition names to flags")
+    if "from" in rule and (parse_date(rule["from"]) - as_of).days > WARN_DAYS:
+        return "optional", ""
     kind = rule["rule"]
     if kind == "never":
         return "optional", ""
