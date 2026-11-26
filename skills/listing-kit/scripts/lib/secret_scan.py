@@ -11,13 +11,15 @@ BOUNDARY = rb"(?<![A-Za-z0-9_])"
 TOKEN = re.compile(
     BOUNDARY + rb"(?:gh[pousr]_[A-Za-z0-9_]{36,}|glpat-[A-Za-z0-9_-]{20,}|"
     rb"(?:xox[abposre]|xapp|xwfp)-[A-Za-z0-9-]{10,}|"
-    rb"sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}|"
     rb"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{24,}|"
     rb"ey[A-Za-z0-9_-]{8,}\.ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
-    rb"(?i:bearer)[ \t]+[A-Za-z0-9._~+/-]{20,})|"
+    rb"""(?i:(?:authorization[ \t]*:[ \t]*|["'])bearer)[ \t]+[A-Za-z0-9._~+/-]{20,})|"""
     rb'(?i:aws_secret_access_key)|github_pat_[A-Za-z0-9_]{22,}|AIza[0-9A-Za-z_-]{35}|'
     rb'(?i:"(?:private_key_id|private_key)"[ \t]*:|-----BEGIN [A-Z ]*PRIVATE KEY-----)',
 )
+SK_TOKEN = re.compile(rb"(?<![A-Za-z0-9_-])sk-([A-Za-z0-9_-]{20,})")
+URL_SLUG = re.compile(rb"(?:[a-z0-9]+-)+[a-z0-9]+")
+
 # AWS IDs are uppercase. Lowercase "asia..." in an ordinary URL is clean.
 AWS = re.compile(BOUNDARY + rb"(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])")
 ASSIGNMENT = re.compile(
@@ -28,7 +30,9 @@ VALUE = re.compile(
 )
 SENSITIVE_KEYS = {b"apikey", b"clientsecret", b"secret", b"password", b"mypassword",
                   b"passwd", b"token", b"bearer"}
-REFERENCE = re.compile(rb"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+")
+IDENTIFIER = rb"[A-Za-z_$][A-Za-z0-9_$]*"
+REFERENCE = re.compile(rb"(?:" + IDENTIFIER + rb"(?:\." + IDENTIFIER + rb")+|[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?=[\s,;)}\]?:|]|$)")
+FALLBACK = re.compile(rb"\s*(?:\|\||\?\?|\?|:)\s*")
 # Require a digit in the value or an assignment terminator, so ordinary copy
 # such as "Password: synchronization made easy" does not match.
 TERMINATOR = re.compile(rb"""["',;}]|[ \t\r]*$""", re.M)
@@ -68,17 +72,34 @@ def binary_media(path, head):
 def secret_text(data):
     if TOKEN.search(data) or AWS.search(data) or ACCOUNT.search(data):
         return True
+    for token in SK_TOKEN.finditer(data):
+        body = token[1]
+        if (data[token.start()-1:token.start()] == b"/" and URL_SLUG.fullmatch(body)
+                and not body.startswith((b"proj-", b"ant-", b"svcacct-"))):
+            continue
+        return True
     for match in ASSIGNMENT.finditer(data):
         key = re.sub(rb"([a-z0-9])([A-Z])", rb"\1_\2", match["key"])
         words = re.split(rb"[_-]+", key.lower())
         if words[-1] not in SENSITIVE_KEYS and b"".join(words[-2:]) not in SENSITIVE_KEYS:
             continue
-        literal = VALUE.match(data, match.end())
+        pos = match.end()
+        reference = REFERENCE.match(data, pos)
+        while reference:
+            fallback = FALLBACK.match(data, reference.end())
+            if not fallback:
+                break
+            pos = fallback.end()
+            reference = REFERENCE.match(data, pos)
+        if reference:
+            continue
+        literal = VALUE.match(data, pos)
         if not literal:
             continue
         value = literal["value"]
         if not literal["quote"]:
-            if REFERENCE.fullmatch(value):
+            if (match["op"] == b":" and words[-1] == b"password"
+                    and re.fullmatch(rb"[a-z][a-z.-]*", value)):
                 continue
             # A colon followed by a hyphenated modifier and further prose.
             if (match["op"] == b":" and b"-" in value

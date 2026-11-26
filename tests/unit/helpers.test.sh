@@ -50,4 +50,18 @@ cmp -s "$repo/before" "$repo/caller-index"; assert_eq 0 "$?"
 assert_eq "" "$(ls -A "$repo/caller-objects")"
 
 
+it "unsets every repository-local variable advertised by this Git"
+(
+  cd "$repo" || exit 1
+  names="$(git rev-parse --local-env-vars)" || exit 1
+  for name in $names; do export "$name="; done
+  export GIT_DIR="$repo/.git" GIT_COMMON_DIR="$repo/.git" GIT_WORK_TREE="$repo"
+  export GIT_CONFIG_COUNT=0 GIT_CONFIG=/dev/null
+  . "$HELPER_DIR/helpers.sh" --suite-root "$SUITE_ROOT"
+  for name in $names; do
+    [ -z "${!name+x}" ] || exit 1
+  done
+)
+assert_eq 0 "$?"
+
 summary

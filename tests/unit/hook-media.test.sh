@@ -50,7 +50,7 @@ with patch.object(subprocess, "Popen", popen), patch.object(review_hook, "git", 
         if args[0] == "checkout-index":
             assert b".png" not in kwargs["input"], "rewrote media via checkout-index"
         if args[0] == "ls-files":
-            assert b":(literal)fastlane" in args, "enumerated the entire index"
+            assert {b":(literal)fastlane", b":(icase,literal)fastlane"}.intersection(args), "enumerated the entire index"
     with patch.object(secret_scan, "binary_media", side_effect=AssertionError("rescanned cached blob")):
         review_hook.main(str(kit), [""])
     changed_scanner = root / "changed-scanner.py"

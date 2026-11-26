@@ -66,32 +66,46 @@ def find_kit(recorded, channel):
     raise Blocked("listing-kit installation not found; set LISTING_KIT_HOME or reinstall")
 
 
-def listing_input(path, prefix):
+LISTING_DIRS = (b"fastlane/", b"store-assets/", b".listing-kit/")
+VENDOR_DIRS = {b"node_modules", b".git", b"Pods", b"build", b"DerivedData", b".expo", b"dist", b".dart_tool"}
+VENDOR_LOWER = {part.lower() for part in VENDOR_DIRS}
+
+
+def listing_input(path, prefix, ignorecase=False):
+    if ignorecase:
+        path, prefix = path.lower(), prefix.lower()
     if not path.startswith(prefix):
         return False
     rel = path[len(prefix):]
-    return (rel.startswith((b"fastlane/", b"store-assets/", b".listing-kit/"))
-            or rel == b"app.json" or (rel.startswith(b"app.config.") and b"/" not in rel)
-            or rel.endswith(b".pbxproj") or rel.rsplit(b"/", 1)[-1] == b"Info.plist")
+    if rel.startswith(LISTING_DIRS) or rel == b"app.json":
+        return True
+    if rel.startswith(b"app.config.") and b"/" not in rel:
+        return True
+    parts = rel.split(b"/")
+    if parts[-1] != (b"info.plist" if ignorecase else b"Info.plist") and not rel.endswith(b".pbxproj"):
+        return False
+    vendor = VENDOR_LOWER if ignorecase else VENDOR_DIRS
+    return not any(part in vendor or part.endswith((b".framework", b".xcframework")) for part in parts[:-1])
 
 
-def pathspecs(prefixes):
+def pathspecs(prefixes, ignorecase=False):
+    magic = b":(icase," if ignorecase else b":("
     specs = []
     for prefix in prefixes:
-        specs.extend(b":(literal)" + prefix + name for name in
+        specs.extend(magic + b"literal)" + prefix + name for name in
                      (b"fastlane", b"store-assets", b".listing-kit", b"app.json"))
         escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
-        specs.extend(b":(glob)" + escaped + pattern for pattern in
+        specs.extend(magic + b"glob)" + escaped + pattern for pattern in
                      (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist"))
     return specs
 
 
-def staged_entries(prefixes):
-    for record in git("ls-files", "--stage", "-z", "--", *pathspecs(prefixes)).split(b"\0"):
+def staged_entries(prefixes, ignorecase=False):
+    for record in git("ls-files", "--stage", "-z", "--", *pathspecs(prefixes, ignorecase)).split(b"\0"):
         if record:
             header, raw = record.split(b"\t", 1)
             mode, oid, stage = header.split()
-            if any(listing_input(raw, prefix) for prefix in prefixes):
+            if any(listing_input(raw, prefix, ignorecase) for prefix in prefixes):
                 yield raw, mode, oid, stage
 
 
@@ -126,8 +140,10 @@ class ScanCache:
             self.db.close()
         self.db = None
 
-    def media(self, oid, path, scanner):
-        kind = b"demo" if path.name == "demo_password.txt" else os.fsencode(path.suffix.lower())
+    def media(self, oid, path, scanner, ignorecase=False):
+        name = path.name.lower() if ignorecase else path.name
+        policy_path = path.with_name(name)
+        kind = b"demo" if name == "demo_password.txt" else os.fsencode(path.suffix.lower())
         key = (self.digest, oid, kind)
         if self.db:
             try:
@@ -143,7 +159,7 @@ class ScanCache:
                 data = head + proc.stdout.read()
                 if proc.wait():
                     raise OSError("could not read blob")
-                if scanner.secret_content(path, data):
+                if scanner.secret_content(policy_path, data):
                     scanner.report(path)
                     raise Blocked(f"remove the credential from {path}")
         if self.db:
@@ -161,39 +177,46 @@ def blob(oid):
                             stdout=subprocess.PIPE)
 
 
-def check_links(links):
+def path_key(path, ignorecase):
+    return Path(os.fsdecode(os.fsencode(path).lower())) if ignorecase else path
+
+
+def check_links(links, ignorecase):
+    indexed = {path_key(path, ignorecase): target for path, (_, target) in links.items()}
     for path, (app, target) in links.items():
         current = path.parent
         pending = list(reversed(target.parts))
         hops = 0
         while pending:
             part = pending.pop()
-            if part == ".." and current == app:
+            if part == ".." and path_key(current, ignorecase) == path_key(app, ignorecase):
                 raise Blocked(f"cannot scan link outside listing tree: {path}")
             current = current.parent if part == ".." else current / part
-            if current in links:
+            key = path_key(current, ignorecase)
+            if key in indexed:
                 hops += 1
                 if hops > 40:
                     raise Blocked(f"cannot resolve listing link: {path}")
-                pending.extend(reversed(links[current][1].parts))
+                pending.extend(reversed(indexed[key].parts))
                 current = current.parent
-        relative = current.relative_to(app)
-        if not (relative.parts and (relative.parts[0] in ("fastlane", "store-assets", ".listing-kit")
-                or listing_input(os.fsencode(relative), b""))):
+        relative = os.fsencode(current.relative_to(app))
+        tree = relative.lower() if ignorecase else relative
+        if tree + b"/" not in LISTING_DIRS and not listing_input(relative, b"", ignorecase):
             raise Blocked(f"cannot scan link outside listing tree: {path}")
-        yield path, current
+        yield path, path_key(current, ignorecase)
 
 
-def scan_index(entries, prefixes, changed, scanner):
+def scan_index(entries, prefixes, changed, scanner, ignorecase=False):
     paths, media, links, blobs = [], {}, {}, {}
     allowed = reviewed_devices()
     cache = ScanCache(scanner)
     try:
         for raw, mode, oid, stage in entries:
             path = Path(os.fsdecode(raw))
-            prefix = max(p for p in prefixes if listing_input(raw, p))
+            prefix = max((p for p in prefixes if listing_input(raw, p, ignorecase)), key=len)
             relative = Path(os.fsdecode(raw[len(prefix):]))
-            listing = relative.parts[0] in ("fastlane", "store-assets", ".listing-kit")
+            policy_path = path_key(relative, ignorecase)
+            listing = os.fsencode(policy_path).startswith(LISTING_DIRS)
             if scanner.sensitive_name(relative):
                 scanner.report(relative)
                 raise Blocked("remove the credential from [redacted path]")
@@ -202,30 +225,30 @@ def scan_index(entries, prefixes, changed, scanner):
                 continue
             if stage != b"0" or mode not in (b"100644", b"100755", b"120000"):
                 raise Blocked(f"cannot scan staged entry: {relative}")
-            if scanner.private_local(relative) or scanner.credential_file(relative):
+            if scanner.private_local(policy_path) or scanner.credential_file(relative):
                 scanner.report(relative)
                 raise Blocked(f"remove the credential or private file from {relative}")
             if mode != b"120000":
-                blobs[path] = oid
+                blobs[path_key(path, ignorecase)] = oid
             try:
                 if mode == b"120000":
                     data = git("cat-file", "blob", oid)
                     target = Path(os.fsdecode(data))
                     if scanner.secret_text(data) or target.is_absolute():
                         raise Blocked(f"unsafe staged link target: {path}")
-                    links[path] = (Path(os.fsdecode(prefix)), target)
+                    links[path] = (Path(os.fsdecode(raw[:len(prefix)])), target)
                 elif not listing and (raw not in changed or oid + b" " + raw in allowed):
                     pass
-                elif cache.media(oid, relative, scanner):
+                elif cache.media(oid, relative, scanner, ignorecase):
                     media[path] = oid
                     continue
             except (OSError, subprocess.SubprocessError, ValueError, RecursionError) as exc:
                 raise Blocked(f"could not scan staged blob: {relative}") from exc
             paths.append(raw)
-        for path, target in check_links(links):
+        for path, target in check_links(links, ignorecase):
             if target in blobs:
                 # The alias can impose a stronger content policy (e.g. a demo password).
-                cache.media(blobs[target], path.relative_to(links[path][0]), scanner)
+                cache.media(blobs[target], path.relative_to(links[path][0]), scanner, ignorecase)
     finally:
         cache.close()
     return paths, media
@@ -324,19 +347,29 @@ def refresh(apps, paths, media, kit, snap):
             page.unlink(missing_ok=True)
 
 
-def main(recorded, apps, channel=None):
+def main(recorded, apps, channel=None, base=None):
     os.chdir(os.fsdecode(git("rev-parse", "--show-toplevel")[:-1]))
     prefixes = {app: os.fsencode(app + "/" if app else "") for app in apps}
+    setting = subprocess.run(["git", "config", "--bool", "--get", "core.ignorecase"], stdout=subprocess.PIPE)
+    if setting.returncode not in (0, 1):
+        setting.check_returncode()
+    ignorecase = setting.stdout.strip() == b"true"
     changed = set(git("diff", "--cached", "--name-only", "--no-renames", "-z",
-                      "--", *pathspecs(prefixes.values())).split(b"\0"))
-    affected = [app for app, prefix in prefixes.items() if any(listing_input(p, prefix) for p in changed)]
+                      *([base] if base else []), "--", *pathspecs(prefixes.values(), ignorecase)).split(b"\0"))
+    affected = [app for app, prefix in prefixes.items() if any(listing_input(p, prefix, ignorecase) for p in changed)]
     if not affected:
         return
     kit = find_kit(Path(recorded), Path(channel) if channel else None)
     sys.path.insert(0, str(kit / "scripts/lib"))
     import secret_scan
     selected = [prefixes[app] for app in affected]
-    paths, media = scan_index(staged_entries(selected), selected, changed, secret_scan)
+    paths, media = scan_index(staged_entries(selected, ignorecase), selected, changed, secret_scan, ignorecase)
+    # A pathspec-only commit uses a disposable index. Git restores a second,
+    # already locked index afterward, which would stage the old page again.
+    index = Path(os.environ.get("GIT_INDEX_FILE", ""))
+    if re.fullmatch(r"next-index-[0-9]+\.lock", index.name):
+        print("listing-kit: Warning: partial commit scanned; refresh listing-review.html with build-review.sh and stage it separately.", file=sys.stderr)
+        return
     try:
         with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as directory:
             refresh(affected, paths, media, kit, Path(directory).resolve())
@@ -346,7 +379,7 @@ def main(recorded, apps, channel=None):
 
 if __name__ == "__main__":
     try:
-        main(sys.argv[1], sys.argv[3:], sys.argv[2])
+        main(sys.argv[1], sys.argv[4:], sys.argv[2], sys.argv[3])
     except Blocked as exc:
         print(f"listing-kit: {exc}; listing-review.html not refreshed.", file=sys.stderr)
         sys.exit(1)

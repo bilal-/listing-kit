@@ -129,9 +129,13 @@ def apple_class(w, h):
     return APPLE_SIZES.get((min(w, h), max(w, h)))
 
 
+def image_row(p):
+    w, h, depth, ct = image_info(p)
+    entry = SNAPSHOT.get(os.path.realpath(p))
+    size = entry[1] if entry else (os.path.getsize(p) if os.path.exists(p) else 0)
+    return "\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", p)))
+
+
 if __name__ == "__main__":
     for p in sys.argv[1:]:
-        w, h, depth, ct = image_info(p)
-        entry = SNAPSHOT.get(os.path.realpath(p))
-        size = entry[1] if entry else (os.path.getsize(p) if os.path.exists(p) else 0)
-        print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", p))))
+        print(image_row(p))

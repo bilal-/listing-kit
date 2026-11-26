@@ -44,14 +44,14 @@ pass "secret scan: clean"
 
 # Tab-separated facts for every PNG/JPEG directly in a dir (extension case-insensitive):
 #   W H DEPTH COLORTYPE BYTES APPLE_CLASS PATH   (colortype 2=RGB, 6=RGBA, 99=unreadable)
+batch="$(mktemp -d)" || exit 2
+trap 'rm -rf -- "$batch"' EXIT
+# review_inputs.py already passes an absolute app path.
+python3 -I -B "$LIB/validation_rows.py" "$ROOT" "$batch" || exit 2
 images_in(){
-  local f files=()
-  for f in "$1"/*; do
-    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && files+=("$f");; esac
-  done
-  [ "${#files[@]}" -gt 0 ] && python3 -I -B "$LIB/imginfo.py" "${files[@]}"
+  local dir="${1%/}"
+  cat "$batch/shots/${dir#"$ROOT"/}/rows"
 }
-
 # fastlane globs *.png / *.jpg / *.jpeg; on case-sensitive filesystems (Linux CI)
 # an upper-case extension is never uploaded.
 check_ext(){ # path
@@ -59,14 +59,12 @@ check_ext(){ # path
 }
 
 # Check every copy field of one locale against the shared table in lib/fields.py.
-fields(){ # store locale-dir [fallback-dir]
-  local level msg out rc=0
-  out="$(python3 -I -B "$LIB/fields.py" "$@")" || rc=$?
+fields(){ # store locale-dir
+  local level msg
   while IFS=$'\t' read -r level msg; do
     [ -n "$level" ] || continue
     case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
-  done <<<"$out"
-  [ "$rc" = 0 ] || fail "could not check copy fields in $2 (fields.py exit $rc)"
+  done < "$batch/$1/${2#"$ROOT"/}/rows"
 }
 
 # Does the app support iPad (→ iPad screenshots REQUIRED on the App Store)?
@@ -97,7 +95,7 @@ def expo():
 def native():
     skip={'node_modules','.git','Pods','build','DerivedData','.expo','dist','.dart_tool'}
     for dp,dn,fn in os.walk(root):
-        dn[:]=[d for d in dn if d not in skip]
+        dn[:]=[d for d in dn if d not in skip and not d.endswith(('.framework','.xcframework'))]
         for name in fn:
             p=os.path.join(dp,name)
             if name.endswith('.pbxproj'):
@@ -122,9 +120,8 @@ echo "${B}listing-kit — validating: $ROOT${Z}"
 # Apple locales include headers/plans via apple_assets.py; Play uses listing.py.
 # Both discovery paths are shared with build-review.sh.
 apple_locales=(); play_locales=()
-while IFS= read -r loc; do apple_locales+=("$loc"); done < <(python3 -I -B "$LIB/apple_assets.py" --locales "$ROOT")
-while IFS= read -r loc; do play_locales+=("$loc"); done < <(python3 -I -B "$LIB/listing.py" play-locales "$ROOT/fastlane")
-apple_default="$ROOT/fastlane/metadata/default"
+while IFS= read -r loc; do apple_locales+=("$loc"); done < "$batch/apple-locales"
+while IFS= read -r loc; do play_locales+=("$loc"); done < "$batch/play-locales"
 apple_present=0; play_present=0
 required_classes=()
 { [ "${#apple_locales[@]}" -gt 0 ] || [ -d "$ROOT/fastlane/screenshots" ]; } && apple_present=1
@@ -135,7 +132,7 @@ if [ "$apple_present" = 1 ]; then
   echo "${B}== Apple App Store ==${Z}"
   for loc in ${apple_locales[@]+"${apple_locales[@]}"}; do
     echo " locale $(basename "$loc"):"
-    if [ -d "$apple_default" ]; then fields apple "$loc" "$apple_default"; else fields apple "$loc"; fi
+    fields apple "$loc"
   done
   fields apple-app "$ROOT/fastlane/metadata"
 
@@ -243,7 +240,7 @@ if [ "$play_present" = 1 ]; then
     fg="$(play_graphic "$img" featureGraphic)"
     if [ -n "$fg" ]; then
       check_ext "$fg"
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 -I -B "$LIB/imginfo.py" "$fg")
+      IFS=$'\t' read -r w h depth ct bytes cls path < "$batch/graphics/${fg#"$ROOT"/}"
       { [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; } \
         && pass "feature graphic 1024x500 24-bit no-alpha" \
         || fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
@@ -252,7 +249,7 @@ if [ "$play_present" = 1 ]; then
     # icon (32-bit PNG with alpha is allowed; max 1 MB)
     ic="$(play_graphic "$img" icon)"
     if [ -n "$ic" ]; then
-      IFS=$'\t' read -r w h depth ct bytes cls path < <(python3 -I -B "$LIB/imginfo.py" "$ic")
+      IFS=$'\t' read -r w h depth ct bytes cls path < "$batch/graphics/${ic#"$ROOT"/}"
       # By content, not just name: a JPEG saved as icon.png is still a JPEG.
       { case "$ic" in *.png) true;; *) false;; esac && [ "$(head -c 4 "$ic" | od -An -tx1 | tr -d ' \n')" = 89504e47 ]; } \
         || fail "icon must be a PNG (Play requires a 32-bit PNG)"

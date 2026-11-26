@@ -78,7 +78,8 @@ def run(script, root, args):
             rel = Path(directory).relative_to(root)
             dirs[:] = [d for d in dirs if d not in (".git", "Pods", "node_modules", "build",
                        "DerivedData", ".expo", "dist", ".dart_tool")
-                       and rel / d not in skip and (rel / d).parts[0] not in TREES
+                       and rel / d not in skip and not d.endswith((".framework", ".xcframework"))
+                       and (rel / d).parts[0] not in TREES
                        and Path(directory) / d != Path(tmp)]
             for name in files:
                 path = rel / name
