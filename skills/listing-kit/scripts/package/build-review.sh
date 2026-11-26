@@ -5,7 +5,7 @@
 # output embedded verbatim. Open the file in any browser; no server needed.
 #
 # Usage: build-review.sh [<app-root>]    (default: current directory)
-# Exit:  0 = wrote listing-review.html, 1 = generation failed, 2 = usage / no fastlane / no python3.
+# Exit:  0 = wrote listing-review.html, 1 = generation failed, 2 = usage / scan error, 3 = credential found.
 # Read-only: never writes into fastlane/.
 set -uo pipefail
 
@@ -15,6 +15,9 @@ ROOT="${1:-.}"
 command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review page." >&2; exit 2; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "${2:-}" != --prepared ]; then
+  exec python3 -I -B "$SELF_DIR/../lib/review_inputs.py" "$SELF_DIR/${BASH_SOURCE[0]##*/}" "$ROOT" "${@:2}"
+fi
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
 # Keep the transcript visible even if the validator exits without a matching verdict.
@@ -25,7 +28,10 @@ if [ ! -f "$VALIDATOR" ]; then
   exit 1
 fi
 val_rc=0
-(cd "$ROOT" && bash "$VALIDATOR" .) >"$VAL_RAW" 2>&1 || val_rc=$?
+bash "$VALIDATOR" "$ROOT" --prepared --review >"$VAL_RAW" 2>&1 || val_rc=$?
+case "$val_rc" in
+  3|4) cat "$VAL_RAW" >&2; [ "$val_rc" = 3 ] && exit 3; exit 2 ;;
+esac
 if ! LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' "$VAL_RAW" > "$VAL_TXT"; then
   echo "Error: failed to capture validation transcript." >&2
   exit 1
@@ -35,11 +41,15 @@ crash=""
 case "$val_rc/$verdict" in
   "0/LISTING VALID"|"1/LISTING HAS FAILURES") ;;
   *) crash="validator crashed (exit $val_rc): missing or inconsistent final verdict"
-     echo "$crash" >&2 ;;
+     echo "$crash" >&2
+     # A crash may precede the validator's scan. Scan before rendering its report.
+     scan_rc=0
+     bash "$SELF_DIR/../lib/secret-scan.sh" "$ROOT/fastlane" "$ROOT/store-assets" "$ROOT/.listing-kit" >/dev/null || scan_rc=$?
+     case "$scan_rc" in 0) ;; 1) exit 3 ;; *) exit 2 ;; esac ;;
 esac
 
 OUT="$ROOT/listing-review.html"
-python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
+python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -49,6 +59,7 @@ import fields as store_fields
 import listing
 import apple_assets
 import specs
+from secret_scan import secret_text
 
 FL = os.path.join(root, "fastlane")
 generated_at = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -67,7 +78,11 @@ def devclass(wh):
     return apple_class(*wh) or f"{wh[0]}×{wh[1]}"
 
 def esc(s):
-    return html.escape(s if s is not None else "")
+    s = s or ""
+    if secret_text(s.encode("utf-8")):
+        print("POTENTIAL SECRET in review text", file=sys.stderr)
+        sys.exit(3)
+    return html.escape(s)
 
 platforms = {}  # name -> {locales:[...], applevel:[...]}
 try:
@@ -272,7 +287,5 @@ page = (f'<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
         f'<script>{JS}</script></body></html>\n')
 
 open(out_path, "w", encoding="utf-8").write(page)
-print(f"Wrote {out_path}")
 PY
-echo "Open it in a browser: $OUT"
 [ -z "$crash" ]

@@ -9,6 +9,9 @@ of which may not exist yet when a locale only has screenshots).
 import os
 import sys
 
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import specs
 from fields import FIELDS
 from imginfo import is_image

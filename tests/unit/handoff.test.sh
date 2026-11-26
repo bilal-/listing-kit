@@ -3,9 +3,7 @@
 
 SUT="$SCRIPTS/handoff/handoff.py"
 assert_no_file() { if [ -e "$1" ]; then fail "should not exist: $1"; else pass "absent: ${1##*/}"; fi; }
-T="$(mktemp -d)"; [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }
-T="$(cd "$T" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+new_tempdir T
 A="$T/app"; S="$A/fastlane/screenshots/en-US"; M="$A/fastlane/metadata"; P="$M/android/en-US"
 mkdir -p "$S" "$M/en-US" "$M/default" "$P/images/phoneScreenshots" "$P/images/tenInchScreenshots" "$P/changelogs" "$A/store-assets/apple/en-US"
 fake_png "$S/01_home_iphone-medium.png" 1206 2622
@@ -116,4 +114,5 @@ python3 "$(dirname "${BASH_SOURCE[0]}")/handoff_cases.py"
 assert_eq 0 "$?" "handoff regressions"
 
 assert_eq 1 "${PYTHONDONTWRITEBYTECODE:-}" "test helpers disable Python bytecode"
+remove_fixture "$T"
 summary

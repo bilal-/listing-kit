@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 SUT="$SCRIPTS/capture/capture-ios.sh"
-TMP="$(mktemp -d)"
+new_tempdir TMP
 new_stubdir
 export CAPTURE_FIXTURE="$TMP/source.png" CAPTURE_VARIATION=0.1
 fake_png "$CAPTURE_FIXTURE" 1398 2034

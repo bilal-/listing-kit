@@ -6,7 +6,7 @@ IMGINFO="$SCRIPTS/lib/imginfo.py"
 
 png() { fake_png "$1" "$2" "$3" 8 "${4:-6}"; }   # <path> <w> <h> [colortype=6]
 
-TMP="$(mktemp -d)"
+new_tempdir TMP
 
 it "exits 2 with no args"
 OUT="$(bash "$SUT" 2>&1)"; RC=$?

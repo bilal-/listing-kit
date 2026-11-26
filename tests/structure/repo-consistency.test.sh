@@ -16,6 +16,8 @@ assert_eq "listing-kit" "$skill_name" "SKILL.md frontmatter name"
 assert_eq "$skill_name" "$plugin_name" "plugin.json matches skill"
 assert_eq "$skill_name" "$mkt_name" "marketplace matches skill"
 
+it "skill VERSION matches the canonical plugin version"
+assert_eq "$(json_get "$ROOT/.claude-plugin/plugin.json" version)" "$(cat "$SKILL_DIR/VERSION")"
 # ---- the version shown to people matches the manifest ----
 it "README version badge matches plugin.json"
 plugin_version="$(json_get "$ROOT/.claude-plugin/plugin.json" version)"
@@ -100,6 +102,6 @@ assert_contains "$SK" "Do not rewrite a good description"
 
 it "SKILL.md states git repos install the review refresh hook"
 assert_contains "$SK" 'run `scripts/package/install-review-hook.sh`'
-assert_contains "$SK" 'The hook watches staged changes to `fastlane/**`, `store-assets/**`, `.listing-kit/asset-plan.json`, `.listing-kit/flows/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app.'
+assert_contains "$SK" 'The hook watches staged changes to `fastlane/**`, `store-assets/**`, files under `.listing-kit/**`, root-level `app.json` and `app.config.*`, and app-owned `*.pbxproj` or `Info.plist` files.'
 
 summary

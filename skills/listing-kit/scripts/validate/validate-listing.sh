@@ -12,6 +12,9 @@ ROOT="${1:-.}"
 command -v python3 >/dev/null 2>&1 || { echo "Need python3 to validate the listing." >&2; exit 2; }
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$SELF_DIR/../lib"
+if [ "${2:-}" != --prepared ]; then
+  exec python3 -I -B "$LIB/review_inputs.py" "$SELF_DIR/validate-listing.sh" "$ROOT" "${@:2}"
+fi
 
 if [ -t 1 ]; then G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; B=$'\033[1m'; Z=$'\033[0m'; else G=; R=; Y=; B=; Z=; fi
 FAIL=0; WARN=0; PASS=0
@@ -19,16 +22,44 @@ pass(){ PASS=$((PASS+1)); printf '  %s✓%s %s\n' "$G" "$Z" "$1"; }
 fail(){ FAIL=$((FAIL+1)); printf '  %s✗%s %s\n' "$R" "$Z" "$1"; }
 warn(){ WARN=$((WARN+1)); printf '  %s!%s %s\n' "$Y" "$Z" "$1"; }
 
+# Scan before evaluating copy or plans, whose diagnostics may quote their values.
+if [ "${LK_REVIEW_NAME_FAILURES:-0}" -gt 0 ]; then
+  fail "POTENTIAL SECRET in listing filename: [redacted path] ($LK_REVIEW_NAME_FAILURES excluded)"
+fi
+if [ "${LK_REVIEW_DEMO_FAILURES:-0}" -gt 0 ]; then
+  fail "demo_password.txt: keep the demo password out of the repo; supply it via the environment at upload"
+fi
+scan_rc=0
+bash "$LIB/secret-scan.sh" "$ROOT/fastlane" "$ROOT/store-assets" "$ROOT/.listing-kit" || scan_rc=$?
+if [ "$scan_rc" != 0 ]; then
+  echo "LISTING HAS FAILURES"
+  # The review builder needs to distinguish unsafe inputs from listing-rule failures.
+  if [ "${3:-}" = --review ]; then
+    [ "$scan_rc" = 1 ] && exit 3
+    exit 4
+  fi
+  exit 1
+fi
+pass "secret scan: clean"
+
 # Tab-separated facts for PNG/JPEG files (extension case-insensitive):
 #   W H DEPTH COLORTYPE BYTES APPLE_CLASS DECODE_STATUS PATH
+batch="$(mktemp -d)" || exit 2
+trap 'rm -rf -- "$batch"' EXIT
+if ! python3 -I -B "$LIB/validation_rows.py" "$ROOT" "$batch"; then
+  fail "could not collect listing validation rows"
+  echo "LISTING HAS FAILURES"
+  exit 1
+fi
 imginfo_out=""
-dir_img_files=()
 im_unavailable=0
 
 run_imginfo(){ # label file...
   local label="$1"; shift
   local rc=0
-  imginfo_out="$(python3 "$LIB/imginfo.py" --validate "$@")" || rc=$?
+  local paths=() path
+  for path in "$@"; do paths+=("$batch/graphics/${path#"$ROOT"/}"); done
+  imginfo_out="$(cat "${paths[@]}")" || rc=$?
   if [ "$rc" != 0 ]; then
     fail "could not inspect images for $label (imginfo.py exit $rc)"
     imginfo_out=""
@@ -48,14 +79,9 @@ record_decode(){ # status basename
 }
 
 dir_images(){ # label dir
-  local label="$1" dir="$2" f
-  dir_img_files=()
-  imginfo_out=""
-  for f in "$dir"/*; do
-    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && dir_img_files+=("$f");; esac
-  done
-  [ "${#dir_img_files[@]}" -gt 0 ] || return 0
-  run_imginfo "$label" "${dir_img_files[@]}"
+  local dir="${2%/}"
+  imginfo_out="$(cat "$batch/shots/${dir#"$ROOT"/}/rows")" || { fail "could not inspect $1"; return 1; }
+
 }
 
 # fastlane globs *.png / *.jpg / *.jpeg; on case-sensitive filesystems (Linux CI)
@@ -65,14 +91,12 @@ check_ext(){ # path
 }
 
 # Check every copy field of one locale against the shared table in lib/fields.py.
-fields(){ # store locale-dir [fallback-dir]
-  local level msg out rc=0
-  out="$(python3 "$LIB/fields.py" "$@")" || rc=$?
+fields(){ # store locale-dir
+  local level msg
   while IFS=$'\t' read -r level msg; do
     [ -n "$level" ] || continue
     case "$level" in PASS) pass "$msg";; WARN) warn "$msg";; *) fail "$msg";; esac
-  done <<<"$out"
-  [ "$rc" = 0 ] || fail "could not check copy fields in $2 (fields.py exit $rc)"
+  done < "$batch/$1/${2#"$ROOT"/}/rows"
 }
 
 # Does the app support iPad (→ iPad screenshots REQUIRED on the App Store)?
@@ -85,7 +109,7 @@ fields(){ # store locale-dir [fallback-dir]
 # Prints "True"/"False". Prunes node_modules/Pods/build so it stays fast on real repos.
 supports_ipad(){
   case "${LK_SUPPORTS_IPAD:-}" in 1) echo True; return;; 0) echo False; return;; esac
-  python3 - "$1" <<'PY2'
+  python3 -I -B - "$1" <<'PY2'
 import sys,os,glob,json,re,plistlib
 root=sys.argv[1]
 def expo():
@@ -121,34 +145,17 @@ print('True' if (expo() or native()) else 'False')
 PY2
 }
 
-echo "${B}listing-kit — validating: $ROOT${Z}"
+display_root="${LK_REVIEW_DISPLAY_ROOT:-$ROOT}"
+echo "${B}listing-kit — validating: $display_root${Z}"
 
 # Scope to the store(s) actually present, so a single-store listing (e.g. Play
 # only) is not failed for the store it never targeted.
 # Apple presence + locales come from apple_assets.py; Play uses listing.py.
 # Both discovery paths are shared with build-review.sh.
 apple_locales=(); play_locales=()
-apple_loc_rc=0; apple_det_rc=0; play_loc_rc=0
-apple_loc_out="$(python3 "$LIB/apple_assets.py" --locales "$ROOT")" || apple_loc_rc=$?
-[ "$apple_loc_rc" = 0 ] || fail "could not discover Apple locales (apple_assets.py exit $apple_loc_rc)"
-while IFS= read -r loc; do
-  [ -n "$loc" ] && apple_locales+=("$loc")
-done <<<"$apple_loc_out"
-
-apple_present=0
-apple_det_out="$(python3 "$LIB/apple_assets.py" --has-apple "$ROOT")" || apple_det_rc=$?
-if [ "$apple_det_rc" != 0 ]; then
-  fail "could not detect Apple listing (apple_assets.py exit $apple_det_rc)"
-elif [ "$apple_det_out" = 1 ]; then
-  apple_present=1
-fi
-
-play_loc_out="$(python3 "$LIB/listing.py" play-locales "$ROOT/fastlane")" || play_loc_rc=$?
-[ "$play_loc_rc" = 0 ] || fail "could not discover Google Play locales (listing.py exit $play_loc_rc)"
-while IFS= read -r loc; do
-  [ -n "$loc" ] && play_locales+=("$loc")
-done <<<"$play_loc_out"
-
+while IFS= read -r loc; do apple_locales+=("$loc"); done < "$batch/apple-locales"
+while IFS= read -r loc; do play_locales+=("$loc"); done < "$batch/play-locales"
+apple_present="$(cat "$batch/apple-present")"
 apple_default="$ROOT/fastlane/metadata/default"
 play_present=0
 required_classes=()
@@ -220,7 +227,7 @@ fi
 
 # Validate separate creative assets and the user's persisted Apple upload plan.
 asset_rc=0
-asset_result="$(python3 "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})" || asset_rc=$?
+asset_result="$(python3 -I -B "$LIB/apple_assets.py" "$ROOT" ${required_classes[@]+"${required_classes[@]}"})" || asset_rc=$?
 [ "$asset_rc" = 0 ] || fail "could not validate Apple assets (apple_assets.py exit $asset_rc)"
 while IFS=$'\t' read -r level msg; do
   [ -n "$level" ] || continue
@@ -237,7 +244,7 @@ fi
 play_shots(){ # dir label
   local w h depth ct bytes cls dec path base lo hi n=0 big=0 dec_ok=1
   dir_images "$2 screenshots" "$1" || return
-  [ "${#dir_img_files[@]}" -gt 0 ] || return
+  [ -n "$imginfo_out" ] || return
   while IFS=$'\t' read -r w h depth ct bytes cls dec path; do
     [ -n "$w" ] || continue
     n=$((n+1)); base="${path##*/}"; check_ext "$path"
@@ -339,20 +346,9 @@ if [ "$im_unavailable" = 1 ]; then
 fi
 
 # ---------------- scope notice ----------------
-if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ] && [ "$apple_det_rc" = 0 ] && [ "$apple_loc_rc" = 0 ] && [ "$play_loc_rc" = 0 ]; then
-  fail "no App Store or Google Play listing was found under $ROOT — nothing to validate"
+if [ "$apple_present" = 0 ] && [ "$play_present" = 0 ]; then
+  fail "no App Store or Google Play listing was found under $display_root — nothing to validate"
 fi
-
-# ---------------- secrets ----------------
-scan(){ # dir label found-msg
-  local rc=0; bash "$LIB/secret-scan.sh" "$1" >/dev/null 2>&1 || rc=$?
-  case "$rc" in 0) pass "$2: clean";; 1) fail "$2: $3";; *) fail "$2: could not complete (exit $rc)";; esac
-}
-[ -d "$ROOT/fastlane" ] && scan "$ROOT/fastlane" "secret scan" "credentials found in committed tree"
-# Committed Maestro flows are recipes, not secrets — they must reference creds, never inline them.
-[ -d "$ROOT/store-assets" ] && scan "$ROOT/store-assets" "creative asset secret scan" "credentials found in creative assets"
-[ -d "$ROOT/.listing-kit/flows" ] && scan "$ROOT/.listing-kit/flows" "flow secret scan" "credentials inlined in a committed Maestro flow"
-[ -f "$ROOT/.listing-kit/asset-plan.json" ] && scan "$ROOT/.listing-kit/asset-plan.json" "asset plan secret scan" "credentials found in asset-plan.json"
 
 echo "${B}── ${PASS} passed · ${WARN} warnings · ${FAIL} failures ──${Z}"
 [ "$FAIL" -eq 0 ] && { echo "${G}LISTING VALID${Z}"; exit 0; } || { echo "${R}LISTING HAS FAILURES${Z}"; exit 1; }

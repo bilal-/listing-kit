@@ -13,6 +13,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import specs
 from imginfo import APPLE_SIZES, EXTENSIONS, apple_class, image_info, validate_many
 from listing import (apple_locales as listing_apple_locales, apple_screenshot_dirs,
@@ -142,7 +145,7 @@ def validate(root, required_displays=()):
         elif not struct_ok:
             results.append(("FAIL", "Apple header {}: expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha".format(label)))
         elif dec.startswith("could not decode:"):
-            results.append(("WARN", "Apple header {}: {}".format(label, dec)))
+            results.append(("WARN", "Apple header {}: {} ({}x{} RGB/no-alpha)".format(label, dec, w, h)))
         elif dec == "bad":
             results.append(("FAIL", "Apple header {}: image failed full decode".format(label)))
         else:

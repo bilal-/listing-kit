@@ -2,8 +2,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/lib/imginfo.py"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+new_tempdir TMP
 
 info4() { python3 "$SUT" "$1" | cut -f1-4; }
 dec1()  { python3 "$SUT" --decode "$1" | cut -f1; }
@@ -367,7 +366,7 @@ assert_eq "unavailable" "$(LK_NO_IMAGEMAGICK=1 dec1 "$TMP/good.png")" "LK_NO_IMA
 
 # Empty PATH stub (only python3 symlinked so no magick/convert/identify exists)
 PY_BIN="$(command -v python3)"
-NOIM_BIN="$(mktemp -d)"; STUB_DIRS+=("$NOIM_BIN")
+new_tempdir NOIM_BIN
 ln -s "$PY_BIN" "$NOIM_BIN/python3"
 assert_eq "unavailable" "$(PATH="$NOIM_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" | cut -f1)" "PATH without IM returns unavailable"
 
@@ -397,7 +396,7 @@ assert_contains "$DEC_MULTI" "$(printf 'ok\t%s' "$TMP/good.png")" "magick stub o
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/warn.png")" "incomplete scan warning treated as bad"
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/bad.png")" "magick exit 1 treated as bad"
 
-IM6_BIN="$(mktemp -d)"; STUB_DIRS+=("$IM6_BIN")
+new_tempdir IM6_BIN
 cp "$TMP/good.png" "$TMP/good two.png"
 for decoder in convert identify; do
   cat > "$IM6_BIN/$decoder" <<'EOF'

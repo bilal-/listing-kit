@@ -2,7 +2,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 SUT="$SCRIPTS/doctor/iphone-duo.py"
 PYTHON="$(command -v python3)"
-T="$(mktemp -d)"
+new_tempdir T
 export DUO_FIXTURES="$T" DUO_SDK=27.1 DUO_FAIL=0
 new_stubdir
 cat > "$STUB_BIN/xcrun" <<'SH'
