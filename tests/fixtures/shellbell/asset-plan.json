@@ -1,0 +1,13 @@
+{
+  "apple": {
+    "en-US": {
+      "screenshots": {
+        "iPhone Dynamic Island (large display)": 8,
+        "iPhone Dynamic Island (medium display)": 8,
+        "iPad 13\"": 8,
+        "iPhone Duo": 8
+      },
+      "headers": ["header-16x9.png", "header-21x9.png"]
+    }
+  }
+}
