@@ -1,0 +1,12 @@
+appId: com.example.recipebox.ios
+---
+- launchApp:
+    clearState: true
+    arguments:
+      recipeBoxState: demo
+- tapOn:
+    id: recipe_lemon_herb_pasta
+- assertVisible:
+    id: first_ingredient
+- assertVisible:
+    id: back
