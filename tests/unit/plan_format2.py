@@ -1,6 +1,7 @@
 """Format 2 contract and regressions from the second plan review."""
 import datetime
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -216,6 +217,7 @@ class FormatTwo(unittest.TestCase):
         result = cli("manifest")
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         manifest = json.loads(result.stdout)
+        self.assertEqual(manifest["manifest"], 1)
         first, _, last = manifest["outputs"]
         expected = {"kind": "screenshot", "targetId": "phone", "screenId": "one",
                                  "localeId": "en-US", "storeCode": "en-US", "store": "play", "slotId": "phone",
@@ -248,8 +250,8 @@ class FormatTwo(unittest.TestCase):
         self.assertIn(bundled, plan.input_files(self.data, self.rules, self.app))
         self.assertEqual(bundled.read_bytes()[:4], b"\x00\x01\x00\x00")
 
-    def record(self, value):
-        (self.app / ".listing-kit/outputs.json").write_text(json.dumps(value))
+    def record(self, files):
+        (self.app / ".listing-kit/outputs.json").write_text(json.dumps({"format": 1, "files": files}))
 
     def test_owned_outputs_only(self):
         current = self.manifest()["outputs"][0]["outputPath"]
@@ -261,10 +263,19 @@ class FormatTwo(unittest.TestCase):
         self.record([current, owned, "outside.png", "fastlane/screenshots/gone.png"])
         self.assertEqual(self.check(), [("WARN", owned, "stale output")])
         self.assertEqual(self.manifest()["stale"], [owned])
-        for value, field, msg in (({}, "", "expected an array"), ([3], "[0]", "expected an app-relative file path"),
-                                  (["../escape"], "[0]", "expected an app-relative file path")):
+
+    def test_invalid_inventory(self):
+        for value, field, msg in (
+                ([], "", "expected an object"),
+                ({"files": []}, ".format", "expected inventory format 1"),
+                ({"format": 2, "files": []}, ".format", "expected inventory format 1"),
+                ({"format": True, "files": []}, ".format", "expected inventory format 1"),
+                ({"format": 1}, ".files", "expected an array"),
+                ({"format": 1, "files": "x"}, ".files", "expected an array"),
+                ({"format": 1, "files": [3]}, ".files[0]", "expected an app-relative file path"),
+                ({"format": 1, "files": ["../escape"]}, ".files[0]", "expected an app-relative file path")):
             with self.subTest(value=value):
-                self.record(value)
+                (self.app / plan.RECORD).write_text(json.dumps(value))
                 self.assertEqual(self.check(), [("ERROR", ".listing-kit/outputs.json" + field, msg)])
 
     def test_owned_path_through_directory_alias(self):
@@ -273,7 +284,7 @@ class FormatTwo(unittest.TestCase):
         current.touch()
         alias = current.parents[3] / "old-locale"
         alias.symlink_to(current.parents[2])
-        self.record([str(alias.relative_to(self.app) / "images" / current.parent.name / current.name)])
+        self.record([(alias.relative_to(self.app) / "images" / current.parent.name / current.name).as_posix()])
         self.assertEqual(self.check(), [])
 
     def test_inventory_cannot_claim_through_escaping_tree(self):
@@ -367,6 +378,23 @@ class FormatTwo(unittest.TestCase):
             screen = next(s for s in self.data["screens"] if s["id"] == r["screenId"])
             self.assertEqual(plan.output_name(self.data, target, screen, self.rules, r["localeId"]), Path(r["outputPath"]).name)
 
+    def test_capture_orientation_from_size(self):
+        for size, orientation in (([1080, 1920], "portrait"), ([1920, 1080], "landscape")):
+            with self.subTest(size=size):
+                self.target["size"] = size
+                job = self.manifest()["captures"][0]
+                self.assertEqual(job["orientation"], orientation)
+                self.assertEqual(job["store"], "play")
+
+    def test_flow_paths_match(self):
+        (self.repo / ".git").mkdir()
+        self.data["screens"][0]["flows"] = {"play": "repo:flows/override.yaml"}
+        m = self.manifest()
+        jobs = {j["rawPath"]: j["flowPath"] for j in m["captures"]}
+        self.assertEqual([r["flowPath"] for r in m["outputs"]], ["../../flows/override.yaml", self.flow])
+        for row in m["outputs"]:
+            self.assertEqual(jobs[row["rawPath"]], row["flowPath"])
+
     def test_consumer_manifest(self):
         self.data = json.loads((FIXTURES / "plan-split.json").read_text())
         m = self.manifest()
@@ -379,9 +407,9 @@ class FormatTwo(unittest.TestCase):
         jobs = m["captures"]
         self.assertEqual(len(jobs), 8)
         self.assertEqual(len({j["rawPath"] for j in jobs}), 8)
-        self.assertEqual(jobs[0], dict(targetId="iphone", screenId="one", localeId="en-US", deviceLocale="en-US",
-                         flowPath=str(self.app / self.flow), demoEntry=None, appId="example.ios", deviceType="iPhone 17 Pro",
-                         display=None, orientation=None, nativeSize=[1206, 2622], runtime=None,
+        self.assertEqual(jobs[0], dict(targetId="iphone", store="apple", screenId="one", localeId="en-US", deviceLocale="en-US",
+                         flowPath=self.flow, demoEntry=None, appId="example.ios", deviceType="iPhone 17 Pro",
+                         display=None, orientation="portrait", nativeSize=[1206, 2622], runtime=None,
                          rawPath=".listing-kit/raw/iphone/en-US/one.png"))
         self.assertEqual([j["deviceLocale"] for j in jobs if j["targetId"] == "phone" and j["screenId"] == "one"],
                          ["en-US", "zh-CN", "iw-IL"])
@@ -396,15 +424,16 @@ class FormatTwo(unittest.TestCase):
         m = self.manifest()
         self.assertEqual(m["trees"]["apple"], dict(fastlaneDir="publish", metadata="copy", screenshots="shots", storeAssets="art/apple"))
         self.assertEqual(m["app"]["apple"], "new.ios")
-        self.assertEqual(m["captures"][0], dict(jobs[0], **target["capture"], flowPath=str(self.repo / "alt.yaml"),
-                                                 demoEntry=str(self.app / self.flow)))
-        self.data["style"] = dict(mode="framed", template="base", palette={"ink": "black"}, bezel={"color": "silver"},
+        self.assertEqual(m["captures"][0], dict(jobs[0], **target["capture"], flowPath="../../alt.yaml",
+                                                 demoEntry=self.flow))
+        self.data["style"] = dict(mode="framed", template="base", fit="contain", palette={"ink": "black"}, bezel={"color": "silver"},
                                   logo="repo:mark.png", fonts={"default": {"headline": ["bundled:Inter"], "detail": ["base.ttf"]}})
         target["style"] = dict(template="target", fit="cover", palette={"detail": "grey"})
         screen["style"] = dict(template="screen", bezel={"bleed": True}, fonts={"zh": {"detail": ["repo:zh.ttf"]}})
         screen.update(detail={"zh": "詳"}, altText={"en-US": ""})
         self.data["screens"].append(dict(id="panel", panel=dict(headline={"en-US": "End"}, rows=[
             dict(label={"zh": "甲"}, text={"en-US": "Bye"})])))
+        self.data["graphics"]["apple"]["header-16x9"]["template"] = "header"
         self.data["graphics"]["play"] = {"icon": {"from": "repo:icon.png"}}
         m = self.manifest()
         row = next(r for r in m["outputs"] if (r["targetId"], r["screenId"], r["localeId"]) == ("iphone", "one", "zh"))
@@ -413,13 +442,23 @@ class FormatTwo(unittest.TestCase):
         self.assertEqual(row["text"], dict(caption=string("Open the app", True), detail=string("詳"), altText=string("", True)))
         bundled = Path(plan.__file__).resolve().parents[2] / "assets/fonts/Inter.ttf"
         self.assertEqual(row["style"], dict(mode="framed", template="screen", fit="cover", palette=dict(ink="black", detail="grey"),
-                         bezel=dict(color="silver", bleed=True), logo=str(self.repo / "mark.png"),
-                         fonts={"headline": [str(bundled)], "detail": [str(self.repo / "zh.ttf")]}))
+                         bezel=dict(color="silver", bleed=True), logo="../../mark.png",
+                         fonts={"headline": [Path(os.path.relpath(bundled, self.app)).as_posix()], "detail": ["../../zh.ttf"]}))
         panel = next(r for r in m["outputs"] if r["screenId"] == "panel" and r["localeId"] == "zh")
         self.assertEqual(panel["text"]["panel"], dict(headline=string("End", True), rows=[dict(label=string("甲"), text=string("Bye", True))]))
         self.assertEqual(len(m["captures"]), 8)
         graphic = next(r for r in m["outputs"] if r["slotId"] == "icon")
-        self.assertEqual(graphic["from"], str(self.repo / "icon.png"))
+        header = next(r for r in m["outputs"] if r["slotId"] == "header-16x9")
+        self.assertEqual(header["template"], "header")
+        self.assertEqual(header["style"]["template"], "header")
+        self.assertIsNone(graphic["template"])
+        self.assertIsNone(graphic["style"]["template"])
+        self.assertIsNone(graphic["style"]["fit"])
+        self.assertEqual(graphic["style"]["bezel"], {})
+        self.assertEqual(graphic["style"]["palette"], {"ink": "black"})
+        self.assertEqual(graphic["style"]["logo"], row["style"]["logo"])
+        self.assertEqual(graphic["style"]["fonts"], {"headline": row["style"]["fonts"]["headline"], "detail": ["base.ttf"]})
+        self.assertEqual(graphic["from"], "../../icon.png")
         self.assertEqual(graphic["label"], next(g["label"] for g in self.rules["stores"]["play"]["graphics"] if g["id"] == "icon"))
         self.assertEqual(row["label"], specs.slot(self.rules, "apple", "iphone-di-medium")["label"])
 
@@ -444,7 +483,7 @@ class FormatTwo(unittest.TestCase):
             (panel["headline"], "en-US", "Next", ("outputs", 2, "text", "panel", "headline")),
             (icon, "from", "new.png", ("outputs", 4, "from")),
         ]
-        for key, value in dict(appId="beta", deviceType="other", display="outer", orientation="portrait",
+        for key, value in dict(appId="beta", deviceType="other", display="outer", orientation="landscape",
                                nativeSize=[100, 200], runtime="24").items():
             changes.append((self.target["capture"], key, value, ("captures", 0, key)))
         for key in ("caption", "detail", "altText"):

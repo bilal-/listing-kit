@@ -10,6 +10,7 @@ import difflib
 from fractions import Fraction
 from functools import partial
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -606,7 +607,9 @@ class _Checker:
                     template=style["template"], label=rule["label"])
 
     def resolved(self, ref):
-        return str(self.files[ref][1]) if ref is not None else None
+        if ref is None:
+            return None
+        return Path(os.path.relpath(self.files[ref][1], self.app_root)).as_posix()
 
     def output_records(self, data, trees):
         paths = {s["id"]: f"screens[{i}]" for i, s in enumerate(data["screens"])}
@@ -620,21 +623,25 @@ class _Checker:
                 folder = tree["screenshots"] / code / "images" / slot["folder"]
             else:
                 folder = tree["screenshots"] / code / slot.get("folder", "")
-            output = str(folder / _filename(index, t, s, slot))
+            output = (folder / _filename(index, t, s, slot)).as_posix()
             if store == "apple" and upload == "fastlane" and any(candidate["id"] == "vision-pro"
                     for candidate in specs.apple_slots_for_size(self.rules, *t["size"])):
                 selected = specs.apple_slot_for_file(self.rules, *t["size"], output)
                 if selected["id"] != slot["id"]:
                     self.error(f"{tid}/{sid}", f"Apple upload path selects {selected['id']} instead of {slot['id']}")
             capture = locale if t.get("captureLocales") == "all" else primary
-            flow = flow_for(s, t)
+            flow = self.resolved(flow_for(s, t))
             raw = raw_path(t, s, capture["id"]) if flow else None
             if flow and raw not in self.captures:
                 settings = dict.fromkeys(self.capture)
                 settings.update(slot.get("capture", {}), appId=self.ids[store])
                 settings.update(t.get("capture", {}))
-                self.captures[raw] = dict(targetId=tid, screenId=sid, localeId=capture["id"], deviceLocale=capture[store],
-                                          flowPath=self.resolved(flow), demoEntry=self.resolved(self.demo), rawPath=raw, **settings)
+                if settings["orientation"] is None:
+                    width, height = t["size"]
+                    settings["orientation"] = "landscape" if width > height else "portrait"
+                self.captures[raw] = dict(targetId=tid, store=store, screenId=sid, localeId=capture["id"],
+                                          deviceLocale=capture[store], flowPath=flow, demoEntry=self.resolved(self.demo),
+                                          rawPath=raw, **settings)
             style = _style(dict(base, template=slot.get("defaultTemplate")), data.get("style", {}),
                            t.get("style", {}), s.get("style", {}))
             if locale is primary and "style" in s and style["mode"] != "raw" and slot["framing"] == "forbidden":
@@ -643,12 +650,14 @@ class _Checker:
                        localeId=loc, storeCode=code, captureLocaleId=capture["id"] if flow else None, size=t["size"],
                        rawPath=raw, flowPath=flow, outputPath=output, upload=upload, draft=t.get("draft", False) or s.get("draft", False),
                        **self.render_fields(s, paths[sid], loc, style, slot))
+        global_style = data.get("style", {})
+        graphic_base = _style(dict(base, mode="graphic"),
+                              {k: global_style[k] for k in ("palette", "logo", "fonts") if k in global_style})
         for store, entries in data.get("graphics", {}).items():
             rules = {g["id"]: g for g in self.rules["stores"][store]["graphics"]}
             for name, graphic in entries.items():
                 rule = rules[name]
-                style = _style(base, data.get("style", {}), {k: graphic[k] for k in ("palette", "logo", "template") if k in graphic})
-                style["mode"] = "graphic"
+                style = _style(graphic_base, {k: graphic[k] for k in ("palette", "logo", "template") if k in graphic})
                 for locale in _target_locales(self.locales.values(), {"store": store}):
                     code, loc = locale[store], locale["id"]
                     tree = trees[store]
@@ -657,7 +666,7 @@ class _Checker:
                         folder /= "images"
                     yield dict(kind="graphic", targetId=None, screenId=None, slotId=name, index=None, size=rule["size"],
                                store=store, storeCode=code, localeId=loc, rawPath=None, flowPath=None, draft=graphic.get("draft", False),
-                               outputPath=str(folder / (rule["file"] + ".png")), upload=rule["upload"],
+                               outputPath=(folder / (rule["file"] + ".png")).as_posix(), upload=rule["upload"],
                                **{"from": self.resolved(graphic.get("from"))},
                                **self.render_fields(graphic, f"graphics.{store}.{name}", loc, style, rule))
 
@@ -704,12 +713,13 @@ class _Checker:
                 self.error(owner, f"invalid output {name}: {exc}")
         for path in stale:
             (self.error if self.purpose == "publish" else self.warn)(path, "stale output")
-        self.result = dict(app=self.ids, trees={s: {k: str(p) for k, p in tree.items()} for s, tree in trees.items()},
+        self.result = dict(manifest=1, app=self.ids,
+                           trees={s: {k: p.as_posix() for k, p in tree.items()} for s, tree in trees.items()},
                            captures=list(self.captures.values()), outputs=rows, stale=stale)
 
     def recorded(self, trees, planned):
-        """outputs.json is a UTF-8 JSON array of portable, app-relative POSIX file paths
-        successfully written by compose, e.g. ["fastlane/screenshots/en-US/01_home.png"].
+        """outputs.json records the app-relative POSIX paths successfully written by compose,
+        e.g. {"format": 1, "files": ["fastlane/screenshots/en-US/01_home.png"]}.
         Only existing files beneath current metadata, screenshot and store asset roots count.
         Duplicate entries are harmless. No inventory means no ownership. This reader never deletes.
         """
@@ -722,14 +732,21 @@ class _Checker:
                 raise ValueError("expected a regular file")
             self.files[str(RECORD)] = self.app_root / RECORD, record
             with record.open(encoding="utf-8") as stream:
-                names = json_input.read(stream)
+                inventory = json_input.read(stream)
+            if not isinstance(inventory, dict):
+                raise ValueError("expected an object")
+            if type(inventory.get("format")) is not int or inventory["format"] != 1:
+                self.error(f"{RECORD.as_posix()}.format", "expected inventory format 1")
+                return []
+            names = inventory.get("files")
             if not isinstance(names, list):
-                raise ValueError("expected an array")
+                self.error(f"{RECORD.as_posix()}.files", "expected an array")
+                return []
             current = {_fold(p.parent.resolve() / p.name) for p in planned}
             roots = [self.app_root / p for tree in trees.values() for k, p in tree.items() if k != "fastlaneDir"]
             for i, name in enumerate(names):
                 if not isinstance(name, str) or not all(specs.component(p) for p in name.split("/")):
-                    self.error(f"{RECORD}[{i}]", "expected an app-relative file path")
+                    self.error(f"{RECORD.as_posix()}.files[{i}]", "expected an app-relative file path")
                     continue
                 path = self.app_root / name
                 if not any(root in path.parents for root in roots) or _fold(path.parent.resolve() / path.name) in current:
@@ -738,7 +755,7 @@ class _Checker:
                 if self.app_root in parents and any(root.resolve() in parents for root in roots) and path.is_file():
                     stale.add(name)
         except (ValueError, OSError, RuntimeError) as exc:
-            self.error(str(RECORD), str(exc))
+            self.error(RECORD.as_posix(), str(exc))
         return sorted(stale)
 
     def plan(self, data):

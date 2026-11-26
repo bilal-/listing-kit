@@ -2,6 +2,7 @@
 # Tiny zero-dependency assertion + stubbing library for listing-kit tests.
 # Source this from a *.test.sh file, write assertions, end with `summary`.
 set -uo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 
 HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HELPER_DIR/.." && pwd)"

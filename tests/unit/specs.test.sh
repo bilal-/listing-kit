@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+unset PYTHONDONTWRITEBYTECODE
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
+
+it "test helpers suppress bytecode for Python subprocesses"
+assert_eq True "$(python3 -c 'import sys; print(sys.dont_write_bytecode)')"
 
 SPECS="$SCRIPTS/lib/specs.py"
 py() { python3 - "$@"; }
