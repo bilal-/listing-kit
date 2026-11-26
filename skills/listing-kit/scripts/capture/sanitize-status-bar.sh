@@ -52,7 +52,7 @@ case "$platform" in
         | awk '/NotificationRecord\(/ && match($0, / key=[^:]*/) { print substr($0, RSTART + 5, RLENGTH - 5) }' \
         | sort -u \
         | while IFS= read -r key; do
-            "${adb_target[@]}" shell cmd notification snooze --for 3600000 "'$key'" >/dev/null 2>&1 || true
+            "${adb_target[@]}" shell cmd notification snooze --for 3600000 "'$key'" </dev/null >/dev/null 2>&1 || true
           done
     else
       echo "Note: not an emulator; dismiss notifications by hand if any icons remain."

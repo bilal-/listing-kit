@@ -106,7 +106,10 @@ class FormatTwo(unittest.TestCase):
         expected = [("WARN", "screens[0].flow", "flow is outside .listing-kit/flows"),
                     ("WARN", "screens[0].flow", "missing input file: flows/missing.yaml")]
         self.assertEqual(self.check(), expected)
-        self.assertEqual(self.check(purpose="capture"), [expected[0], ("ERROR", *expected[1][1:])])
+        self.data["app"]["demoEntry"] = "missing.ts"
+        self.data["screens"][1]["flows"] = {"apple": ".listing-kit/flows/unused.yaml"}
+        self.assertEqual(self.check(purpose="capture"), [expected[0], (
+            "ERROR", "phone/one", "missing input file: flows/missing.yaml")])
 
     def test_empty_outputs(self):
         self.target.update(slot="seven-inch", size=[1920, 1080])

@@ -76,6 +76,44 @@ Prefer the most direct route that doesn't trigger system UI:
 
 Use `maestro studio` to inspect the live hierarchy and discover labels/ids while authoring.
 
+## Flow recipe for the capture command
+
+The command passes the job's app ID to Maestro in `LK_APP_ID`. `LK_LOCALE`
+is the device locale for this capture (for example, `zh-CN`). `LK_TARGET` and
+`LK_SCREEN` are the IDs from the listing plan. This example passes them to an
+app whose demo entry point accepts those launch arguments. The app or flow
+must apply the locale. Passing a variable alone leaves the device language as it was.
+
+```yaml
+appId: ${LK_APP_ID}
+---
+- launchApp:
+    clearState: true
+    permissions: {all: allow}
+    arguments:
+      demoLocale: ${LK_LOCALE}
+      demoTarget: ${LK_TARGET}
+      demoScreen: ${LK_SCREEN}
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: "My Books"
+```
+
+Use the orientation step in a landscape target's flow. Assert on a populated
+item in the requested locale before the flow ends. The capture command then
+sanitizes the status bar and takes the screenshot. The launch, permission,
+orientation and variable syntax follow Maestro's documentation. **UNVERIFIED
+on device** until spike S5 confirms the grants after state clearing, launch
+arguments and orientation on both platforms. Maestro's expansion of
+`${LK_APP_ID}` in the `appId` header is also **UNVERIFIED** on device.
+A literal `appId` must match the selected job's app ID.
+
+Each Maestro flow has a 600-second timeout. Other capture tools have a
+120-second timeout. Set `LK_CAPTURE_TIMEOUT` or `LK_TOOL_TIMEOUT` in seconds
+to override the corresponding limit. A timeout fails the current job.
+
+[Maestro launchApp](https://docs.maestro.dev/api-reference/commands/launchapp) ·
+[Maestro setOrientation](https://docs.maestro.dev/api-reference/commands/setorientation)
+
 ## Reaching the desired state
 - **Demo / mock mode:** if the app supports it (`--demo`, a mock-data JSON), enable it so screens are populated, not empty.
 - **Mock auth / bypass:** social logins (Google/Apple) often fail on simulators — prioritize a mock-auth or bypass route where one exists. Reference secrets from `.listing-kit/secrets.local` or env; **never inline credentials into a committed flow.**
@@ -84,7 +122,7 @@ Use `maestro studio` to inspect the live hierarchy and discover labels/ids while
   the simulator to **Settings → Multitasking & Gestures → Full Screen Apps** before
   capturing (a three-step Maestro flow against `com.apple.Preferences` does it), and
   relaunch your app afterwards so the status bar doesn't show a "◂ Settings" link.
-- **Permissions:** pre-grant before driving (`scripts/capture/grant-permissions.sh`); dismiss any residual dialog inside the flow.
+- **Permissions:** set them on the flow’s `launchApp` step. For a permission Maestro cannot set, use `scripts/capture/grant-permissions.sh` after clearing state, or handle the system dialog in the flow.
 - **Reject empty states before capturing.** A deep link or fresh launch lands on *whatever state the app currently has* — which is often empty ("No notes yet", an empty list/cart, a zero-results search). An empty/zero screen is the single most common weak store screenshot. After driving to a screen and **before capturing it**, confirm it is actually populated (assert a content element is visible, e.g. `assertVisible` on a real item, not the empty-state text). If it's empty: seed/mock data to fill it, navigate to a populated instance instead, or drop/replace the screen during Curate. Don't ship the empty state just because the route resolved.
 
 ## Persisted flows = rerunnable recipes
@@ -97,10 +135,15 @@ Maestro targets Flutter via the **semantics tree**. Canvas/custom-painted
 screens without semantics expose nothing to tap — fall through to manual-assist.
 
 ## Manual-assist fallback
-When Maestro can't reach a state (canvas/game UIs, missing semantics,
-unscriptable auth): instruct the user to navigate manually and signal when to
-capture. **Under `--non-interactive`, skip and mark the screen "Missing"** in the
-report rather than hanging.
+For a screen Maestro cannot reach, run the capture command for that screen in
+manual mode. Plan validation still requires its saved flow.
+
+```sh
+python3 skills/listing-kit/scripts/capture/capture.py <app-root> --target <id> --screen <id> --manual
+```
+
+Navigate to the requested state and press Enter at the prompt. In a
+non-interactive listing run, skip manual assist and mark the screen "Missing".
 
 ## Why not Detox / XCUITest / Espresso / integration_test?
 Each is locked to one stack and/or one OS, so they'd multiply the hardest part
