@@ -10,7 +10,7 @@
 body{justify-content:center;padding:14vh 16vw}
 .header{width:100%;display:flex;flex-direction:column;align-items:center;gap:4.5vh}
 .brand{display:flex;align-items:center;justify-content:center;gap:3vh}
-.brand:empty,.name:empty{display:none}
+.brand:empty,.brand:has(> .name:only-child:empty),.name:empty{display:none}
 .brand img{display:block;max-height:16vh;max-width:40vw}
 .name{font-family:var(--font-headline);font-size:7vh;font-weight:700}
 .headline,.detail{text-align:center}

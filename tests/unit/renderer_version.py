@@ -16,7 +16,8 @@ RECORD_COMMAND = "python3 tests/unit/renderer_version.py --record"
 
 
 def snapshot():
-    sources = [COMPOSE / name for name in ("render.py", "cdp.py", "pixels.py", "fontcheck.py")]
+    sources = [COMPOSE / name for name in ("compose.py", "render.py", "cdp.py", "pixels.py", "fontcheck.py")]
+    sources.extend(KIT / "scripts/lib" / name for name in ("imginfo.py", "template_values.py"))
     templates = KIT / "templates"
     sources.extend(sorted(templates.glob("*.html")))
     sources.append(templates / "base.css")
@@ -43,7 +44,7 @@ def main():
         print("Renderer sources changed: " + ", ".join(changed), file=sys.stderr)
     if current["RENDERER_VERSION"] != recorded["RENDERER_VERSION"]:
         print("RENDERER_VERSION changed. Record the new version and hashes.", file=sys.stderr)
-    elif any(p.startswith("scripts/compose/") for p in changed):
+    elif any(p.startswith("scripts/") for p in changed):
         print("Bump RENDERER_VERSION in compose.py if renderer code changed pixels, then re-record. "
               "If pixels are unchanged, just re-record.", file=sys.stderr)
     if any(p.startswith("templates/") for p in changed):

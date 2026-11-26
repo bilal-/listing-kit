@@ -7,14 +7,17 @@
   ],
   "sha256": {
     "scripts/compose/cdp.py": "c909a9322ca9aa0dc3c5e13da735bd3d11ec6db9655f4ddf9d333f123cb0bc6e",
+    "scripts/compose/compose.py": "d0e16f345450bfc56b8aee9bfefe0eaee534ac5c01998a31374c65a9182768d3",
     "scripts/compose/fontcheck.py": "e288399c3e6b29b16cc612d5222fe8b22a642a908fddc209d0233a3d6df4b5ee",
     "scripts/compose/pixels.py": "f02108aac92f30d3b10ed91914e9c983d84fdce2e043f97e6fd646714c4e2eb3",
     "scripts/compose/render.py": "d5d8a40e41bcfb222d9f369ea60d3d137fd4c55e6a8e79ca6a9ed6ae997643ff",
-    "templates/band.html": "e17e6ec1592ca9bb769aef478de9b2a0620382daae3c7533b1e3e1c3067b134a",
+    "scripts/lib/imginfo.py": "88dd4f18a9a141c05bfc91369ac703add0ed7af6c44b713644ac62953ff1f838",
+    "scripts/lib/template_values.py": "f1e260f1aaa7fce34e57c0c40a52258574f90cb44a08b938761892d469dc85fc",
+    "templates/band.html": "b566620d994f0cd1faaf8e41f0d3d2b3e8525b19590b1d9b2b14b6904631f84d",
     "templates/base.css": "061e4d49e55852a4c4abc109f908158377bd91182288e616c0b97cb1193dc7f2",
     "templates/caption-top.html": "2759ec6d2a46d6233ecfb282fd6489d72cfd810a99bcac948790336d2509eced",
     "templates/feature.html": "b5ca09d36c43ab307240cf9bc7dbe117a5351b78d827025ea305550229f96d39",
-    "templates/header.html": "194c9ee05a365598c00265f30e1d4d10a9f7e3211346ca1904ca91d93b88536e",
+    "templates/header.html": "1351d9734b5cb3d67e55d6f21ebcb7a42736033cf73fd089f6296946ae120403",
     "templates/panel.html": "e35a9ad3471043307d759559d11edda2865ae86f698b0aef6c030ceebebd5052"
   }
 }
