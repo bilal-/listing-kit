@@ -33,7 +33,7 @@ fi
 verdict="$(awk 'NF {last=$0} END {print last}' "$VAL_TXT")"
 crash=""
 case "$val_rc/$verdict" in
-  "0/LISTING VALID"|"1/LISTING HAS FAILURES"|"1/"*"nothing to validate"*) ;;
+  "0/LISTING VALID"|"1/LISTING HAS FAILURES") ;;
   *) crash="validator crashed (exit $val_rc): missing or inconsistent final verdict"
      echo "$crash" >&2 ;;
 esac

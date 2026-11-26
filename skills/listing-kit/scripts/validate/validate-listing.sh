@@ -300,10 +300,13 @@ play_graphics(){ # images-dir type
         { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
         [ "$bytes" -le 1048576 ] || fail "icon over 1 MB ($bytes bytes)" ;;
       tvBanner)
-        if [ "$w" = 1280 ] && [ "$h" = 720 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
-          [ "$decoded" = 1 ] && [ "${#files[@]}" -eq 1 ] && pass "TV banner 1280x720 24-bit no-alpha"
+        # A grayscale JPEG is a valid JPEG; only alpha and other depths are refused.
+        banner_ok=0
+        case "$f" in *.[pP][nN][gG]) [ "$ct" = 2 ] && banner_ok=1;; *) { [ "$ct" = 2 ] || [ "$ct" = 0 ]; } && banner_ok=1;; esac
+        if [ "$w" = 1280 ] && [ "$h" = 720 ] && [ "$banner_ok" = 1 ] && [ "$depth" = 8 ]; then
+          [ "$decoded" = 1 ] && [ "${#files[@]}" -eq 1 ] && pass "TV banner 1280x720, no alpha"
         else
-          fail "TV banner must be 1280x720 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
+          fail "TV banner must be 1280x720 JPEG or 24-bit PNG without alpha (got ${w}x${h} depth=$depth ct=$ct)"
         fi ;;
     esac
   done <<<"$imginfo_out"

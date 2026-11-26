@@ -84,8 +84,8 @@ rm -rf "$T"
 
 # --- store-rule checks driven by tiny synthetic images (tests/helpers.sh) ---
 png() { fake_png "$@"; }   # <path> <w> <h> [depth=8] [colortype=2]
-apple_only() { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"; rm -rf "$T"/fastlane/metadata/android; }
-play_only()  { T="$(mktemp -d)"; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt; }
+apple_only() { T="$(mktemp -d)" && [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"; rm -rf "$T"/fastlane/metadata/android; }
+play_only()  { T="$(mktemp -d)" && [ -n "$T" ] && [ -d "$T" ] || { echo "mktemp failed" >&2; exit 1; }; cp -R "$APP/fastlane" "$T/"; rm -rf "$T"/fastlane/screenshots "$T"/fastlane/metadata/en-US "$T"/fastlane/metadata/*.txt; }
 PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
 
 it "a Face ID large set alone cannot fill the medium upload slot"
@@ -540,11 +540,20 @@ assert_contains "$OUT" "tvBanner.png"
 fake_png "$T/$IMG/tvBanner.png" 1280 720
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "valid TV banner passes"
-assert_contains "$OUT" "TV banner 1280x720 24-bit no-alpha"
+assert_contains "$OUT" "TV banner 1280x720, no alpha"
 fake_png "$T/$IMG/tvBanner.png" 1280 720 8 6
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "RGBA TV banner fails Play 24-bit no-alpha rule"
-assert_contains "$OUT" "TV banner must be 1280x720 24-bit no-alpha"
+assert_contains "$OUT" "TV banner must be 1280x720 JPEG or 24-bit PNG without alpha"
+rm -f "$T/$IMG/tvBanner.png"; fake_png "$T/$IMG/tvBanner.png" 1280 720 8 0
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 1 "$RC" "a grayscale PNG banner is not a 24-bit PNG"
+if command -v magick >/dev/null 2>&1; then
+  rm -f "$T/$IMG/tvBanner.png"; magick -size 1280x720 gradient: -colorspace Gray "$T/$IMG/tvBanner.jpg"
+  OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+  assert_eq 0 "$RC" "a grayscale JPEG banner is a valid JPEG and passes"
+  rm -f "$T/$IMG/tvBanner.jpg"
+fi
 rm -f "$T/$IMG/tvBanner.png"
 fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
 printf broken > "$T/$IMG/featureGraphic.png"
