@@ -32,7 +32,7 @@ if ! im_resolve; then
   exit 3
 fi
 
-# Play requires a 24-bit PNG (8-bit depth, RGB, NO alpha). Force all three.
+size="$(python3 -I -B "$_here/../lib/specs.py" graphic-size play featureGraphic .)"
 "${IM[@]}" -size "$size" "gradient:${color_a}-${color_b}" \
   \( "$icon" -resize 300x300 \) -gravity center -composite \
   -background white -alpha remove -alpha off \
