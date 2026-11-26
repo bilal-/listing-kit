@@ -5,14 +5,16 @@
 and deflated scanline byte counts up to 64 MP; JPEG marker framing, DQT/DHT/DAC tables,
 byte stuffing, restart markers, and EOI). It is a structural check, not a full pixel or
 animation decoder. `decodes()` runs a full pixel decode via ImageMagick when installed,
-treating warnings as errors.
+rejecting incomplete pixel data.
 
 CLI:    imginfo.py <file>...
         imginfo.py --decode <file>...
+    imginfo.py --validate <file>...
 Default mode prints one tab-separated line per file:
     width  height  bit_depth  color_type  bytes  apple_class  path
 `--decode` prints one tab-separated line per file:
-    status  path          (status in ok / bad / unavailable)
+    status  path          (ok, bad, unavailable, or a diagnostic)
+`--validate` inserts the decode status before the path in the default output.
 color_type follows PNG numbering: 2 = RGB (no alpha), 6 = RGBA, 0 = grayscale,
 4 = grayscale+alpha, 3 = palette; a PNG with a tRNS (transparency) chunk reports
 e.g. "2+tRNS", so it never passes as "2". JPEGs report 2 (3 channels), 0 (1
@@ -118,6 +120,8 @@ def _png(f):
         length, kind = struct.unpack(">I4s", head)
         if length > 0x7FFFFFFF or not all(65 <= c <= 90 or 97 <= c <= 122 for c in kind):
             return UNKNOWN
+        if kind == b"acTL":
+            raise ValueError("animated PNG (acTL): store images must be static")
         if kind != b"IDAT" and saw_idat:
             idat_done = True
         crc = zlib.crc32(kind)
@@ -162,7 +166,7 @@ def _png(f):
         else:
             if kind == b"PLTE":
                 max_plte = min(768, 3 * (1 << depth))
-                if saw_idat or saw_plte or ct in (0, 4) or length < 3 or length > max_plte or length % 3 != 0:
+                if saw_idat or saw_plte or trns or ct in (0, 4) or length < 3 or length > max_plte or length % 3 != 0:
                     return UNKNOWN
                 saw_plte = True
                 plte_entries = length // 3
@@ -238,7 +242,6 @@ def _jpeg(f):
     dqts = set()
     dc_dhts = set()
     ac_dhts = set()
-    saw_dac = False
     saw_sos = False
     next_marker = None
     while True:
@@ -301,7 +304,6 @@ def _jpeg(f):
                 tc, tb = d[pos] >> 4, d[pos] & 0x0F
                 if tc not in (0, 1) or tb > 3:
                     return UNKNOWN
-            saw_dac = True
         elif 0xC0 <= marker <= 0xCF:  # SOF0..SOF15 (excluding C4, C8, CC)
             if frame is not None:
                 return UNKNOWN
@@ -309,7 +311,7 @@ def _jpeg(f):
             if len(d) != length - 2 or len(d) < 6:
                 return UNKNOWN
             precision, h, w, comps = struct.unpack(">BHHB", d[:6])
-            if not w or not h or not comps or len(d) != 6 + 3 * comps:
+            if not w or not h or w * h > MAX_PIXELS or not comps or len(d) != 6 + 3 * comps:
                 return UNKNOWN
             frame_comps = {}
             for idx in range(comps):
@@ -357,8 +359,6 @@ def _jpeg(f):
                             return UNKNOWN
                         if se > 0 and ta not in ac_dhts:
                             return UNKNOWN
-                elif not saw_dac:
-                    return UNKNOWN
             next_marker = _scan_entropy(f)
             if next_marker is None:
                 return UNKNOWN
@@ -367,77 +367,102 @@ def _jpeg(f):
             f.seek(length - 2, os.SEEK_CUR)
 
 
-def image_info(path):
-    """(width, height, bit_depth, color_type) for a PNG or JPEG; UNKNOWN otherwise."""
+def _inspect(path):
     try:
         with open(path, "rb") as f:
             sig = f.read(2)
             f.seek(0)
-            return _jpeg(f) if sig == b"\xff\xd8" else _png(f)
+            info = _jpeg(f) if sig == b"\xff\xd8" else _png(f)
+            return info, "bad" if info == UNKNOWN else "ok"
+    except ValueError as exc:
+        return UNKNOWN, "bad: " + str(exc)
     except (OSError, struct.error, zlib.error):
-        return UNKNOWN
+        return UNKNOWN, "bad"
 
 
-def _im_decode_cmd(target):
-    if os.environ.get("LK_NO_IMAGEMAGICK"):
-        return None
-    magick = shutil.which("magick")
-    if magick:
-        return [magick, "-regard-warnings", target, "null:"]
-    convert = shutil.which("convert")
-    if convert:
-        return [convert, "-regard-warnings", target, "null:"]
-    identify = shutil.which("identify")
-    if identify:
-        return [identify, "-regard-warnings", "-verbose", target]
-    return None
+def image_info(path):
+    """(width, height, bit_depth, color_type) for PNG or JPEG; UNKNOWN otherwise."""
+    return _inspect(path)[0]
 
 
-def decodes(path):
-    """Full pixel decode via ImageMagick ('ok', 'bad', or 'unavailable'); warnings are errors."""
-    target = os.path.abspath(path)
-    cmd = _im_decode_cmd(target)
-    if cmd is None:
-        return "unavailable"
-    if not os.path.isfile(target):
-        return "bad"
+def _decode_batch(decoder, paths):
+    if os.path.basename(decoder) == "identify":
+        cmd = [decoder, "-verbose", *paths]
+    else:
+        cmd = [decoder, *paths, "null:"]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    except OSError:
-        return "bad"
-    if res.returncode != 0 or res.stderr.strip():
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except OSError as exc:
+        return "could not decode: " + str(exc)
+
+    message = result.stderr.decode("utf-8", "replace")
+    # Match the diagnostic text before IM's quoted filename. A path can
+    # itself contain words like "premature end" or "security policy".
+    limits = ("exceeds user limit", "exceeds limit", "limit exceeded", "resources exhausted",
+              "memory allocation failed", "security policy", "unable to extend cache",
+              "no space left on device", "cache allocation failed")
+    incomplete = ("premature end of jpeg file", "premature end of data segment",
+                  "insufficient image data", "not enough image data", "truncated image",
+                  "corrupt jpeg data: bad", "bogus huffman")
+    damaged = bool(result.returncode)
+    for line in message.splitlines():
+        prefix, sep, rest = line.partition(": ")
+        if sep and prefix in ("magick", "convert", "identify", "convert-im6.q16", "identify-im6.q16"):
+            line = rest
+        reason = line.partition("`")[0].lower()
+        if any(limit in reason for limit in limits):
+            return "could not decode: " + " ".join(line.split())
+        if " @ error/" in line or any(part in reason for part in incomplete):
+            damaged = True
+    if damaged:
         return "bad"
     return "ok"
 
 
-def decode_many(paths):
-    """Decode each path ('ok'/'bad'/'unavailable'), batching multi-file checks into one IM run."""
-    if not paths:
-        return []
-    if len(paths) == 1:
-        return [decodes(paths[0])]
-    if os.environ.get("LK_NO_IMAGEMAGICK"):
-        return ["unavailable"] * len(paths)
-    magick = shutil.which("magick")
-    convert = None if magick else shutil.which("convert")
-    identify = None if (magick or convert) else shutil.which("identify")
-    if not (magick or convert or identify):
-        return ["unavailable"] * len(paths)
-    targets = [os.path.abspath(p) for p in paths]
-    if all(os.path.isfile(t) for t in targets):
-        if magick:
-            cmd = [magick, "-regard-warnings"] + targets + ["null:"]
-        elif convert:
-            cmd = [convert, "-regard-warnings"] + targets + ["null:"]
+def validate_many(paths):
+    """Inspect each file once. Only structurally accepted images enter decode batches."""
+    inspected = [_inspect(path) for path in paths]
+    decoder = None
+    if not os.environ.get("LK_NO_IMAGEMAGICK"):
+        decoder = shutil.which("magick") or shutil.which("convert") or shutil.which("identify")
+
+    def decode(indices):
+        targets = [os.path.abspath(paths[i]) for i in indices]
+        status = _decode_batch(decoder, targets)
+        if status != "ok" and len(indices) > 1:
+            mid = len(indices) // 2
+            decode(indices[:mid])
+            decode(indices[mid:])
         else:
-            cmd = [identify, "-regard-warnings", "-verbose"] + targets
-        try:
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            if res.returncode == 0 and not res.stderr.strip():
-                return ["ok"] * len(paths)
-        except OSError:
-            pass
-    return [decodes(p) for p in paths]
+            for i in indices:
+                inspected[i] = inspected[i][0], status
+
+    batch = []
+    pixels = 0
+    for i, (info, status) in enumerate(inspected):
+        if status != "ok":
+            continue
+        if not decoder:
+            inspected[i] = info, "unavailable"
+            continue
+        area = info[0] * info[1]
+        if len(batch) == 16 or pixels + area > 200_000_000:
+            decode(batch)
+            batch = []
+            pixels = 0
+        batch.append(i)
+        pixels += area
+    if batch:
+        decode(batch)
+    return inspected
+
+
+def decode_many(paths):
+    return [status for _, status in validate_many(paths)]
+
+
+def decodes(path):
+    return decode_many([path])[0]
 
 
 def is_image(path):
@@ -471,8 +496,8 @@ if __name__ == "__main__":
             print("\t".join((st, p)))
     elif len(sys.argv) > 1 and sys.argv[1] == "--validate":
         paths = sys.argv[2:]
-        for p, st in zip(paths, decode_many(paths)):
-            w, h, depth, ct = image_info(p)
+        for p, (info, st) in zip(paths, validate_many(paths)):
+            w, h, depth, ct = info
             size = os.path.getsize(p) if os.path.exists(p) else 0
             print("\t".join(map(str, (w, h, depth, ct, size, apple_class(w, h) or "-", st, p))))
     else:

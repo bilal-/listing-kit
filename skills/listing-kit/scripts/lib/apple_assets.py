@@ -12,7 +12,7 @@ import re
 import sys
 from collections import Counter
 
-from imginfo import APPLE_SIZES, apple_class, decode_many, image_info
+from imginfo import APPLE_SIZES, apple_class, image_info, validate_many
 from listing import apple_locales as listing_apple_locales, has_apple_app_metadata, images
 
 HEADER_SIZES = {(5244, 2950), (3840, 1646)}
@@ -27,7 +27,7 @@ def header_locales(root):
     if not os.path.isdir(base):
         return []
     return sorted(n for n in os.listdir(base)
-                  if not n.startswith(".") and os.path.isdir(os.path.join(base, n)))
+                  if not n.startswith(".") and images(os.path.join(base, n)))
 
 
 def load_plan(root):
@@ -82,7 +82,6 @@ def has_apple_listing(root):
     fastlane = os.path.join(root, "fastlane")
     return bool(
         apple_locales(root)
-        or os.path.isdir(os.path.join(fastlane, "screenshots"))
         or has_apple_app_metadata(fastlane)
         or os.path.isfile(os.path.join(root, ".listing-kit", "asset-plan.json"))
     )
@@ -92,22 +91,25 @@ def validate(root, required_displays=()):
     results = []
     saw_unavailable = False
     header_items = [(locale, path) for locale in header_locales(root) for path in images(header_dir(root, locale))]
-    header_statuses = decode_many([path for _, path in header_items])
-    for (locale, path), dec in zip(header_items, header_statuses):
-        w, h, depth, color = image_info(path)
-        with open(path, "rb") as source:
-            is_png = source.read(8) == b"\x89PNG\r\n\x1a\n"
-        struct_ok = ((w, h) in HEADER_SIZES and depth == 8 and color == 2
-                     and ((w, h) != (5244, 2950) or
-                          (is_png and path.lower().endswith(".png"))))
+    header_statuses = validate_many([path for _, path in header_items])
+    for (locale, path), (info, dec) in zip(header_items, header_statuses):
+        w, h, depth, color = info
+        struct_ok = (w, h) in HEADER_SIZES and depth == 8 and color == 2
+        if struct_ok and (w, h) == (5244, 2950):
+            with open(path, "rb") as source:
+                struct_ok = path.lower().endswith(".png") and source.read(8) == b"\x89PNG\r\n\x1a\n"
         if dec == "unavailable":
             saw_unavailable = True
         label = "{}/{}".format(locale, os.path.basename(path))
-        if not struct_ok:
+        if dec.startswith("could not decode:"):
+            results.append(("WARN", "Apple header {}: {}".format(label, dec)))
+        if dec.startswith("bad:"):
+            results.append(("FAIL", "Apple header {}: {}".format(label, dec[5:])))
+        elif not struct_ok:
             results.append(("FAIL", "Apple header {}: expected 5244x2950 PNG or 3840x1646 PNG/JPEG, 8-bit RGB/no-alpha".format(label)))
         elif dec == "bad":
             results.append(("FAIL", "Apple header {}: image failed full decode".format(label)))
-        else:
+        elif not dec.startswith("could not decode:"):
             results.append(("PASS", "Apple header {}: {}x{} RGB/no-alpha".format(label, w, h)))
 
     try:

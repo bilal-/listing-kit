@@ -168,7 +168,8 @@ write_png("trns_over_plte.png", 2, 2, 1, 3, [chunk(b"PLTE", b"\x00\x00\x00"), ch
 # PLTE on ct=0, PLTE after IDAT, tRNS after IDAT, PLTE > 2^depth on ct=3, unknown critical chunk
 write_png("plte_ct0.png", 2, 2, 8, 0, [chunk(b"PLTE", b"\x00\x00\x00"), idat_gray])
 write_png("rgb_trns_before_plte.png", 2, 2, 8, 2, [chunk(b"tRNS", bytes(6)), chunk(b"PLTE", bytes(3)), idat_rgb])
-write_png("animated.png", 2, 2, 8, 2, [chunk(b"acTL", struct.pack(">II", 1, 0)), idat_rgb])
+frame = struct.pack(">IIIIIHHBB", 0, 2, 2, 0, 0, 1, 10, 0, 0)
+write_png("animated.png", 2, 2, 8, 2, [chunk(b"acTL", struct.pack(">II", 1, 0)), chunk(b"fcTL", frame), idat_rgb])
 write_png("plte_after_idat.png", 2, 2, 8, 2, [idat_rgb, chunk(b"PLTE", b"\x00\x00\x00")])
 write_png("trns_after_idat.png", 2, 2, 8, 2, [idat_rgb, chunk(b"tRNS", b"\x00" * 6)])
 write_png("plte_over_depth.png", 2, 2, 1, 3, [chunk(b"PLTE", b"\x00\x00\x00" * 3), idat_idx1])
@@ -208,8 +209,16 @@ make_1bit("over64mp.png", 8001, 8000)
 # 8000 * 8000 = 64,000,000 (exact 64MP boundary is accepted)
 make_1bit("exact64mp.png", 8000, 8000)
 PY
-assert_eq "$UNK" "$(info4 "$TMP/over64mp.png")" "8001x8000 (>64MP) rejected"
-assert_eq "$(printf '8000\t8000\t1\t0')" "$(info4 "$TMP/exact64mp.png")" "8000x8000 (exact 64MP) accepted"
+assert_eq "$UNK" "$(info4 "$TMP/over64mp.png")" "8001x8000 (>64MP) PNG rejected"
+assert_eq "$(printf '8000\t8000\t1\t0')" "$(info4 "$TMP/exact64mp.png")" "8000x8000 (exact 64MP) PNG accepted"
+fake_jpeg "$TMP/over64mp.jpg" 8001 8000
+fake_jpeg "$TMP/exact64mp.jpg" 8000 8000
+assert_eq "$UNK" "$(info4 "$TMP/over64mp.jpg")" "8001x8000 (>64MP) JPEG rejected"
+assert_eq "$(printf '8000\t8000\t8\t2')" "$(info4 "$TMP/exact64mp.jpg")" "8000x8000 (exact 64MP) JPEG accepted"
+new_stubdir; stub magick 0
+PATH="$STUB_BIN:$PATH" python3 "$SUT" --validate "$TMP/over64mp.png" "$TMP/over64mp.jpg" "$TMP/animated.png" >/dev/null
+PATH="$STUB_BIN:$PATH" python3 "$SUT" --decode "$TMP/over64mp.png" "$TMP/over64mp.jpg" "$TMP/animated.png" >/dev/null
+assert_eq "" "$(stub_log)" "over-cap and structurally rejected files never invoke ImageMagick"
 NO_INFLATE="$(python3 - "$SCRIPTS/lib" <<'PY'
 import io, struct, sys, zlib
 sys.path.insert(0, sys.argv[1])
@@ -290,7 +299,13 @@ open(os.path.join(td, "wrongdht.jpg"), "wb").write(b"\xff\xd8" + dqt0 + dht0 + s
 sof9 = seg(0xC9, struct.pack(">BHHB", 8, 40, 60, 1) + b"\x01\x11\x00")
 sos9 = seg(0xDA, b"\x01\x01\x00\x00\x3f\x00")
 dac = seg(0xCC, b"\x00\x01\x10\x05")
-open(os.path.join(td, "arith_nodac.jpg"), "wb").write(b"\xff\xd8" + dqt0 + sof9 + sos9 + b"\x00\xff\xd9")
+# jpegtran -arithmetic on a solid 1080x1920 RGB image, with its default DAC removed.
+import base64
+open(os.path.join(td, "arith_nodac.jpg"), "wb").write(base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ"
+    "EBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/yQARCAeA"
+    "BDgDASIAAhEAAxEA/9oADAMBAAIRAxEAPwAet4D/2Q=="
+))
 open(os.path.join(td, "arith_ok.jpg"), "wb").write(b"\xff\xd8" + dqt0 + dac + sof9 + sos9 + b"\x00\xff\xd9")
 
 # Gemini 1: non-0xFF garbage between markers
@@ -299,7 +314,7 @@ open(os.path.join(td, "garbage.jpg"), "wb").write(b"\xff\xd8CORRUPT" + dqt0 + dh
 # Gemini 2: illegal 0xFF 0xFF 0x00 stuffing (inline and across 65536 CHUNK boundary) and RST-only empty scan
 open(os.path.join(td, "ff_ff_00.jpg"), "wb").write(b"\xff\xd8" + dqt0 + dht0 + sof + sos + b"\x12\xff\xff\x00\xff\xd9")
 prefix = b"\xff\xd8" + dqt0 + dht0 + sof + sos
-pad_len = 65536 - (len(prefix) % 65536) - 1
+pad_len = 65536 - 1  # _scan_entropy reads from the first byte after SOS
 open(os.path.join(td, "ff_ff_00_chunk.jpg"), "wb").write(prefix + b"\x12" * pad_len + b"\xff\xff\x00\xff\xd9")
 open(os.path.join(td, "rst_only.jpg"), "wb").write(b"\xff\xd8" + dqt0 + dht0 + sof + sos + b"\xff\xd0\xff\xd9")
 
@@ -327,7 +342,7 @@ done
 assert_eq "$(printf '1024\t500\t8\t2')" "$(info4 "$TMP/valid_rst.jpg")" "valid JPEG with byte stuffing + fill RST0"
 assert_eq "$(printf '300\t200\t8\t0')" "$(info4 "$TMP/prog_ok.jpg")" "valid progressive JPEG with per-scan DHT"
 assert_eq "$(printf '60\t40\t8\t0')" "$(info4 "$TMP/arith_ok.jpg")" "arithmetic JPEG with DQT + DAC"
-assert_eq "$(printf '60\t40\t8\t0')" "$(info4 "$TMP/arith_nodac.jpg")" "arithmetic JPEG with default tables"
+assert_eq "$(printf '1080\t1920\t8\t2')" "$(info4 "$TMP/arith_nodac.jpg")" "arithmetic JPEG with default tables"
 assert_eq "65535" "$(python3 - "$TMP/ff_ff_00_chunk.jpg" <<'PYOFFSET'
 import sys
 data = open(sys.argv[1], "rb").read()
@@ -354,12 +369,13 @@ NOIM_BIN="$(mktemp -d)"; STUB_DIRS+=("$NOIM_BIN")
 ln -s "$PY_BIN" "$NOIM_BIN/python3"
 assert_eq "unavailable" "$(PATH="$NOIM_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" | cut -f1)" "PATH without IM returns unavailable"
 
-# Stub magick: ok on exit 0, bad on exit 1, bad when warning emitted on stderr with exit 0
+# A short scan is an error even when the decoder exits zero.
 new_stubdir
 ln -s "$PY_BIN" "$STUB_BIN/python3"
 cat > "$STUB_BIN/magick" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
+  *profile.png*) echo "iCCP: truncated color profile" >&2; exit 0;;
   *warn.png*) echo "Corrupt JPEG data: premature end of data segment" >&2; exit 0;;
   *bad.png*) exit 1;;
   *) exit 0;;
@@ -367,9 +383,11 @@ esac
 EOF
 chmod +x "$STUB_BIN/magick"
 cp "$TMP/good.png" "$TMP/warn.png"; cp "$TMP/good.png" "$TMP/bad.png"
+cp "$TMP/good.png" "$TMP/profile.png"
+assert_eq "ok" "$(PATH="$STUB_BIN:$PATH" dec1 "$TMP/profile.png")" "a truncated profile warning leaves decoded pixels usable"
 DEC_MULTI="$(PATH="$STUB_BIN:/bin:/usr/bin" "$PY_BIN" "$SUT" --decode "$TMP/good.png" "$TMP/warn.png" "$TMP/bad.png")"
 assert_contains "$DEC_MULTI" "$(printf 'ok\t%s' "$TMP/good.png")" "magick stub ok"
-assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/warn.png")" "magick warning treated as bad"
+assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/warn.png")" "incomplete scan warning treated as bad"
 assert_contains "$DEC_MULTI" "$(printf 'bad\t%s' "$TMP/bad.png")" "magick exit 1 treated as bad"
 
 IM6_BIN="$(mktemp -d)"; STUB_DIRS+=("$IM6_BIN")
@@ -420,8 +438,9 @@ assert_eq 1 "$(grep -c '^bad' "$TMP/status")" "isolate only the bad file"
 
 if command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
   assert_eq "ok" "$(dec1 "$TMP/good.png")" "real IM decodes fake_png"
+  assert_eq "ok" "$(dec1 "$TMP/pad4.png")" "real IM accepts final-IDAT padding warning (Extra compressed data)"
+  assert_eq "ok" "$(dec1 "$TMP/arith_nodac.jpg")" "real IM decodes arithmetic JPEG with default conditioning"
   assert_eq "ok" "$(dec1 "$TMP/one_mcu.jpg")" "real IM decodes 1x1 fake_jpeg"
-  assert_eq "ok" "$(dec1 "$TMP/pad4.png")" "real IM fully decodes padded final IDAT"
   # Structurally framed 64x64 JPEG whose 1-byte scan triggers Corrupt JPEG data warning
   python3 - "$TMP/short_scan.jpg" <<'PY'
 import struct, sys
@@ -434,6 +453,20 @@ open(sys.argv[1], "wb").write(b"\xff\xd8" + dqt + sof + dht + sos + b"\x01\xff\x
 PY
   assert_eq "$(printf '64\t64\t8\t2')" "$(info4 "$TMP/short_scan.jpg")" "structural check reads framed header"
   assert_eq "bad" "$(dec1 "$TMP/short_scan.jpg")" "real IM rejects premature end of JPEG scan"
+fi
+
+if [ "${LK_TEST_IM6:-0}" = 1 ]; then
+  it "runs real IM6 convert and identify-only decodes in Linux CI"
+  rm "$IM6_BIN/magick"
+  for decoder in convert identify; do
+    binary="$(command -v "$decoder-im6.q16")"
+    assert_contains "$("$binary" -version)" "ImageMagick 6."
+    ln -s "$binary" "$IM6_BIN/$decoder"
+    OUT="$(PATH="$IM6_BIN" "$PY_BIN" "$SUT" --decode "$TMP/good.png" "$TMP/short_scan.jpg")"
+    assert_contains "$OUT" "$(printf 'ok\t%s' "$TMP/good.png")" "$decoder decodes valid pixels"
+    assert_contains "$OUT" "$(printf 'bad\t%s' "$TMP/short_scan.jpg")" "$decoder detects incomplete pixels"
+    rm "$IM6_BIN/$decoder"
+  done
 fi
 
 summary

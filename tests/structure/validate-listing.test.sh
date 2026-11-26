@@ -473,7 +473,7 @@ rm -rf "$T" "$SHIM"
 
 it "warns once when ImageMagick is unavailable and fails on bad full decode of any screenshot or graphic"
 NOIM_BIN="$(mktemp -d)"; STUB_DIRS+=("$NOIM_BIN")
-for cmd in bash sh python3 dirname grep sort uniq head od tr awk; do
+for cmd in bash sh python3 dirname basename grep sort uniq head od tr awk; do
   p="$(command -v "$cmd" 2>/dev/null || true)"
   [ -n "$p" ] && ln -s "$p" "$NOIM_BIN/$cmd"
 done
@@ -536,7 +536,10 @@ printf broken > "$T/$IMG/tvBanner.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "a corrupt optional TV banner fails validation"
 assert_contains "$OUT" "tvBanner.png"
-rm "$T/$IMG/tvBanner.png"
+fake_png "$T/$IMG/tvBanner.png" 1280 720
+OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "valid TV banner passes"
+assert_contains "$OUT" "TV banner 1280x720"
 fake_jpeg "$T/$IMG/featureGraphic.jpg" 1024 500
 printf broken > "$T/$IMG/featureGraphic.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?

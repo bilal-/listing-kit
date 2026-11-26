@@ -41,6 +41,8 @@ record_decode(){ # status basename
   case "$1" in
     ok) return 0 ;;
     unavailable) im_unavailable=1; return 0 ;;
+    "could not decode:"*) warn "$2: $1"; return 0 ;;
+    "bad: "*) fail "$2: ${1#bad: }"; return 1 ;;
     *) fail "$2: image failed full decode"; return 1 ;;
   esac
 }
@@ -177,7 +179,8 @@ if [ "$apple_present" = 1 ]; then
   [ "${LK_SUPPORTS_IPHONE:-1}" = 0 ] || required_classes+=('iPhone Dynamic Island (medium display)')
   [ "$ipad_required" != True ] || required_classes+=('iPad 13"')
   shot_dirs=0
-  for sdir in "$ROOT"/fastlane/screenshots/*/; do
+  for loc in ${apple_locales[@]+"${apple_locales[@]}"}; do
+    sdir="$ROOT/fastlane/screenshots/${loc##*/}"
     [ -d "$sdir" ] || continue
     shot_dirs=$((shot_dirs+1))
     echo " screenshots $(basename "$sdir"):"
@@ -256,14 +259,52 @@ play_shots(){ # dir label
   play_total=$((play_total+n))
 }
 
-# supply uploads images/<type>.{png,jpg,jpeg} (case-insensitive); echoes the match.
-play_graphic(){ # images-dir type
-  local f
-  for f in "$1/$2".*; do
-    case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) [ -f "$f" ] && { echo "$f"; return; };; esac
+play_graphics(){ # images-dir type
+  local dir="$1" type="$2" f w h depth ct bytes cls dec path decoded
+  local files=()
+  [ -d "$dir/$type" ] && fail "images/$type/ is not uploaded by fastlane supply; move the file to images/$type.png"
+  for f in "$dir/$type".*; do
+    case "${f#"$dir/$type."}" in [pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]) [ -f "$f" ] && files+=("$f");; esac
   done
+  if [ "${#files[@]}" -eq 0 ]; then
+    case "$type" in
+      featureGraphic) fail "feature graphic MISSING (required to publish): images/$type.png";;
+      icon) fail "Play icon MISSING (required): images/$type.png";;
+    esac
+    return
+  fi
+  [ "${#files[@]}" -le 1 ] || fail "duplicate $type candidates: ${files[*]}"
+  run_imginfo "$type" "${files[@]}" || return
+  while IFS=$'\t' read -r w h depth ct bytes cls dec path; do
+    check_ext "$path"
+    decoded=1; record_decode "$dec" "${path##*/}" || decoded=0
+    case "$type" in
+      featureGraphic)
+        if [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
+          [ "$decoded" = 1 ] && pass "feature graphic 1024x500 24-bit no-alpha"
+        else
+          fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
+        fi ;;
+      icon)
+        if [[ "$path" != *.png ]] || [ "$(head -c 4 "$path" | od -An -tx1 | tr -d ' \n')" != 89504e47 ]; then
+          fail "icon must be a PNG (Play requires 32-bit PNG)"
+        fi
+        if [ "$w" = 512 ] && [ "$h" = 512 ]; then
+          [ "$decoded" = 1 ] && pass "icon 512x512"
+        else
+          fail "icon must be 512x512 (got ${w}x${h})"
+        fi
+        { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
+        [ "$bytes" -le 1048576 ] || fail "icon over 1 MB ($bytes bytes)" ;;
+      tvBanner)
+        if [ "$w" = 1280 ] && [ "$h" = 720 ]; then
+          [ "$decoded" = 1 ] && pass "TV banner 1280x720"
+        else
+          fail "TV banner must be 1280x720 (got ${w}x${h})"
+        fi ;;
+    esac
+  done <<<"$imginfo_out"
 }
-
 if [ "$play_present" = 1 ]; then
   echo "${B}== Google Play ==${Z}"
   [ "${#play_locales[@]}" -gt 0 ] || fail "fastlane/metadata/android has no locale folders (e.g. en-US/)"
@@ -281,44 +322,9 @@ if [ "$play_present" = 1 ]; then
     [ "$play_total" -ge 2 ] && pass "screenshots across device types: $play_total (≥2)" \
       || fail "screenshots: $play_total across device types (need ≥2)"
 
-    # Graphics live directly in images/ — supply never uploads images/featureGraphic/*.
-    for t in featureGraphic icon; do
-      [ -d "$img/$t" ] && fail "images/$t/ is not uploaded by fastlane supply; move the file to images/$t.png"
+    for t in featureGraphic icon tvBanner; do
+      play_graphics "$img" "$t"
     done
-
-    fg="$(play_graphic "$img" featureGraphic)"
-    if [ -n "$fg" ]; then
-      check_ext "$fg"
-      if run_imginfo "feature graphic" "$fg"; then
-        IFS=$'\t' read -r w h depth ct bytes cls dec path <<<"$imginfo_out"
-        fg_dec=1; record_decode "$dec" "${fg##*/}" || fg_dec=0
-        if [ "$w" = 1024 ] && [ "$h" = 500 ] && [ "$ct" = 2 ] && [ "$depth" = 8 ]; then
-          [ "$fg_dec" = 1 ] && pass "feature graphic 1024x500 24-bit no-alpha"
-        else
-          fail "feature graphic must be 1024x500 24-bit no-alpha (got ${w}x${h} depth=$depth ct=$ct)"
-        fi
-      fi
-    else fail "feature graphic MISSING (required to publish): images/featureGraphic.png"; fi
-
-    # icon (32-bit PNG with alpha is allowed; max 1 MB)
-    ic="$(play_graphic "$img" icon)"
-    if [ -n "$ic" ]; then
-      # By content, not just name: a JPEG saved as icon.png is still a JPEG.
-      { case "$ic" in *.png) true;; *) false;; esac && [ "$(head -c 4 "$ic" | od -An -tx1 | tr -d ' \n')" = 89504e47 ]; } \
-        || fail "icon must be a PNG (Play requires a 32-bit PNG)"
-      if run_imginfo "Play icon" "$ic"; then
-        IFS=$'\t' read -r w h depth ct bytes cls dec path <<<"$imginfo_out"
-        ic_dec=1; record_decode "$dec" "${ic##*/}" || ic_dec=0
-        if [ "$w" = 512 ] && [ "$h" = 512 ]; then
-          [ "$ic_dec" = 1 ] && pass "icon 512x512"
-        else
-          fail "icon must be 512x512 (got ${w}x${h})"
-        fi
-        { [ "$depth" = 8 ] && { [ "$ct" = 6 ] || [ "$ct" = 2 ]; }; } \
-          || fail "icon must be an 8-bit RGB(A) PNG (got depth=$depth colortype=$ct)"
-        [ "$bytes" -le 1048576 ] || fail "icon is over 1 MB ($bytes bytes)"
-      fi
-    else fail "Play icon MISSING (required): images/icon.png"; fi
   done
 fi
 

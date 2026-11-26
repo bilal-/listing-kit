@@ -195,6 +195,46 @@ PY
   OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
   assert_eq 1 "$RC" "real ImageMagick rejects corrupt scan in 3840x1646 JPEG header"
   assert_not_contains "$OUT" "Apple header en-US/alternate.jpg: 3840x1646 RGB/no-alpha"
+  rm -f "$HEADERS/alternate.jpg"
 fi
+
+it "checks Apple header dimensions before invoking ImageMagick, rejects acTL headers, and warns on policy limits"
+fake_jpeg "$HEADERS/overcap.jpg" 8001 8000
+python3 - "$HEADERS/anim-header.png" <<'PY'
+import struct, sys, zlib
+def chunk(k, d): return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 3840, 1646, 8, 2, 0, 0, 0))
+comp = zlib.compressobj(1)
+row = b"\x00" * (1 + 3840 * 3)
+z = comp.compress(row * 1646) + comp.flush()
+actl = chunk(b"acTL", struct.pack(">II", 2, 0))
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + ihdr + actl + chunk(b"IDAT", z) + chunk(b"IEND", b""))
+PY
+new_stubdir; stub magick 0
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+LOG="$(stub_log)"
+assert_eq 1 "$RC" "over-cap and acTL headers fail"
+assert_not_contains "$LOG" "overcap.jpg" "over-cap header never passed to ImageMagick"
+assert_not_contains "$LOG" "anim-header.png" "acTL header never passed to ImageMagick"
+assert_contains "$OUT" "anim-header.png"
+assert_contains "$OUT" "acTL"
+rm -f "$HEADERS/overcap.jpg" "$HEADERS/anim-header.png"
+
+new_stubdir
+cat > "$STUB_BIN/magick" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *header-16x9.png*)
+    echo "magick: width or height exceeds limit \`header-16x9.png' @ error/cache.c/3813." >&2
+    exit 1 ;;
+esac
+exit 0
+EOF
+chmod +x "$STUB_BIN/magick"
+printf '%s\n' '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":1},"headers":["header-16x9.png"]},"fr-FR":{"headers":["header.png"]}}}' > "$T/.listing-kit/asset-plan.json"
+cp -R "$SHOTS" "$T/fastlane/screenshots/fr-FR"
+OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "header hitting IM resource limit warns instead of failing"
+assert_contains "$OUT" "Apple header en-US/header-16x9.png: could not decode: width or height exceeds limit"
 
 summary
