@@ -160,7 +160,7 @@ assert_contains "$PAGE" 'id="p-iOS"'
 assert_not_contains "$PAGE" 'id="p-empty"'
 rm -rf "$T"
 
-it "fails explicitly instead of emitting an empty validation section when transcript capture fails"
+it "shows escaped crash output and accepts only matching terminal verdicts"
 SHIM="$(mktemp -d)"
 cp -R "$SCRIPTS/package" "$SCRIPTS/lib" "$SHIM/"
 mkdir -p "$SHIM/validate"

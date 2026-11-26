@@ -2,6 +2,9 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/install-review-hook.sh"
+# A caller running tests from a Git hook can export its live index and gitdir.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 make_app() {
   T="$(mktemp -d)"
@@ -15,6 +18,7 @@ make_app() {
 
 it "exits 2 outside a git worktree"
 T="$(mktemp -d)"
+export GIT_CEILING_DIRECTORIES="$(cd "$T/.." && pwd -P)"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Not inside a git worktree"

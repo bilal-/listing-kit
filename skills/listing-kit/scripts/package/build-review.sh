@@ -17,8 +17,7 @@ command -v python3 >/dev/null 2>&1 || { echo "Need python3 to build the review p
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR="$SELF_DIR/../validate/validate-listing.sh"
 
-# Run the validator and strip ANSI so its output embeds cleanly. Exit 0 and 1
-# are expected listing verdicts; any other exit or empty transcript is an error.
+# Keep the transcript visible even if the validator exits without a matching verdict.
 VAL_RAW="$(mktemp)"; VAL_TXT="$(mktemp)"
 trap 'rm -f "$VAL_RAW" "$VAL_TXT"' EXIT
 if [ ! -f "$VALIDATOR" ]; then
@@ -27,18 +26,20 @@ if [ ! -f "$VALIDATOR" ]; then
 fi
 val_rc=0
 (cd "$ROOT" && bash "$VALIDATOR" .) >"$VAL_RAW" 2>&1 || val_rc=$?
-if [ "$val_rc" -ne 0 ] && [ "$val_rc" -ne 1 ]; then
-  cat "$VAL_RAW" >&2
-  echo "Error: failed to capture validation transcript (validate-listing.sh exited $val_rc)." >&2
-  exit 1
-fi
-if ! LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' "$VAL_RAW" > "$VAL_TXT" || [ ! -s "$VAL_TXT" ]; then
+if ! LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' "$VAL_RAW" > "$VAL_TXT"; then
   echo "Error: failed to capture validation transcript." >&2
   exit 1
 fi
+verdict="$(awk 'NF {last=$0} END {print last}' "$VAL_TXT")"
+crash=""
+case "$val_rc/$verdict" in
+  "0/LISTING VALID"|"1/LISTING HAS FAILURES"|"1/nothing to validate") ;;
+  *) crash="validator crashed (exit $val_rc): missing or inconsistent final verdict"
+     echo "$crash" >&2 ;;
+esac
 
 OUT="$ROOT/listing-review.html"
-python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
+python3 - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" <<'PY' || { echo "Error: review page generation failed." >&2; exit 1; }
 import sys, os, html, datetime
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
@@ -112,8 +113,8 @@ if os.path.isdir(A):
             if fs:
                 shots[lbl] = [os.path.relpath(f, root) for f in fs]
         graphics = []
-        # supply uploads images/featureGraphic.<ext> and images/icon.<ext> directly.
-        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon")]:
+        # supply reads the graphics directly from the locale images directory.
+        for name, lbl in [("featureGraphic", "Feature graphic"), ("icon", "Icon"), ("tvBanner", "TV banner")]:
             for f in images(os.path.join(ld, "images")):
                 if os.path.splitext(os.path.basename(f))[0].lower() == name.lower():
                     graphics.append((lbl, os.path.relpath(f, root), dims(f)))
@@ -121,6 +122,8 @@ if os.path.isdir(A):
     platforms["Android"] = dict(locales=locs, applevel=[])
 
 val_output = read(val_txt) or ""
+if sys.argv[5]:
+    val_output = sys.argv[5] + "\n\n" + val_output
 
 # ---- render helpers ----
 def badge(r):
@@ -263,3 +266,4 @@ open(out_path, "w", encoding="utf-8").write(page)
 print(f"Wrote {out_path}")
 PY
 echo "Open it in a browser: $OUT"
+[ -z "$crash" ]
