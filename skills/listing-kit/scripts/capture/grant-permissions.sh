@@ -109,7 +109,13 @@ case "$platform" in
         echo "App '$app' is not installed on the device (install it first)." >&2
         exit 1 ;;
     esac
-    dump_clean="$(printf '%s' "$dump_out" | tr -d '\r')"
+    # Only children of "requested permissions:" describe manifest requests.
+    requested="$(awk '
+      { sub(/\r$/, ""); match($0, /^[[:space:]]*/); indent = RLENGTH }
+      /^[[:space:]]*requested permissions:[[:space:]]*$/ { active = 1; parent = indent; next }
+      NF && indent <= parent { active = 0 }
+      active && NF { perm = $1; sub(/:$/, "", perm); print perm }
+    ' <<<"$dump_out")"
     applicable=()
     for perm in \
       android.permission.ACCESS_FINE_LOCATION \
@@ -119,7 +125,7 @@ case "$platform" in
       android.permission.READ_MEDIA_IMAGES \
       android.permission.POST_NOTIFICATIONS \
       android.permission.READ_CONTACTS ; do
-      if printf '%s\n' "$dump_clean" | grep -Eq "(^|[^A-Za-z0-9_.])${perm}([^A-Za-z0-9_.]|$)"; then
+      if grep -Fxq "$perm" <<<"$requested"; then
         applicable+=("$perm")
       fi
     done

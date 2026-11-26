@@ -35,14 +35,12 @@ if im_resolve compare; then HAVE_IM=1; else HAVE_IM=0; fi
 ERR_TMP="$(mktemp)"
 PREV_LIST="$(mktemp)"
 CUR_LIST="$(mktemp)"
-trap 'rm -f "$ERR_TMP" "$PREV_LIST" "$CUR_LIST"' EXIT
+ALL_LIST="$(mktemp)"
+trap 'rm -f "$ERR_TMP" "$PREV_LIST" "$CUR_LIST" "$ALL_LIST"' EXIT
 
 # relative paths of every PNG/JPEG under a dir; non-zero if enumeration failed
 list_dir(){
-  local rc=0
-  (cd "$1" && find . -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \)) 2>"$ERR_TMP" \
-    | sed 's#^\./##' | sort >"$2" || rc=$?
-  return "$rc"
+  (cd "$1" && find . -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0) >"$2" 2>"$ERR_TMP"
 }
 
 clean_err(){
@@ -99,9 +97,15 @@ if ! list_dir "$cur" "$CUR_LIST"; then
 fi
 
 if [ "$enum_failed" -eq 0 ]; then
-  all=$(sort -u "$PREV_LIST" "$CUR_LIST")
-  while IFS= read -r rel; do
-    [ -z "$rel" ] && continue
+  if ! LC_ALL=C sort -u -z "$PREV_LIST" "$CUR_LIST" >"$ALL_LIST" 2>"$ERR_TMP"; then
+    printf '  ! error merging file lists: %s\n' "$(clean_err "$(cat "$ERR_TMP")")"
+    errors=$((errors+1))
+    enum_failed=1
+  fi
+fi
+if [ "$enum_failed" -eq 0 ]; then
+  while IFS= read -r -d '' rel; do
+    rel=${rel#./}
     pf="$prev/$rel"; cf="$cur/$rel"
     if [ ! -f "$pf" ]; then printf '  %s+ added%s    %s\n' "$G" "$Z" "$rel"; added=$((added+1)); continue; fi
     if [ ! -f "$cf" ]; then printf '  %s- removed%s  %s\n' "$Y" "$Z" "$rel"; removed=$((removed+1)); continue; fi
@@ -124,9 +128,7 @@ if [ "$enum_failed" -eq 0 ]; then
            errors=$((errors+1));;
       esac
     fi
-  done <<EOF
-$all
-EOF
+  done < "$ALL_LIST"
 fi
 
 if [ "$errors" -gt 0 ]; then

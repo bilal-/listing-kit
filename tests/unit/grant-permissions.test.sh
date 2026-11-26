@@ -140,7 +140,7 @@ Packages:
     install permissions:
       android.permission.READ_CONTACTS: granted=true
 DUMP
-      awk 'BEGIN {for(i=0;i<16000;i++) print "additional package information"}' 
+      awk 'BEGIN {for(i=0;i<16000;i++) print "additional package information"}'
     exit 0;;
 esac
 exit 0
