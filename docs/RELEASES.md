@@ -27,4 +27,4 @@ upload_to_play_store(
 )
 ```
 
-Keep the Play listing under version control alongside the release. Use `listing-kit validate` and `listing-kit review` on the public assets. In this version `listing-kit publish` previews listing changes. Use `listing-kit handoff --open` to upload those assets by hand.
+Keep the Play listing under version control alongside the release. Use `listing-kit validate` and `listing-kit review` on the public assets. In this version `listing-kit publish` by default previews listing changes. Use `listing-kit handoff --open` to upload those assets by hand.

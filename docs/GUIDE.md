@@ -107,7 +107,7 @@ When extending the plan to existing galleries, compare `listing-kit plan outputs
 
 Put any approved copy changes into the locale's fastlane text files. Rebuild the review after edits. For a future submission, supply the intended date and SDK with `listing-kit validate --as-of YYYY-MM-DD --ios-sdk X.Y`.
 
-In the initialized copy, run `listing-kit hook install`, then `listing-kit hook status`. Status exits 2 before installation and 0 when the hook is active. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
+In the initialized copy, run `listing-kit hook install`, then `listing-kit hook status`. Status exits 1 before installation and 0 when the hook is active. The hook scans staged listing inputs and refreshes the staged review page. Commit the public listing, plan, flows and ownership records together. [File layout and ignore entries](../skills/listing-kit/references/metadata/fastlane-layout.md)
 
 ## Hand over
 
