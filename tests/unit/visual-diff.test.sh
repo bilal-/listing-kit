@@ -120,6 +120,75 @@ assert_not_contains "$OUT" "px differ"
 assert_contains "$OUT" "0 changed"
 rm -rf "$P" "$C"
 
+it "suppresses non-fatal compare warnings (-quiet) so valid screens are not reported as errors"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+printf 'img1' > "$P/01.png"; printf 'img1' > "$C/01.png"
+printf 'img2a' > "$P/02.png"; printf 'img2b' > "$C/02.png"
+new_stubdir
+cat > "$STUB_BIN/identify" <<'EOF'
+#!/usr/bin/env bash
+printf '10x10'
+EOF
+cat > "$STUB_BIN/compare" <<'EOF'
+#!/usr/bin/env bash
+quiet=0
+for arg in "$@"; do [ "$arg" = "-quiet" ] && quiet=1; done
+[ "$quiet" = 0 ] && echo "compare: iCCP: known incorrect sRGB profile @ warning/png.c" >&2
+case "$*" in
+  *02.png*) echo "7" >&2; exit 1;;
+  *) echo "0" >&2; exit 0;;
+esac
+EOF
+chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
+OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+assert_not_contains "$OUT" "comparison failed" "warning suppressed via -quiet"
+assert_contains "$OUT" "1 unchanged"
+assert_contains "$OUT" "1 changed"
+assert_contains "$OUT" "02.png (7 px differ)"
+rm -rf "$P" "$C"
+
+it "byte-compare fallback reports cmp exit >=2 as an error, not bytes differ"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+printf 'AAAA' > "$P/01.png"; printf 'AAAA' > "$C/01.png"
+new_stubdir
+cat > "$STUB_BIN/cmp" <<'EOF'
+#!/usr/bin/env bash
+echo "cmp: $2: Permission denied" >&2
+exit 2
+EOF
+chmod +x "$STUB_BIN/cmp"
+OUT="$(LK_NO_IMAGEMAGICK=1 PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "informational exit 0 preserved"
+assert_contains "$OUT" "! error" "reports error line"
+assert_contains "$OUT" "Permission denied" "surfaces cmp stderr"
+assert_not_contains "$OUT" "bytes differ" "does not misreport error as bytes differ"
+assert_contains "$OUT" "0 changed"
+assert_contains "$OUT" "1 errors"
+rm -rf "$P" "$C"
+
+it "reports a failed directory enumeration as an error before classifying additions and removals"
+P="$(mktemp -d)"; C="$(mktemp -d)"
+mkdir -p "$P/sub" "$C/sub"
+printf 'AAAA' > "$P/sub/01.png"; printf 'AAAA' > "$C/sub/01.png"
+new_stubdir
+cat > "$STUB_BIN/find" <<EOF
+#!/usr/bin/env bash
+if [ "\$PWD" = "$(cd "$C" && pwd)" ]; then
+  echo "find: ./sub: Permission denied" >&2
+  exit 1
+fi
+exec "$(command -v find)" "\$@"
+EOF
+chmod +x "$STUB_BIN/find"
+OUT="$(LK_NO_IMAGEMAGICK=1 PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+assert_eq 0 "$RC" "informational exit 0 preserved"
+assert_contains "$OUT" "Permission denied"
+assert_contains "$OUT" "1 errors"
+assert_not_contains "$OUT" "- removed" "does not fabricate removals from failed enumeration"
+assert_contains "$OUT" "0 removed"
+rm -rf "$P" "$C"
+
 if command -v magick >/dev/null 2>&1; then
   it "real ImageMagick: corrupt PNG reports comparison failed instead of px differ"
   P="$(mktemp -d)"; C="$(mktemp -d)"
