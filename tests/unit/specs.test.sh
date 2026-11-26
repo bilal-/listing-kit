@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+unset PYTHONDONTWRITEBYTECODE
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
+
+it "test helpers suppress bytecode for Python subprocesses"
+assert_eq True "$(python3 -c 'import sys; print(sys.dont_write_bytecode)')"
 
 SPECS="$SCRIPTS/lib/specs.py"
 py() { python3 - "$@"; }
@@ -101,5 +105,30 @@ import specs,datetime
 d=specs.load(); v=specs.parse_date(d['verified'])
 print(specs.staleness(d, v+datetime.timedelta(days=120))[2], specs.staleness(d, v+datetime.timedelta(days=121))[2])")"
 assert_eq "False True" "$OUT"
+
+it "effective rules and conditional requirements reject invalid overrides"
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPTS/lib" python3 "$ROOT/tests/unit/specs_review.py"; then
+  pass
+else
+  fail "store rule regressions"
+fi
+
+it "legacy sizes are directional: Apple's without-status-bar landscape sizes are not swaps"
+assert_eq "iphone-home-4" "$(python3 "$SPECS" slot apple 1136 600)"
+assert_eq "-" "$(python3 "$SPECS" slot apple 600 1136)" "600x1136 is not an Apple size"
+assert_eq "ipad-9-7" "$(python3 "$SPECS" slot apple 2048 1496)"
+assert_eq "-" "$(python3 "$SPECS" slot apple 1496 2048)"
+
+it "Apple locale codes are the ones fastlane deliver accepts"
+OUT="$(cd "$SCRIPTS/lib" && python3 -c "
+import specs; l=specs.load()['stores']['apple']['locales']
+print('ta-IN' in l, 'ta' in l, 'zh-Hans' in l, 'en-US' in l, len(l))")"
+assert_eq "True False True True 50" "$OUT"
+
+it "a shared size is resolved by path the way deliver does it"
+OUT="$(cd "$SCRIPTS/lib" && python3 -c "
+import specs; d=specs.load(); f=specs.apple_slot_for_file
+print(f(d,3840,2160,'screenshots/en-US/01_home.png')['id'], f(d,3840,2160,'screenshots/en-US/01_vision.png')['id'], f(d,2064,2752,'x.png')['id'])")"
+assert_eq "apple-tv vision-pro ipad-13" "$OUT"
 
 summary

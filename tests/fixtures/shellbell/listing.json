@@ -1,0 +1,178 @@
+{
+  "locale": "en-US",
+  "appId": "sh.bilal.shellbell",
+  "stores": ["apple", "play"],
+  "screenSelection": "approved",
+  "metadataSelection": "approved",
+  "metadata": {
+    "marketingUrl": "https://shellbell.dev",
+    "supportUrl": "https://bilal.sh",
+    "privacyUrl": "https://github.com/bilal-/shellbell/blob/main/PRIVACY.md",
+    "copyright": "2026 Bilal",
+    "appleCategory": "DEVELOPER_TOOLS",
+    "playCategory": "Tools"
+  },
+  "targets": [
+    {
+      "family": "iphone",
+      "width": 1320,
+      "height": 2868,
+      "storeSlot": "iPhone Dynamic Island (large display)",
+      "filenameSuffix": "iphone"
+    },
+    {
+      "family": "iphone-medium",
+      "storeSlot": "iPhone Dynamic Island (medium display)",
+      "width": 1206,
+      "height": 2622,
+      "filenameSuffix": "iphone-medium",
+      "status": "prepared"
+    },
+    {
+      "family": "iphone-duo",
+      "storeSlot": "iPhone Duo",
+      "width": 1398,
+      "height": 2034,
+      "filenameSuffix": "iphone-duo",
+      "status": "prepared"
+    },
+    {
+      "family": "ipad",
+      "width": 2064,
+      "height": 2752
+    },
+    {
+      "family": "android-phone",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "family": "android-tablet",
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "screens": [
+    {
+      "order": 1,
+      "id": "agents",
+      "caption": "Every agent, one list",
+      "detail": "Claude Code · Codex · Antigravity · Gemini",
+      "route": "/c/[fp]",
+      "state": "Agents view on Studio Mac: Antigravity waiting for you, Claude Code and Gemini working, Codex idle, each with how long it has been in that state.",
+      "altText": "The Agents view listing coding agents by state: waiting for you, working and idle."
+    },
+    {
+      "order": 2,
+      "id": "conversation",
+      "caption": "Read agents like a chat",
+      "detail": "Messages and tool steps, not raw output",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Claude Code session in Conversation view: the request, the plan, one-line tool steps and the reply.",
+      "altText": "A Claude Code session shown as a conversation with tool steps."
+    },
+    {
+      "order": 3,
+      "id": "terminal",
+      "caption": "The real terminal, live",
+      "detail": "Full color, with the keys a terminal needs",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Gemini working in its terminal, with the key bar.",
+      "altText": "A coding agent's terminal output with terminal keys below."
+    },
+    {
+      "order": 4,
+      "id": "terminals",
+      "caption": "Herdr, tmux and iTerm2",
+      "detail": "Including sessions running in Ghostty",
+      "route": "/c/[fp]",
+      "state": "Terminals view grouped by Herdr and tmux workspaces shown in Ghostty, and an iTerm2 window.",
+      "altText": "Terminal sessions grouped by Herdr, tmux and iTerm2, some shown in Ghostty."
+    },
+    {
+      "order": 5,
+      "id": "answer",
+      "caption": "Answer from anywhere",
+      "detail": "Approve, refuse or steer with one tap",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Antigravity asking to write a migration, with its numbered choices as reply buttons.",
+      "altText": "An agent asking for permission, with its choices as reply buttons."
+    },
+    {
+      "order": 6,
+      "id": "direct",
+      "caption": "Private, peer to peer",
+      "detail": "End-to-end encrypted, direct to your computer",
+      "route": "/c/[fp]",
+      "state": "Direct row expanded: peer to peer on your network, round trip and setup time.",
+      "altText": "Connection details showing a direct peer-to-peer connection with its round trip time."
+    },
+    {
+      "order": 7,
+      "id": "reading",
+      "caption": "Read output comfortably",
+      "detail": "Scroll back, select and copy",
+      "route": "/c/[fp]/s/[sid]",
+      "state": "Reading mode over a build and test run.",
+      "altText": "Build output shown as selectable text in Reading mode."
+    },
+    {
+      "order": 8,
+      "id": "shellbell",
+      "caption": "Your terminal, from anywhere",
+      "panel": {
+        "headline": "Your terminal, from anywhere.",
+        "rows": [
+          ["Agents", "Claude Code, Codex, Antigravity, Gemini and 20 more"],
+          ["Terminals", "Herdr, tmux and iTerm2, in Ghostty or any terminal app"],
+          ["Private", "End-to-end encrypted and peer to peer"],
+          ["Open", "MIT licensed, with a relay you can host yourself"],
+          ["Computers", "macOS and Linux"]
+        ]
+      },
+      "altText": "Shellbell: your terminal from anywhere. Works with coding agents and terminals, end-to-end encrypted, open source, for macOS and Linux."
+    }
+  ],
+  "featureGraphic": {
+    "status": "prepared",
+    "altText": "Shellbell on an amber background: Your terminal, from anywhere. Claude Code, Codex, Herdr, tmux and iTerm2."
+  },
+  "capture": {
+    "demoMode": ".listing-kit/entry.ts",
+    "content": "Disposable example projects only; no personal terminal sessions, host names, paths, pairing codes or credentials.",
+    "method": "Capture the running native app using simctl or adb, then frame each capture with .listing-kit/frame.py (brand background, caption and bezel). Never substitute mockups for the app screens; only the closing brand panel has no capture.",
+    "playFraming": "Use a device viewport with the intended aspect ratio; do not crop away the keyboard or app controls."
+  },
+  "manualConsoleFields": [
+    "Google Play category and developer contact email",
+    "Google Play privacy policy URL",
+    "Apple App Privacy and Google Play Data safety declarations",
+    "Content ratings and app review access instructions"
+  ],
+  "releaseNotes": "Write against the exact selected store candidate; no release notes or version-code changelog have been invented.",
+  "sources": [
+    "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information",
+    "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications",
+    "https://support.google.com/googleplay/android-developer/answer/9859152",
+    "https://support.google.com/googleplay/android-developer/answer/9866151",
+    "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications",
+    "https://developer.apple.com/app-store/asset-best-practices/"
+  ],
+  "appleHeaders": {
+    "status": "prepared",
+    "upload": "App Store Connect Header Asset; separate from screenshots",
+    "assets": [
+      {
+        "path": "store-assets/apple/en-US/header-16x9.png",
+        "width": 5244,
+        "height": 2950
+      },
+      {
+        "path": "store-assets/apple/en-US/header-21x9.png",
+        "width": 3840,
+        "height": 1646
+      }
+    ],
+    "altText": "Shellbell on an amber background. Your terminal, from anywhere. Agents, terminals, end-to-end encrypted, open source."
+  }
+}

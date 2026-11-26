@@ -131,26 +131,6 @@ def text_fields(plan, data, store, directory, base):
             plan.missing.append("%s — %s" % (base.parts[1], place))
 
 
-def apple_slot(data, path, platform):
-    w, h = imginfo.image_info(path)[:2]
-    slots = specs.apple_slots_for_size(data, w, h)
-    if platform == "appleTV":
-        slots = [s for s in slots if s["id"] == "apple-tv"]
-    if len(slots) > 1:
-        suffixes = [s["suffix"] for s in slots]
-        # A framed screenshot keeps the slot suffix before the framing suffix.
-        stem = re.sub(r"_framed$", "", path.stem.lower())
-        matches = [s for s in slots if re.search(r"(?:^|[-_ ])" + re.escape(s["suffix"]) + "$", stem)]
-        if not matches and {s["id"] for s in slots} == {"ipad-13", "ipad-12-9"}:
-            return specs.slot(data, "apple", "ipad-13")
-        if len(matches) != 1:
-            raise ValueError("%s: ambiguous %sx%s; end the name with %s" % (path, w, h, " or ".join(suffixes)))
-        return matches[0]
-    if not slots:
-        raise ValueError("%s: %sx%s matches no App Store slot" % (path, w, h))
-    return slots[0]
-
-
 def manual(plan, data, store, locale, groups, deferred=()):
     for slot_id, name in listing.manual_screenshots(plan.root, store, locale):
         path = Path(name)
@@ -189,9 +169,9 @@ def apple(root, data, plan):
     meta = root / "fastlane/metadata"
     targets = apple_assets.load_plan(root)
     locales = {Path(d).name for d in apple_assets.apple_locales(root, data, targets)}
-    if (meta / "default").is_dir() and not any((meta / loc).is_dir() for loc in locales):
+    if listing.apple_default(root / "fastlane", data) and not any((meta / loc).is_dir() for loc in locales):
         locales.add("default")
-    if locales or any(child(meta, f["stem"] + ".txt").is_file() for f in specs.fields(data, "apple", "app")):
+    if apple_assets.has_apple_listing(root, locales, data):
         text_fields(plan, data, "apple", meta, Path("apple/app-wide"))
     for locale in sorted(locales):
         base = Path("apple") / locale
@@ -202,14 +182,17 @@ def apple(root, data, plan):
             plan.omitted.append("%s (%s) — %s" % (display, locale, reason))
         for platform, name in apple_assets.active_screenshots(root, locale, deferred, data, plan.nonempty):
             path = Path(name)
-            slot = apple_slot(data, path, platform)
+            w, h = imginfo.image_info(path)[:2]
+            relative = path.relative_to(root / "fastlane/screenshots")
+            slot = specs.apple_slot_for_file(data, w, h, relative.as_posix())
+            if slot is None or (platform == "appleTV" and slot["id"] != "apple-tv"):
+                raise ValueError("%s: %sx%s matches no App Store slot" % (path, w, h))
             groups["iMessage" if platform == "iMessage" else "", slot["id"]].append(path)
         manual(plan, data, "apple", locale, groups, deferred)
         screenshots(plan, data, "apple", base, groups, VERSION)
         headers = data["stores"]["apple"]["graphics"]
-        for path in sorted((root / "store-assets/apple" / locale).glob("*")):
-            if (path.name.startswith(".") or not path.is_file() or
-                    path.suffix.lower() not in imginfo.EXTENSIONS + (".mov", ".mp4") or not plan.nonempty(path)):
+        for path in apple_assets.header_files(root, locale):
+            if not plan.nonempty(path):
                 continue
             size = list(imginfo.image_info(path)[:2])
             variant = next((g for g in headers if g["size"] == size), None)
@@ -226,8 +209,9 @@ def play_images(plan, directory):
 def play(root, data, plan):
     android = root / "fastlane/metadata/android"
     assets = root / "store-assets/play"
-    locales = {p.name for d in (android, assets) if d.is_dir() for p in d.iterdir()
-               if p.is_dir() and not p.name.startswith(".")}
+    locales = {Path(p).name for p in listing.play_locales(root / "fastlane")}
+    if assets.is_dir():
+        locales.update(p.name for p in assets.iterdir() if p.is_dir() and not p.name.startswith("."))
     for locale in sorted(locales):
         loc = android / locale
         base = Path("play") / locale

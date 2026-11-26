@@ -2,17 +2,16 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/install-review-hook.sh"
-
 # Keep Git discovery within the fixtures, even if TMPDIR is in a worktree.
-fixtures="$(mktemp -d)" || exit 1
+fixtures="$(mktemp -d "${TMPDIR:-/tmp}/listing-kit-hooks.XXXXXXXX")" || exit 1
 trap 'rm -rf "$fixtures"' EXIT
 TMPDIR="$(cd "$fixtures" && pwd -P)" || exit 1
 export TMPDIR GIT_CEILING_DIRECTORIES="$TMPDIR"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_OBJECT_DIRECTORY
+unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 make_repo() {
-  T="$(mktemp -d)" || exit 1
+  T="$(mktemp -d "$fixtures/app.XXXXXXXX")" || exit 1
   git -C "$T" init -q --template= || exit 1
   mkdir -p "$T/.git/hooks"
   git -C "$T" config user.email "listing-kit@example.test"
@@ -27,7 +26,7 @@ make_app() {
 }
 
 it "exits 2 outside a git worktree"
-T="$(mktemp -d)" || exit 1
+T="$(mktemp -d "$fixtures/app.XXXXXXXX")" || exit 1
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_contains "$OUT" "Not inside a git worktree"

@@ -5,7 +5,6 @@ import html
 import io
 import json
 import os
-import struct
 import subprocess
 import sys
 import tempfile
@@ -35,8 +34,11 @@ class HandoffTests(unittest.TestCase):
         return path
 
     def png(self, rel, w, h):
-        header = struct.pack(">I4sIIBBBBB", 13, b"IHDR", w, h, 8, 2, 0, 0, 0)
-        return self.put(rel, b"\x89PNG\r\n\x1a\n" + header + bytes(4) + b"\0\0\0\0IDAT")
+        path = self.app / rel
+        helpers = Path(__file__).resolve().parents[1] / "helpers.sh"
+        subprocess.run(["bash", "-c", '. "$1"; fake_png "$2" "$3" "$4"', "bash",
+                        str(helpers), str(path), str(w), str(h)], check=True)
+        return path
 
     def run_build(self, *, success=True):
         log = io.StringIO()
@@ -182,9 +184,10 @@ class HandoffTests(unittest.TestCase):
         source = self.temp / "escaped.txt"
         source.write_bytes(b"source")
         override = {"stores": {"apple": {"fields": [
-            {"stem": os.path.relpath(source.with_suffix(""), self.name.parent), "scope": "locale", "label": "Bad"}]}}}
+            {"stem": os.path.relpath(source.with_suffix(""), self.name.parent), "scope": "locale", "label": "Bad",
+             "unit": "chars", "required": {"rule": "never"}}]}}}
         self.put(".listing-kit/specs.override.json", json.dumps(override).encode())
-        self.assertIn("escaped", self.run_build(success=False))
+        self.assertIn(".stem", self.run_build(success=False))
         self.assertFalse((self.out / "escaped.txt").exists())
         self.assertFalse(self.out.exists())
         self.assertEqual(list(self.temp.rglob("escaped.txt")), [source])
@@ -228,20 +231,22 @@ class HandoffTests(unittest.TestCase):
     def test_06_shared_sizes(self):
         cases = (("home_tv", 3840, 2160, "Apple TV"), ("home_vision", 3840, 2160, "Apple Vision Pro"),
                  ("home", 2732, 2048, "iPad 13in"), ("home_ipad", 2048, 2732, "iPad 13in"),
-                 ("home_ipad13", 2048, 2732, "iPad 13in"), ("home_ipad-12.9", 2732, 2048, "iPad 12.9in"))
+                 ("home_ipad13", 2048, 2732, "iPad 13in"), ("home_ipad-12.9", 2732, 2048, "iPad 12.9in"),
+                 ("home_ipad-12-9", 2048, 2732, "iPad 12.9in"))
         for name, w, h, _ in cases:
             self.png("fastlane/screenshots/en-US/" + name + ".png", w, h)
         self.png("fastlane/screenshots/appleTV/en-US/else_vision.png", 3840, 2160)
+        self.png("fastlane/screenshots/en-US/appleTV/plan_vision.png", 3840, 2160)
         self.run_build()
         for name, _, _, label in cases:
             self.assertTrue(list((self.out / "apple/en-US").glob("*" + label + "/*" + name + ".png")), name)
         self.assertTrue(list((self.out / "apple/en-US").glob("*Apple TV/*else_vision.png")))
+        self.assertTrue(list((self.out / "apple/en-US").glob("*Apple TV/*plan_vision.png")))
 
-    def test_ambiguous_size(self):
+    def test_unmarked_shared_size_uses_apple_tv(self):
         self.png("fastlane/screenshots/en-US/home.png", 3840, 2160)
-        log = self.run_build(success=False)
-        for hint in ("home.png", "ambiguous", "tv", "vision"):
-            self.assertIn(hint, log)
+        self.run_build()
+        self.assertTrue(list((self.out / "apple/en-US").glob("*Apple TV/*home.png")))
 
     def test_manual_slot(self):
         self.png("store-assets/play/en-US/screenshots/xr/x.png", 1206, 2622)
@@ -471,11 +476,11 @@ class HandoffTests(unittest.TestCase):
         self.put("fastlane/metadata/android/fr-FR/short_description.txt", b"Bonjour")
         self.put("fastlane/metadata/en-US/description.txt", b"  ")
         override = {"stores": {"apple": {"fields": [
-            {"stem": "custom", "scope": "locale", "label": "Custom field", "required": {"rule": "always"}},
-            {"stem": "maybe", "scope": "locale", "label": "Unknown field",
-             "required": {"rule": "if", "condition": "unknown"}},
-            {"stem": "exception", "scope": "locale", "label": "Possible exception",
-             "required": {"rule": "always", "unless": "unknown"}}]}}}
+            {"stem": "custom", "scope": "locale", "unit": "chars", "label": "Custom field", "required": {"rule": "always"}},
+            {"stem": "maybe", "scope": "locale", "unit": "chars", "label": "Unknown field",
+             "required": {"rule": "if", "condition": "supportsIpad"}},
+            {"stem": "exception", "scope": "locale", "unit": "chars", "label": "Possible exception",
+             "required": {"rule": "always", "unless": "supportsIpad"}}]}}}
         self.put(".listing-kit/specs.override.json", json.dumps(override).encode())
         self.run_build()
         missing = (self.out / "INDEX.md").read_text().split("## Missing")[1].split("## ")[0]
