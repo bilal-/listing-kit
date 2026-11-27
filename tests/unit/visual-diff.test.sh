@@ -3,6 +3,15 @@
 
 SUT="$SCRIPTS/validate/visual-diff.sh"
 
+# Exercise IM6 discovery even when the host ships magick in /usr/bin.
+new_im6_stubdir() {
+  new_stubdir
+  local tool
+  for tool in bash mktemp find sort cmp rm cat tr sed awk dirname; do
+    ln -s "$(command -v "$tool")" "$STUB_BIN/$tool"
+  done
+}
+
 it "exits 2 with no args"
 OUT="$(bash "$SUT" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
@@ -33,7 +42,7 @@ assert_contains "$OUT" "1 removed" "counts removed"
 
 # --- ImageMagick 6 (separate compare/identify binaries, no `magick`) ---
 it "uses ImageMagick 6 compare/identify when magick is absent"
-new_stubdir
+new_im6_stubdir
 cat > "$STUB_BIN/identify" <<'EOF'
 #!/usr/bin/env bash
 echo "identify $*" >> "$(dirname "$0")/.calls"
@@ -42,15 +51,15 @@ EOF
 cat > "$STUB_BIN/compare" <<'EOF'
 #!/usr/bin/env bash
 echo "compare $*" >> "$(dirname "$0")/.calls"
-case "$*" in *02.png*) echo "42" >&2;; *) echo "0" >&2;; esac
+case "$*" in *02.png*) echo "42" >&2; exit 1;; *) echo "0" >&2;; esac
 EOF
 chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "exits 0"
 assert_not_contains "$OUT" "byte-compare only" "pixel mode, not the fallback"
 assert_contains "$OUT" "02.png (42 px differ)" "reports the pixel count"
 assert_contains "$(stub_log)" "identify -format" "dimensions come from identify"
-assert_not_contains "$OUT" "magick" "never calls magick"
+assert_contains "$(stub_log)" "compare -quiet -metric AE" "pixels come from compare"
 remove_fixture "$STUB_BIN"
 
 remove_fixture "$P" "$C"
@@ -64,9 +73,7 @@ remove_fixture "$P" "$C"
 
 it "an ImageMagick 6 install without identify falls back to byte-compare"
 new_tempdir P; new_tempdir C; printf 'A' > "$P/01.png"; printf 'A' > "$C/01.png"
-new_stubdir; stub compare
-# Expose only the tools the byte-compare branch uses, even on a host with IM6.
-for tool in mktemp find sort cmp rm; do ln -s "$(command -v "$tool")" "$STUB_BIN/$tool"; done
+new_im6_stubdir; stub compare
 OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"
 assert_contains "$OUT" "byte-compare only"
 assert_contains "$OUT" "1 unchanged"
@@ -76,7 +83,7 @@ it "reports an ImageMagick identify decode error as a comparison failure, not px
 new_tempdir P; new_tempdir C
 printf 'bad1' > "$P/01.png"; printf 'bad2' > "$C/01.png"
 printf 'bad1' > "$P/02.png"; printf 'good' > "$C/02.png"
-new_stubdir
+new_im6_stubdir
 cat > "$STUB_BIN/identify" <<'EOF'
 #!/usr/bin/env bash
 for last; do :; done
@@ -91,7 +98,7 @@ echo "compare: improper image header" >&2
 exit 2
 EOF
 chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "still exits 0 on decode error"
 assert_contains "$OUT" "01.png"
 assert_contains "$OUT" "comparison failed"
@@ -104,7 +111,7 @@ rm -rf "$P" "$C"
 it "reports an ImageMagick compare error as a comparison failure, not px differ"
 new_tempdir P; new_tempdir C
 printf 'trunc1' > "$P/01.png"; printf 'trunc2' > "$C/01.png"
-new_stubdir
+new_im6_stubdir
 cat > "$STUB_BIN/identify" <<'EOF'
 #!/usr/bin/env bash
 printf '10x10'
@@ -115,7 +122,7 @@ echo "compare: corrupt image data in IDAT" >&2
 exit 2
 EOF
 chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "still exits 0 on compare error"
 assert_contains "$OUT" "comparison failed"
 assert_contains "$OUT" "corrupt image data in IDAT"
@@ -127,7 +134,7 @@ it "suppresses non-fatal compare warnings (-quiet) so valid screens are not repo
 new_tempdir P; new_tempdir C
 printf 'img1' > "$P/01.png"; printf 'img1' > "$C/01.png"
 printf 'img2a' > "$P/02.png"; printf 'img2b' > "$C/02.png"
-new_stubdir
+new_im6_stubdir
 cat > "$STUB_BIN/identify" <<'EOF'
 #!/usr/bin/env bash
 printf '10x10'
@@ -143,7 +150,7 @@ case "$*" in
 esac
 EOF
 chmod +x "$STUB_BIN/identify" "$STUB_BIN/compare"
-OUT="$(PATH="$STUB_BIN:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
+OUT="$(PATH="$STUB_BIN" "$BASH_BIN" "$SUT" "$P" "$C" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_not_contains "$OUT" "comparison failed" "warning suppressed via -quiet"
 assert_contains "$OUT" "1 unchanged"
