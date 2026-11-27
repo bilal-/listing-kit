@@ -39,7 +39,9 @@ SHOTS = ("caption-top", "caption-bottom", "band", "full-bleed")
 CAPTURE_SIZE = (180, 400)
 FILL = bytes.fromhex("20b786")
 RIM = bytes.fromhex("1868ca")
-PALETTE = {"background": ["#ffedca", "#c8d8f6"], "ink": "#151670", "detail": "#982b19"}
+# Keep the red channel of both text colours and the background above the rim's
+# red tolerance, so LCD-antialiased glyph edges cannot register as capture pixels.
+PALETTE = {"background": ["#ffedca", "#c8d8f6"], "ink": "#481670", "detail": "#982b19"}
 INTER = str(KIT / "assets/fonts/Inter.ttf")
 ARABIC = "كل أفكارك هنا"
 ARABIC_DETAIL = "أفكار كل يوم"
@@ -182,10 +184,16 @@ class LayoutRenderer(render.cdp.Renderer):
         # same document that produces the PNG, before compose consumes the probe.
         probe = f"""Object.assign({probe}, {{
             frame: document.querySelector('.device')?.getBoundingClientRect().toJSON(),
-            bandBottom: document.querySelector('.band')?.getBoundingClientRect().bottom
+            bandBottom: document.querySelector('.band')?.getBoundingClientRect().bottom,
+            detailRects: Array.from(document.querySelectorAll('.detail, .rows dt')).flatMap(el => {{
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                return Array.from(range.getClientRects(), r => [r.left, r.top, r.right, r.bottom]);
+            }})
         }})"""
         png, info = super().render(assets, width, height, probe=probe, **kwargs)
         self.boxes = {box["sample"]: box for box in info["text"] if not box["empty"]}
+        self.detail_rects = info["detailRects"]
         self.frame = info.get("frame")
         self.band_bottom = info.get("bandBottom")
         return png, info
@@ -234,12 +242,12 @@ class Layouts(unittest.TestCase):
                                      "rows": [{"label": {"value": detail}, "text": {"value": value}}]}}
         return compose.Job(self.root, rec, input_roots={Path(font): Path(font).parent for font in fonts})
 
-    def build_rows(self, job):
-        self.browser.inspect_fonts = job.rec["storeCode"] == "ar"
+    def build_rows(self, job, *, inspect_fonts=False):
+        self.browser.inspect_fonts = inspect_fonts
         png = compose.build(job, self.renderer)
         self.assertEqual(job.problems, [])
         if self.browser.inspect_fonts:
-            self.fail("Arabic screenshot was never captured")
+            self.fail("screenshot was never captured")
         return list(rgb_rows(png, job.rec["size"]))
 
     def assert_capture(self, rows, size, template, source_size=CAPTURE_SIZE, fit="contain"):
@@ -294,7 +302,7 @@ class Layouts(unittest.TestCase):
 
     def check_layout(self, template, size, caption, locale, fonts, lines):
         job = self.job(template, size, caption, locale, fonts)
-        rows = self.build_rows(job)
+        rows = self.build_rows(job, inspect_fonts=True)
         w, h = size
         if template != "full-bleed":
             for row, hex_colour in zip((rows[0], rows[-1]), PALETTE["background"]):
@@ -325,10 +333,7 @@ class Layouts(unittest.TestCase):
         for top, bottom in headline:
             self.assert_line_height(top, bottom, px)
         detail = job.text["rows"][0][0] if template == "panel" else job.text["detail"]
-        detail_px = self.renderer.boxes[detail]["px"]
-        detail_bands = bands(secondary, round(.14 * detail_px) if locale == "ar" else 0)
-        self.assertEqual(len(detail_bands), 1, "wrong number of detail or label lines")
-        self.assert_line_height(*detail_bands[0], detail_px, cap_only=detail == "Notes")
+        self.assert_detail_ink(secondary, detail)
         if template == "caption-bottom":
             # Measure the mirrored device from the caption side using the same rim checks.
             device_bottom = h - 1 - self.assert_capture(rows[::-1], size, template)
@@ -340,13 +345,31 @@ class Layouts(unittest.TestCase):
         else:
             self.assertTrue(h * .15 < headline[0][0] <= headline[-1][1] < h * .85,
                             "headline outside central caption area")
-        if locale == "ar":
-            self.assertTrue(self.browser.glyph_fonts)
-            for providers in self.browser.glyph_fonts:
-                drawn = [f for f in providers if f["glyphCount"]]
-                self.assertTrue(drawn and all(f["isCustomFont"] and
-                                "lastresort" not in f["familyName"].replace(" ", "").lower()
-                                for f in drawn), f"Arabic glyphs outside the supplied fonts: {drawn}")
+        self.assertTrue(self.browser.glyph_fonts)
+        for providers in self.browser.glyph_fonts:
+            drawn = [f for f in providers if f["glyphCount"]]
+            self.assertTrue(drawn and all(f["isCustomFont"] and
+                            "lastresort" not in f["familyName"].replace(" ", "").lower()
+                            for f in drawn), f"glyphs outside the supplied fonts: {drawn}")
+
+    def assert_detail_ink(self, spans, detail):
+        box = self.renderer.boxes[detail]
+        left, top, right, bottom = box["rect"]
+        px = box["px"]
+        # Accents and antialiased edges can extend beyond the CSS box.
+        bearing = 1 + .3 * px
+        self.assertTrue(all(left - bearing <= x0 <= x1 <= right + bearing
+                            and top - bearing <= y <= bottom + bearing for y, x0, x1 in spans),
+                        "detail ink outside its box")
+        # A gap in thresholded ink can be a glyph feature or LCD antialiasing.
+        # Check the visible height and both ends of each laid-out text fragment.
+        self.assertTrue(self.renderer.detail_rects, "missing detail text")
+        for left, top, right, bottom in self.renderer.detail_rects:
+            line = [(y, x0, x1) for y, x0, x1 in spans if top <= y + .5 < bottom]
+            self.assertTrue(line, "missing detail or label line")
+            self.assert_line_height(line[0][0], line[-1][0], px, cap_only=detail == "Notes")
+            self.assertAlmostEqual(min(x0 for _, x0, _ in line), left, delta=bearing)
+            self.assertAlmostEqual(max(x1 for _, _, x1 in line) + 1, right, delta=bearing)
 
     def assert_line_height(self, top, bottom, px, *, cap_only=False):
         # Small Inter labels without descenders can lose edge rows to antialiasing.
