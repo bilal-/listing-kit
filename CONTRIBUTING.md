@@ -37,7 +37,7 @@ Commit the updated `tests/fixtures/renderer-version.json` with the change. Run `
 
 ## Expo listing end-to-end test
 
-Run `LK_REQUIRE_RENDER=1 bash tests/e2e/example.sh` with ImageMagick and a Chromium browser installed. The weekly macOS workflow runs the same script. It copies the Expo example to a temporary directory, composes raw and framed screenshots from its checked-in captures, validates the listing, and checks the review and handoff files.
+Run `LK_REQUIRE_RENDER=1 bash tests/e2e/example.sh` with ImageMagick and a Chromium browser installed. The weekly macOS workflow runs the same script. It copies the Expo listing inputs to a fresh temporary app, composes raw and framed screenshots from its checked-in captures, validates the listing, and checks the review and handoff files.
 
 ## Development and review
 

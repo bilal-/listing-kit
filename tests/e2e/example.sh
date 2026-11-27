@@ -11,28 +11,63 @@ if [ -z "$browser" ]; then
   exit
 fi
 
+source "$SCRIPTS/lib/imagemagick.sh"
+if ! im_resolve; then
+  skip "no ImageMagick"
+  if [ "${LK_REQUIRE_RENDER:-0}" = 1 ]; then fail "LK_REQUIRE_RENDER=1 requires ImageMagick"; fi
+  summary
+  exit
+fi
+
 new_tempdir app
-cp -R "$ROOT/examples/expo-recipe-box/." "$app/"
 cd "$app"
 git init -q
 lk="$SKILL_DIR/bin/listing-kit"
-"$lk" doctor
 
-python3 - <<'PY'
+PYTHONPATH="$SCRIPTS/lib" python3 - "$ROOT" <<'PY'
 import json
 from pathlib import Path
+import shutil
+import sys
 
+from regular_files import open_regular
+
+root = Path(sys.argv[1])
+example = Path("examples/expo-recipe-box")
 locale = "en-US"
+metadata = Path("fastlane/metadata")
 apple = Path("fastlane/screenshots") / locale
-play = Path("fastlane/metadata/android") / locale / "images/phoneScreenshots"
+android = metadata / "android" / locale
+play = android / "images/phoneScreenshots"
+
+
+def copy_input(source, dest=None):
+    dest = dest or source
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open_regular(root, example / source) as infile, dest.open("xb") as outfile:
+        shutil.copyfileobj(infile, outfile)
+
+
+copy_input(Path("app.json"))
+for name in ("copyright", "primary_category"):
+    copy_input(metadata / (name + ".txt"))
+for name in ("description", "keywords", "marketing_url", "name", "privacy_url",
+             "promotional_text", "release_notes", "subtitle", "support_url"):
+    copy_input(metadata / locale / (name + ".txt"))
+for name in ("title", "short_description", "full_description"):
+    copy_input(android / (name + ".txt"))
+for name in ("icon.png", "featureGraphic.png"):
+    copy_input(android / "images" / name)
+
 screens = []
 for index, screen in enumerate(("recipes", "recipe-detail", "shopping", "settings"), 1):
     name = f"{index:02d}_{screen}.png"
     for target, source in (("iphone", apple / name), ("ipad", apple / ("ipad13_" + name)), ("phone", play / name)):
         raw = Path(".listing-kit/raw") / target / locale / (screen + ".png")
-        raw.parent.mkdir(parents=True, exist_ok=True)
-        source.rename(raw)
-    screens.append({"id": screen, "flow": f".listing-kit/flows/{screen}.yaml",
+        copy_input(source, raw)
+    flow = Path(".listing-kit/flows") / (screen + ".yaml")
+    copy_input(flow)
+    screens.append({"id": screen, "flow": str(flow),
                     "caption": {locale: screen.replace("-", " ").title()}})
 
 # Historical iPhone captures use the large display. Frame them on the medium canvas.
@@ -51,6 +86,7 @@ plan = {
 Path(".listing-kit/listing.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 PY
 
+"$lk" doctor
 "$lk" plan check
 "$lk" compose
 "$lk" validate

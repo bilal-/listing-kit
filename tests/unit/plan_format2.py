@@ -54,6 +54,34 @@ class FormatTwo(unittest.TestCase):
             plan.listing_trees(self.app)
         self.assertEqual(caught.exception.problems, problems)
 
+    def test_format_required_before_using_tree_overrides(self):
+        self.assertEqual(plan.listing_trees(self.app)["apple"]["fastlaneDir"], Path("fastlane"))
+        self.data["trees"] = {"apple": {"fastlaneDir": "custom"}}
+        for field, message in [
+                ({}, "required key is missing"),
+                ({"format": "2"}, "expected an integer"),
+                ({"format": 2.0}, "expected an integer"),
+                ({"format": True}, "expected an integer"),
+                ({"format": 1}, "expected plan format 2"),
+                ({"format": 3}, "newer plan format 3; this kit supports format 2; update listing-kit")]:
+            self.data.pop("format", None)
+            self.data.update(field)
+            (self.app / plan.LISTING).write_text(json.dumps(self.data))
+            problems = [("ERROR", "format", message)]
+            with self.subTest(field=field):
+                self.assertEqual(self.check(), problems)
+            for reader in (plan.read_listing, plan.listing_trees, plan.load):
+                with self.subTest(reader=reader.__name__, field=field):
+                    with self.assertRaises(plan.PlanError) as caught:
+                        reader(self.app)
+                    self.assertEqual(caught.exception.problems, problems)
+            with self.subTest(command="detect", field=field):
+                result = subprocess.run([sys.executable, Path(plan.__file__).with_name("detect.py"),
+                                         self.app], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(plan._line(problems[0]), result.stderr)
+                self.assertNotIn("custom", result.stdout)
+
     def test_requirement_replacement_and_null_deletion(self):
         update = dict(id="iphone-duo-outer", required={"rule": "always"}, capture=None)
         (self.app / specs.OVERRIDE).write_text(json.dumps(

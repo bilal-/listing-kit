@@ -267,6 +267,8 @@ if __name__ == "__main__":
     try:
         trees = plan.listing_trees(root)
     except plan.PlanError as exc:
+        if any(field == "format" for _, field, _ in exc.problems):
+            sys.exit(str(exc))
         print(exc, file=sys.stderr)
         trees = {}
     except ValueError as exc:

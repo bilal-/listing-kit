@@ -6,7 +6,7 @@ Set `style.mode` to `framed` and `style.template` to `user:acorn` in the plan. A
 
 Use `user:<name>` for every app template. Names match `[a-z0-9-]+`. The kit reserves the bare names `caption-top`, `caption-bottom`, `full-bleed`, `band`, `panel`, `feature` and `header`. To select an app file with one of those names, use the explicit form, for example `user:band` for `.listing-kit/templates/band.html`.
 
-For a framed screenshot, `caption-top` places the caption and detail above the device. `caption-bottom` places them below it. Both support a contained device or a device that bleeds off the opposite edge. `full-bleed` always uses a cover crop to fill the canvas. It overlays the caption and detail on a bottom gradient tinted with the last palette background color. Choose ink and detail colors that contrast with the scrim over your capture. Compose checks both against the rendered background.
+For a framed screenshot, `caption-top` places the caption and detail above the device. `caption-bottom` places them below it. Both support a contained device or a device that bleeds off the opposite edge. With `fit: "cover"`, `caption-bottom` fills the device frame above the caption and crops the capture to fit. `full-bleed` always uses a cover crop to fill the canvas. It overlays the caption and detail on a bottom gradient tinted with the last palette background color. Choose ink and detail colors that contrast with the scrim over your capture. Compose checks both against the rendered background.
 
 ## A screenshot template
 

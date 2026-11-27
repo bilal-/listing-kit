@@ -11,6 +11,7 @@ permissions:
 jobs:
   example:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - name: Install ImageMagick
         run: brew install imagemagick

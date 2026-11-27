@@ -35,8 +35,14 @@ LOCALE = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})*")
 
 
 def _format_error(data):
-    version = data.get("format") if isinstance(data, dict) else None
-    if type(version) is int and version != FORMAT:
+    if not isinstance(data, dict):
+        return None  # The schema reports the root object error.
+    if "format" not in data:
+        return "required key is missing"
+    version = data["format"]
+    if type(version) is not int:
+        return "expected an integer"
+    if version != FORMAT:
         if version > FORMAT:
             return f"newer plan format {version}; this kit supports format {FORMAT}; update listing-kit"
         return f"expected plan format {FORMAT}"
@@ -990,7 +996,11 @@ def read_listing(root):
     raw = path.read_bytes()
     if secret_content(path, raw):
         raise ValueError("POTENTIAL SECRET in .listing-kit/listing.json")
-    return json_input.read(io.StringIO(raw.decode("utf-8")))
+    data = json_input.read(io.StringIO(raw.decode("utf-8")))
+    message = _format_error(data)
+    if message:
+        raise PlanError([("ERROR", "format", message)])
+    return data
 
 
 def _read(app_root, purpose=None, capture_filter=None):
@@ -1000,7 +1010,7 @@ def _read(app_root, purpose=None, capture_filter=None):
             layout.project(root)
         data = read_listing(root)
         rules = specs.load(root)
-    except FileNotFoundError:
+    except (FileNotFoundError, PlanError):
         raise
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as exc:
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
@@ -1019,13 +1029,12 @@ def listing_trees(app_root):
         data = read_listing(root)
     except FileNotFoundError:
         data = {}
+    except PlanError:
+        raise
     except ValueError as exc:
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
     if not isinstance(data, dict):
         raise PlanError([("ERROR", str(LISTING), "expected an object")])
-    message = _format_error(data)
-    if message:
-        raise PlanError([("ERROR", "format", message)])
     if "trees" in data:
         checker = _Checker({}, root, None)
         checker.visit(data["trees"], "trees", checker.trees)

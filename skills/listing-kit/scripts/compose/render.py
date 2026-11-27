@@ -158,7 +158,7 @@ PROBE = r"""(userLayout => {
     }
     const visible=Math.max(0,right-l)*Math.max(0,bottom-t);
     out.device={objectFit:fit, crop:w*h ? Math.max(0,1-visible/(w*h)) : 1,
-                cutBottom:Math.max(0,y+h-bottom)/h};
+                cutTop:Math.max(0,t-y)/h, cutBottom:Math.max(0,y+h-bottom)/h};
   }
   return out; })"""
 
@@ -256,7 +256,7 @@ def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_
         problems.append("the capture is cropped (%.2f%%)" % (dev["crop"] * 100))
     report = {"problems": problems, "overflow": info["overflow"], "worstContrast": worst,
               "textShare": round(sum(t["area"] for t in info["text"] if not t["empty"]), 4),
-              "device": dev, "bleedCut": dev["cutBottom"] if dev else 0}
+              "device": dev, "bleedCut": dev["cutTop" if template == "caption-bottom" else "cutBottom"] if dev else 0}
     return png, report
 
 

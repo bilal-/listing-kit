@@ -1,6 +1,7 @@
 """Pixel-level layout contracts for the bundled marketing templates."""
 from functools import partial
 import io
+import json
 import os
 from pathlib import Path
 import struct
@@ -19,6 +20,7 @@ import compose
 import fontcheck
 import imginfo
 import pixels
+import plan
 import render
 
 PHONE = (360, 720)
@@ -26,7 +28,7 @@ TABLET = (640, 480)
 LANDSCAPE_PHONE = (640, 360)
 SIZES = {
     "caption-top": (PHONE, TABLET),
-    "caption-bottom": (PHONE, TABLET, (480, 480)),
+    "caption-bottom": (PHONE, TABLET, (480, 480), (480, 496)),
     "full-bleed": (PHONE, TABLET, (480, 480)),
     "band": (PHONE, TABLET),
     "panel": (PHONE, TABLET),
@@ -179,10 +181,12 @@ class LayoutRenderer(render.cdp.Renderer):
         # Collect nominal font sizes and the caption band's lower edge in the
         # same document that produces the PNG, before compose consumes the probe.
         probe = f"""Object.assign({probe}, {{
+            frame: document.querySelector('.device')?.getBoundingClientRect().toJSON(),
             bandBottom: document.querySelector('.band')?.getBoundingClientRect().bottom
         }})"""
         png, info = super().render(assets, width, height, probe=probe, **kwargs)
         self.boxes = {box["sample"]: box for box in info["text"] if not box["empty"]}
+        self.frame = info.get("frame")
         self.band_bottom = info.get("bandBottom")
         return png, info
 
@@ -370,7 +374,7 @@ class Layouts(unittest.TestCase):
         self.assertAlmostEqual(top, self.renderer.band_bottom, delta=2,
                                msg="gap between caption band and wide capture")
 
-    def test_full_bleed_edges_and_contrast(self):
+    def test_full_bleed_edges(self):
         for size in SIZES["full-bleed"]:
             with self.subTest(size=size):
                 job = self.job("full-bleed", size)
@@ -384,11 +388,75 @@ class Layouts(unittest.TestCase):
                 self.assertTrue(all(a > b for a, b in zip(*edges)))
                 self.assertGreater(edges[0][0] - edges[1][0], edges[0][3 * w] - edges[1][3 * w])
 
-        job = self.job("full-bleed", PHONE)
-        job.style["palette"] = {"background": ["#ffffff"], "ink": "#ffffff", "detail": "#ffffff"}
-        Path(job.raw).write_bytes(monochrome_capture(255))
-        compose.build(job, self.renderer)
-        self.assertTrue(any("contrast" in p and "Today" in p for p in job.problems), job.problems)
+
+    def test_full_bleed_contrast_depends_on_capture(self):
+        for channel in (0, 255):
+            with self.subTest(channel=channel):
+                job = self.job("full-bleed", PHONE)
+                job.style["palette"] = {"background": ["#00000040"], "ink": "#ffffff", "detail": "#ffffff"}
+                Path(job.raw).write_bytes(monochrome_capture(channel))
+                compose.build(job, self.renderer)
+                if channel == 0:
+                    self.assertEqual(job.problems, [])
+                else:
+                    self.assertEqual(len(job.problems), 2, job.problems)
+                    for sample in ("Today", "Notes"):
+                        self.assertTrue(any("contrast" in p and sample in p for p in job.problems), job.problems)
+
+    def test_full_bleed_preserves_capture_aspect(self):
+        # A centered 30x20 marker survives object-fit:cover on all three canvases.
+        w, h = CAPTURE_SIZE
+        plain = b"\0" + FILL * w
+        margin = FILL * ((w - 30) // 2)
+        marker = b"\0" + margin + RIM * 30 + margin
+        side = plain * ((h - 20) // 2)
+        capture = png_bytes(CAPTURE_SIZE, 2, side + marker * 20 + side)
+        for size in SIZES["full-bleed"]:
+            with self.subTest(size=size):
+                job = self.job("full-bleed", size)
+                Path(job.raw).write_bytes(capture)
+                spans = colour_spans(self.build_rows(job), RIM, tolerance=16)
+                self.assertTrue(spans, "missing marker")
+                width = max(right - left + 1 for _, left, right in spans)
+                self.assertAlmostEqual(width, 30 * max(size[0] / w, size[1] / h), delta=3)
+                self.assertAlmostEqual(len(spans), width * 20 / 30, delta=2)
+
+    def test_caption_bottom_cover_stays_in_stage(self):
+        for size in SIZES["caption-bottom"] + (LANDSCAPE_PHONE,):
+            with self.subTest(size=size):
+                self.build_rows(self.job("caption-bottom", size, fit="cover"))
+                frame = self.renderer.frame
+                self.assertGreater(frame["top"], 0)
+                self.assertGreater(frame["left"], 0)
+                self.assertLess(frame["right"], size[0])
+                self.assertLess(frame["bottom"], self.renderer.boxes["Today"]["rect"][1])
+                self.assertAlmostEqual(frame["width"], size[0] - .12 * min(size), delta=2)
+
+    def test_landscape_caption_bottom_inherits_cover(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            listing = root / plan.LISTING
+            listing.parent.mkdir()
+            listing.write_text(json.dumps({
+                "format": 2, "app": "example.tablet", "locales": ["en-US"],
+                "style": {"mode": "framed", "fit": "cover", "palette": PALETTE,
+                          "fonts": {"default": {"headline": ["bundled:Inter"], "detail": ["bundled:Inter"]}}},
+                "targets": [{"id": "ipad", "store": "apple", "slot": "ipad-13", "state": "active",
+                             "size": [2752, 2064], "template": "caption-bottom"}],
+                "screens": [{"id": "one", "flow": "one.yaml", "caption": {"en-US": "Today"}}],
+            }))
+            (root / "one.yaml").touch()
+            manifest, templates, inputs = plan.compose_inputs(root)
+            record, = manifest["outputs"]
+            job = compose.Job(root, record, templates, inputs)
+            self.assertEqual((job.template, job.fit()), ("caption-bottom", "cover"))
+            raw = Path(job.raw)
+            raw.parent.mkdir(parents=True)
+            raw.write_bytes(solid_capture((1290, 2796)))
+            compose.build(job, self.renderer)
+            self.assertEqual(job.problems, [])
+            self.assertGreater(self.renderer.frame["top"], 0)
+            self.assertLess(self.renderer.frame["bottom"], self.renderer.boxes["Today"]["rect"][1])
 
     def test_empty_brand(self):
         for template in ("header", "feature", "panel"):
@@ -419,6 +487,21 @@ class Layouts(unittest.TestCase):
             with self.subTest(template=template, fit=fit):
                 rows = self.build_rows(self.job(template, TABLET, fit=fit))
                 self.assert_capture(rows[::-1] if template == "caption-bottom" else rows, TABLET, template, fit=fit)
+
+    def test_caption_bottom_bleed_measures_top_cut(self):
+        for size in SIZES["caption-bottom"]:
+            with self.subTest(size=size):
+                job = self.job("caption-bottom", size, fit="bleed")
+                rim = colour_spans(self.build_rows(job), RIM, tolerance=16)
+                self.assertTrue(rim, "missing device")
+                width = max(right - left + 1 for _, left, right in rim)
+                height = rim[-1][0] - rim[0][0] + 1
+                self.assertLess(rim[-1][0], self.renderer.boxes["Today"]["rect"][1])
+                cut = max(0, 1 - height / (width * CAPTURE_SIZE[1] / CAPTURE_SIZE[0]))
+                if size == TABLET:
+                    self.assertEqual(rim[0][0], 0)
+                    self.assertGreater(cut, .5)
+                self.assertAlmostEqual(job.report["bleedCut"], cut, delta=.01)
 
     def test_build_flattens_rgba(self):
         # Exercise the browser RGBA path even on Chromium builds that always emit RGB.
