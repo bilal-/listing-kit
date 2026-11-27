@@ -25,8 +25,9 @@ from pathlib import Path
 base = Path(os.environ["FL_FIXTURE"])
 args = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a") as log:
-    logged = args[:-1] + ["<approval>"] if args[1:2] == ["write"] else args
-    print(json.dumps(logged), file=log)
+    # The approval token must never be an argument; it travels in the environment.
+    assert os.environ.get("LK_APPLE_WRITE_TOKEN", "") not in args or not os.environ.get("LK_APPLE_WRITE_TOKEN")
+    print(json.dumps(args), file=log)
 if "FL_LOG_MODE" in os.environ:
     import signal, time
     tmp = Path(os.environ["TMPDIR"])
@@ -72,7 +73,9 @@ if apple_writer:
         print("appInfo", info_id, "DEVELOPER_REJECTED")
         print("locale en-US", version_loc, info_loc)
         sys.exit(0)
-    script, mode, app_id, key_path, metadata, pins_path, token = args
+    script, mode, app_id, key_path, metadata, pins_path = args
+    token = os.environ["LK_APPLE_WRITE_TOKEN"]
+    assert len(token) == 64 and token not in args
     assert mode == "write" and Path(pins_path) == Path.cwd() / "apple-target.json"
     assert Path(pins_path).stat().st_mode & 0o077 == 0
     pins = json.loads(Path(pins_path).read_text())

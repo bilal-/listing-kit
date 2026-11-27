@@ -65,11 +65,14 @@ module AppleTextUpload
   end
 
   def self.run(args, output)
-    mode, identifier, key_path, folder, pins_path, token_arg = args
+    mode, identifier, key_path, folder, pins_path = args
+    # The approval token travels in the environment, never on the command line,
+    # so other local users cannot read it from the process list.
+    token_arg = ENV["LK_APPLE_WRITE_TOKEN"].to_s
     written = 0
     describe = mode == "describe" && args.size == 3
     unless describe
-      raise Refusal, "invalid writer arguments" unless mode == "write" && args.size == 6
+      raise Refusal, "invalid writer arguments" unless mode == "write" && args.size == 5
       secret = ENV["LK_APPLE_WRITE_SECRET"]
       unless ENV["LK_PUBLISH_UNVERIFIED"] == "apple:#{identifier}" && /\A[0-9a-f]{64}\z/.match?(secret) &&
              /\A[0-9a-f]{64}\z/.match?(token_arg)
@@ -115,6 +118,10 @@ module AppleTextUpload
     info = app.fetch_edit_app_info
     raise Refusal, "editable app info unavailable" unless info && ID.match?(info.id) && STATE.match?(info.state)
     raise Refusal, "editable app info changed" unless describe || info.id == pins.fetch("appInfoId")
+    # Name, subtitle and privacy URL live on the app info, which has its own review state.
+    if !describe && fields.keys.any? { |_, field| INFO.key?(field) } && !WRITE_STATES.include?(info.state)
+      raise Refusal, "Apple app info writes refused in #{info.state}"
+    end
     versions = by_locale(version.get_app_store_version_localizations)
     infos = by_locale(info.get_app_info_localizations)
     localizations = (versions.keys | infos.keys).sort.map { |locale| [locale, versions[locale]&.id, infos[locale]&.id] }
@@ -175,7 +182,7 @@ if $PROGRAM_NAME == __FILE__
   STDOUT.reopen(File::NULL, "w")
   STDERR.reopen(File::NULL, "w")
   ENV["VERBOSE"] = "1"
-  unless (ARGV.first == "describe" && ARGV.size == 3) || (ARGV.first == "write" && ARGV.size == 6)
+  unless (ARGV.first == "describe" && ARGV.size == 3) || (ARGV.first == "write" && ARGV.size == 5)
     report.puts "invalid writer arguments", "0 fields written"
     exit 1
   end

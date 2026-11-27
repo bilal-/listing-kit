@@ -108,7 +108,8 @@ class AppleTextContract < Minitest::Test
     token = OpenSSL::HMAC.hexdigest("SHA256", @secret, message)
     pins_path = File.join(@staging, "apple-target.json")
     File.write(pins_path, JSON.generate(@pins))
-    ["write", "test.app", "private-key-path", @dir, pins_path, token]
+    @approval_token = token
+    ["write", "test.app", "private-key-path", @dir, pins_path]
   end
 
   def upload(args = approved_args, approval_secret: @secret)
@@ -120,6 +121,7 @@ class AppleTextContract < Minitest::Test
         @api::App.stub(:find, finder) do
           output = StringIO.new
           ENV["LK_APPLE_WRITE_SECRET"] = approval_secret
+          ENV["LK_APPLE_WRITE_TOKEN"] = @approval_token
           result = AppleTextUpload.run(args, output)
           return result, output.string
         end
@@ -227,7 +229,7 @@ class AppleTextContract < Minitest::Test
     stage("en-US/name.txt", "private name")
     args = approved_args
     @pins["id"] = "replacement"
-    File.write(args[-2], JSON.generate(@pins))
+    File.write(args[-1], JSON.generate(@pins))
     @version.define_singleton_method(:id) { "replacement" }
     refute_equal 0, upload(args).first
     assert_empty @writes
@@ -261,6 +263,32 @@ class AppleTextContract < Minitest::Test
       assert_includes output, state
       assert_empty @writes
     end
+  end
+
+  def test_token_is_never_an_argument
+    stage("en-US/name.txt", "private name")
+    status, output = upload(approved_args + ["cd" * 32])
+    refute_equal 0, status
+    assert_includes output, "invalid writer arguments"
+    assert_empty @writes
+  end
+
+  def test_app_info_fields_refused_unless_app_info_is_writable
+    stage("en-US/name.txt", "private name")
+    %w[WAITING_FOR_REVIEW IN_REVIEW READY_FOR_DISTRIBUTION].each do |state|
+      @info.define_singleton_method(:state) { state }
+      @writes.clear
+      status, output = upload
+      refute_equal 0, status
+      assert_includes output, state
+      assert_empty @writes
+    end
+  end
+
+  def test_version_fields_do_not_depend_on_app_info_state
+    stage("en-US/description.txt", "private description")
+    @info.define_singleton_method(:state) { "WAITING_FOR_REVIEW" }
+    assert_equal 0, upload.first
   end
 
   def test_write_requires_matching_nonempty_approval

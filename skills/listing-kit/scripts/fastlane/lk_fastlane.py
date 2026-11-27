@@ -329,7 +329,7 @@ class Store:
                 return ["bundle", "exec", executable], gemfile
         return [executable], None
 
-    def run(self, args, cwd, upload=False, apple_write_secret=None):
+    def run(self, args, cwd, upload=False, apple_write_secret=None, apple_write_token=None):
         prefix, gemfile = self.tool(args)
         # A clean cwd precludes implicit Deliverfile, Supplyfile and binary discovery.
         # Remove inherited tool overrides, including JSON objects and submission settings.
@@ -339,6 +339,9 @@ class Store:
         env.update(TMPDIR=str(self.scratch), VERBOSE="1", FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
         if apple_write_secret is not None:
             env["LK_APPLE_WRITE_SECRET"] = apple_write_secret
+        if apple_write_token is not None:
+            # Never pass the approval token as an argument: the process list is visible to other users.
+            env["LK_APPLE_WRITE_TOKEN"] = apple_write_token
         if gemfile:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
@@ -1172,7 +1175,8 @@ class Transfer:
                 secret = secrets.token_hex(32)
                 canonical = json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 token = hmac.new(secret.encode("ascii"), canonical, hashlib.sha256).hexdigest()
-                store.run([*self.args, token], self.folder, upload=True, apple_write_secret=secret)
+                store.run(self.args, self.folder, upload=True, apple_write_secret=secret,
+                          apple_write_token=token)
             else:
                 store.run(self.args, self.folder, upload=True)
         except (ChildTimeout, KeyboardInterrupt, ValueError, OSError, MissingFastlane) as exc:
