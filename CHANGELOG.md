@@ -10,7 +10,7 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 - Publish previews list every staged file and its SHA-256, with unified text diffs against the last pull. Play compares and stages text without trailing newlines.
 - Protected CI jobs and local runs can validate an approved Play edit with `publish --validate-only`. Its receipt records validation separately from publication. Real uploads remain gated for both stores.
 - Interrupted uploads accept an explicit `--resolve STORE applied|not-applied` outcome in CI. An unchanged readback after a failed fastlane command permits retry. Apple screenshot replacement waits through the normal timeout.
-- Uploads select Deliver and Supply's explicit `run` commands. Text-only uploads exclude images, Apple skips version updates and submission, and Supply retains its default review-parameter retry.
+- Apple text sends use Spaceship to update staged fields on existing localizations and optional copyright. The preview lists the write scope. Real Play sends fail if Google rejects a review hold. Explicit `--send-for-review` consent is previewed and recorded. Clearing a Play video requires per-locale plan consent.
 
 ### Existing listings
 

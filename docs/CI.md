@@ -39,6 +39,8 @@ Validation requires the usual store credentials and approval. Supply stages the 
 
 Real uploads remain disabled for both stores. Play validation is allowed without `LK_PUBLISH_UNVERIFIED`. Keep that one-run, app-scoped upload override out of CI. Agents must never pass `--yes` or set the override.
 
+The preview lists each staged field and the store operations outside its scope. Apple text goes through the bundled Spaceship writer for existing localizations. An error reports how many fields the API acknowledged. Real Play publishes request a hold and fail when Google requires automatic review. A maintainer may explicitly accept review with `--send-for-review` in a new publish approval. The receipt records `sendForReview`. Serialize validation and publish jobs for the same Play app and account, since both open a store edit.
+
 ### Recover an interrupted upload
 
 Restore the affected app's receipt artifact to `.listing-kit/publish.receipt.json` and select the original app identifier and Play track. For subsequent previews, keep the app’s pull lock and its matching `.listing-kit/remote/` snapshot together. Run publish again to read the store. After a non-zero fastlane exit, an exact match with the pre-upload snapshot closes the operation as `not-applied` and allows a fresh proposal. A readback matching the approved manifest can confirm completion. A partial change, unavailable download, or re-encoded gallery can require a person to inspect the store. Check every affected field and the order and contents of each affected gallery.

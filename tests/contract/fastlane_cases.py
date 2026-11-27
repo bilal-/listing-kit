@@ -36,7 +36,8 @@ def cases(root):
         with patch.object(target, "run", download):
             lk.download(target, root / store)
         for key in ("metadata/en-US/name.txt", "screenshots/en-US/01.png", "metadata/en-US/changelogs/7.txt"):
-            calls.append(lk.upload_args(target, {key: Path(key)}, root))
+            if store == "play" or key.startswith("screenshots/"):
+                calls.append(lk.upload_args(target, {key: Path(key)}, root))
         if store == "play":
             target.validate_only = True
             calls.append(lk.upload_args(target, {"metadata/en-US/title.txt": Path("title.txt")}, root))

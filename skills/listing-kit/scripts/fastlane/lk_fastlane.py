@@ -37,6 +37,10 @@ import specs
 
 # UNVERIFIED: real account access and store-side effects on versions, gallery
 # order, builds, review state and Play tracks require the disposable-app tests.
+APPLE_TEXT_WRITER = str(SCRIPTS / "fastlane/apple_text_upload.rb")
+APPLE_LOCALIZED_TEXT = {"name", "subtitle", "description", "keywords", "promotional_text",
+                        "release_notes", "support_url", "marketing_url", "privacy_url"}
+APPLE_CONSOLE_HINT = "Change unsupported Apple metadata in App Store Connect."
 PUBLISH_ENABLED = {"apple": False, "play": False}
 CREDENTIAL = {
     "apple": ("appleApiKeyPath", "APP_STORE_CONNECT_API_KEY_PATH", "App Store Connect API key JSON"),
@@ -295,6 +299,7 @@ class Store:
     key: Path = None
     screenshots: tuple = ()
     validate_only: bool = False
+    send_for_review: bool = False
     scratch: Path = field(init=False)
 
     @property
@@ -313,16 +318,17 @@ class Store:
             return ["--app_identifier", self.app, "--api_key_path", str(self.key)]
         return ["--package_name", self.app, "--json_key", str(self.key), "--track", self.track]
 
-    def tool(self):
+    def tool(self, args):
+        executable = "ruby" if args[0] == APPLE_TEXT_WRITER else "fastlane"
         directory = self.trees["fastlaneDir"]
         for parent in (directory, directory.parent, self.root):
             gemfile = parent / "Gemfile"
             if gemfile.is_file() and re.search(r"(?m)^[^#\n]*\bfastlane\b", gemfile.read_text()):
-                return ["bundle", "exec", "fastlane"], gemfile
-        return ["fastlane"], None
+                return ["bundle", "exec", executable], gemfile
+        return [executable], None
 
     def run(self, args, cwd, upload=False):
-        prefix, gemfile = self.tool()
+        prefix, gemfile = self.tool(args)
         # A clean cwd precludes implicit Deliverfile, Supplyfile and binary discovery.
         # Remove inherited tool overrides, including JSON objects and submission settings.
         env = {k: v for k, v in os.environ.items() if not k.startswith(
@@ -341,6 +347,22 @@ class Store:
         if result.returncode == 127 and not upload:
             raise MissingFastlane(INSTALL)
         if result.returncode:
+            if args[0] == APPLE_TEXT_WRITER:
+                # Reconstruct only the writer's bounded diagnostics. Never echo child output.
+                count = re.search(rb"(?m)^([0-9]{1,9}) fields written$", result.stdout)
+                missing = re.search(rb"(?m)^missing locale ([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$", result.stdout)
+                reason = "Apple text update failed"
+                if missing:
+                    reason += " (missing locale %s)" % missing[1].decode("ascii")
+                if count:
+                    reason += "; %d fields written" % int(count[1])
+                else:
+                    reason += "; written count unknown"
+                raise FastlaneExit(reason)
+            if (args[:2] == ["supply", "run"] and not self.validate_only and not self.send_for_review
+                    and b"changesnotsentforreview must not be set" in result.stdout.lower()):
+                raise FastlaneExit("this app sends changes for review automatically; "
+                                   "rerun with --send-for-review to accept that")
             # Fastlane can include credentials in diagnostics. Only emit known error categories.
             hints = (b"unauthorized", b"forbidden", b"not found", b"invalid credentials",
                      b"permission denied", b"authentication failed")
@@ -640,6 +662,15 @@ def checked_copy(path, dest, *, play_text=False):
 
 
 def prepared(store, view, platforms):
+    if store.name == "apple":
+        meta = store.trees["metadata"]
+        review = meta / "review_information"
+        allowed_for_comparison = {f["stem"] + ".txt" for f in specs.fields(store.rules, "apple", "app")}
+        allowed_for_comparison.update(name for name in listing.DELIVER_APP_FILES if name.endswith(".txt"))
+        if ((review.is_dir() and any(review.iterdir())) or
+                (meta.is_dir() and any(p.is_file() and not p.name.startswith(".")
+                                       and p.name not in allowed_for_comparison for p in meta.iterdir()))):
+            raise ValueError(APPLE_CONSOLE_HINT)
     source, coverage = working_inventory(store, require_outputs=True)
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
     screenshots = view / "fastlane/screenshots" if store.name == "apple" else metadata
@@ -865,6 +896,12 @@ def summary(store, local, remote, state, pending=()):
         other = remote.text.get(key)
         if other is None or raw != comparable(store.name, other.read_bytes()):
             print(store.name, key, "changed" if other else "added (cannot compare: absent from download)")
+            if store.name == "play" and path.name == "video.txt" and not raw.strip():
+                if not any(isinstance(loc, dict) and loc.get("play") == path.parent.name
+                           and loc.get("clearPlayVideo") is True for loc in store.data.get("locales", [])):
+                    raise ValueError("Empty %s would clear the live video; set clearPlayVideo for this Play locale in the plan" % key)
+                if raw:
+                    raise ValueError("To clear the Play video, leave %s empty" % key)
             send[key] = path
 
     note_status = {}
@@ -982,17 +1019,30 @@ def upload_args(store, send, folder):
     has_text = any(p.suffix == ".txt" and "/changelogs/" not in k for k, p in send.items())
     meta = str(folder / "metadata")
     if store.name == "apple":
-        args = ["deliver", "run", *store.key_args(), "--skip_binary_upload", "--skip_app_version_update", "--force", "--submit_for_review",
-                "false", "--run_precheck_before_submit", "false", "--metadata_path", meta]
-        if not has_text:
-            args.append("--skip_metadata")
-        if has_shots:
-            args.extend(["--screenshots_path", str(folder / "screenshots"), "--overwrite_screenshots"])
-        else:
-            args.append("--skip_screenshots")
-        return args
+        if has_text:
+            for key in send:
+                path = Path(key)
+                parts = path.parts
+                localized = (len(parts) == 3 and parts[0] == "metadata" and is_locale(parts[1])
+                             and path.suffix == ".txt" and path.stem in APPLE_LOCALIZED_TEXT)
+                if key == "metadata/copyright.txt" or localized:
+                    continue
+                if parts[0] == "screenshots":
+                    raise ValueError("Apple text and screenshots need separate sends; use the hand-upload folder for a mixed change")
+                raise ValueError(APPLE_CONSOLE_HINT)
+            return [APPLE_TEXT_WRITER, store.app, str(store.key), meta]
+        if not has_shots or any(not k.startswith("screenshots/") for k in send):
+            raise ValueError(APPLE_CONSOLE_HINT)
+        return ["deliver", "run", *store.key_args(), "--skip_binary_upload", "--skip_app_version_update",
+                "--force", "--submit_for_review", "false", "--run_precheck_before_submit", "false",
+                "--metadata_path", meta, "--skip_metadata", "--screenshots_path", str(folder / "screenshots"),
+                "--overwrite_screenshots"]
     args = ["supply", "run", *store.key_args(), "--metadata_path", meta, "--skip_upload_apk", "--skip_upload_aab",
-            "--skip_upload_images", "--changes_not_sent_for_review", "true"]
+            "--skip_upload_images"]
+    if store.validate_only or not store.send_for_review:
+        args.extend(["--changes_not_sent_for_review", "true"])
+        if not store.validate_only:
+            args.extend(["--rescue_changes_not_sent_for_review", "false"])
     if store.validate_only:
         args.append("--validate_only")
     if store.code:
@@ -1147,8 +1197,26 @@ def preview(store, local, scratch, remote, history, pending):
         dest = folder / key
         checked_copy(path, dest)
     args = upload_args(store, send, folder)
-    display_args = [store.key.name if value == str(store.key) else value for value in args]
-    print("Would run", shlex.join(store.tool()[0] + display_args), flush=True)
+    display_args = ["<credential file>" if value == str(store.key) else value for value in args]
+    print("Would run", shlex.join(store.tool(args)[0] + display_args), flush=True)
+    if store.name == "apple" and args[0] == APPLE_TEXT_WRITER:
+        print("Cannot touch screenshots, previews, builds, phased release, ratings reset, review details or "
+              "attachments, categories, age rating, pricing, release type or date, or create versions or locales.")
+    elif store.name == "apple":
+        print("Cannot send listing text, binaries or a submission in this screenshot run.")
+    else:
+        protected = ["APKs", "app bundles", "listing artwork"]
+        for flag, label in (("--skip_upload_screenshots", "screenshots"), ("--skip_upload_changelogs", "release notes")):
+            if flag in args:
+                protected.append(label)
+        if "--skip_upload_changelogs" in args:
+            protected.extend(["tracks", "rollouts", "release status"])
+        print("Cannot touch " + ", ".join(protected) + ".")
+        if store.validate_only:
+            print("Validate only: cannot commit or send for review.")
+        else:
+            review = "send for review allowed (--send-for-review)" if store.send_for_review else "hold changes without sending for review"
+            print("Review policy:", review)
     # Only Supply's validation endpoint can bypass the real-upload gate.
     if store.validate_only:
         if store.name != "play" or "--validate_only" not in args:
@@ -1178,6 +1246,8 @@ def preview(store, local, scratch, remote, history, pending):
                     manifestHash=manifest_hash, baseline=remote.snapshot_hash(),
                     versionCode=store.code, approvedAt=now(), workingBytes=working_bytes,
                     validateOnly=store.validate_only)
+    if store.name == "play" and not store.validate_only:
+        approval["sendForReview"] = store.send_for_review
     return Transfer(store, local, folder, args, approval, enabled)
 
 
@@ -1296,6 +1366,7 @@ def main(argv):
             sub.add_argument("--resolve", nargs=2, metavar=("STORE", "OUTCOME"),
                              help="record a checked upload outcome: applied or not-applied")
             sub.add_argument("--operation", help="select a pending receipt by ID when resolving")
+            sub.add_argument("--send-for-review", action="store_true", help="allow an approved Play publish to go to review")
             sub.add_argument("--validate-only", action="store_true", help="validate a Play edit without committing")
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--version-code", type=version_code)
@@ -1321,6 +1392,10 @@ def main(argv):
         parser.error(str(exc))
     if args.command == "publish":
         selected_stores = {s.name: s for s in stores}
+        if args.send_for_review:
+            if set(selected_stores) != {"play"} or args.validate_only or args.resolve:
+                parser.error("--send-for-review requires a Play publish; incompatible with --validate-only and --resolve")
+            selected_stores["play"].send_for_review = True
         if args.validate_only:
             selected_stores["play"].validate_only = True
         for value in args.screenshots:
@@ -1374,7 +1449,8 @@ def main(argv):
                     print("Keep the %s outside the repository; set %s or .listing-kit/local.json fastlane.%s."
                           % (description, env, field))
                 store.key = read_key(root, repo or root, store.name, args, config)
-                print(store.name, store.app, "credential", store.key.name, flush=True)
+                if args.command != "publish":
+                    print(store.name, store.app, "credential", store.key.name, flush=True)
             if args.command == "publish":
                 listing.check_metadata_links(root, {store.name: store.trees for store in stores})
             secret_scan.check_store_credentials(repo or root)

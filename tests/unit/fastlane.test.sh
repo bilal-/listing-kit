@@ -52,6 +52,11 @@ def stall(marker):
 
 def opt(key):
     return Path(args[args.index("--" + key) + 1])
+apple_writer = Path(args[0]).name == "apple_text_upload.rb"
+if apple_writer:
+    script, app_id, key_path, metadata = args
+    assert app_id == "example.apple" and key_path == str(base / "apple.json")
+    args = ["apple_writer", "run", "--metadata_path", metadata]
 if args == ["--version"]:
     if (base / "bad-version").exists():
         sys.exit(1)
@@ -60,7 +65,7 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
     if (base / "deny").exists():
         print("forbidden", opt("api_key_path").read_text())
         sys.exit(1)
-    store = "apple" if args[0] == "deliver" else "play"
+    store = "apple" if args[0] in ("deliver", "apple_writer") else "play"
     kind = "screenshots" if args[1] == "download_screenshots" else "metadata"
     stall("hang-download")
     dest = opt(kind + "_path")
@@ -80,7 +85,7 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
     if kind == "metadata" and (base / "race").exists():
         (base / "remote/apple/metadata/en-US/name.txt").write_text("Other editor")
 else:
-    store = "apple" if args[0] == "deliver" else "play"
+    store = "apple" if args[0] in ("deliver", "apple_writer") else "play"
     if (base / "hang-upload").exists() or (base / "interrupt-upload").exists():
         receipt = base / "repo/mobile/.listing-kit/publish.receipt.json"
         shutil.copyfile(receipt, base / "receipt-at-launch")
@@ -91,6 +96,13 @@ else:
     stall("hang-upload")
     if args[1] != "run":
         sys.exit(64)
+    if (base / "auto-review").exists() and "--changes_not_sent_for_review" in args:
+        assert args[args.index("--rescue_changes_not_sent_for_review") + 1] == "false"
+        print("SECRET-stub The query parameter changesNotSentForReview must not be set")
+        sys.exit(1)
+    if apple_writer and (base / "missing-locale").exists():
+        print("private-response-marker", "missing locale fr-FR", "0 fields written", sep="\n")
+        sys.exit(1)
     if (base / ("fail-" + store)).exists():
         sys.exit(1)
     if "--validate_only" in args:
@@ -117,11 +129,12 @@ else:
         time.sleep(5)
 PY
 chmod +x "$STUB_BIN/fastlane"
+cp "$STUB_BIN/fastlane" "$STUB_BIN/ruby" || exit 1
 export STUB_LOG
 cat > "$STUB_BIN/bundle" <<'SH2'
 #!/usr/bin/env bash
 echo "bundle $* $BUNDLE_GEMFILE" >> "$STUB_LOG"
-[ "$1" = exec ] && [ "$2" = fastlane ] || exit 2
+[ "$1" = exec ] && { [ "$2" = fastlane ] || [ "$2" = ruby ]; } || exit 2
 shift 2
 exec "$LK_TEST_FASTLANE" "$@"
 SH2
@@ -282,6 +295,18 @@ cp -R "$example/metadata/en-US/." "$ra/en-US/"
 echo 'New name' > "$meta/$name"
 mkdir -p "$meta/review_information"
 for stem in demo_user demo_password; do echo fixture-only > "$meta/review_information/$stem.txt"; done
+it "Apple text publish refuses review information, age rating, unknown app files and category changes"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "App Store Connect"
+rm "$meta/review_information/demo_user.txt" "$meta/review_information/demo_password.txt"
+for file in age_rating_declaration.json arbitrary.txt secondary_category.txt; do
+  echo GAMES > "$meta/$file"
+  run_lk publish "${a[@]}" --yes
+  assert_eq "$rc" 1
+  assert_contains "$out" "App Store Connect"
+  rm "$meta/$file"
+done
 it "disabled preview lists exact upload command without uploading"
 printf '%s\n' '{"app":{"ios":"wrong.apple"}}' > "$app/.listing-kit/listing.json"
 run_lk publish "${a[@]}" --yes
@@ -291,8 +316,7 @@ assert_eq "$rc" 0
 assert_contains "$out" "publishing to apple is not enabled"
 assert_not_contains "$out" "demo_user.txt"
 assert_not_contains "$out" "demo_password.txt"
-rm "$meta/review_information/demo_user.txt" "$meta/review_information/demo_password.txt"
-assert_contains "$out" "--skip_screenshots"
+assert_contains "$out" "apple_text_upload.rb"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 assert_file "$app/.listing-kit/publish.approved.json"
@@ -303,7 +327,7 @@ touch "$fixture/reencode"
 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 0
 assert_contains "$out" "never published from this repo"
-assert_contains "$out" "--skip_screenshots"
+assert_contains "$out" "apple_text_upload.rb"
 assert_not_contains "$out" "--overwrite_screenshots"
 rm "$fixture/reencode"
 
@@ -377,6 +401,20 @@ assert_eq "$rc" 1
 assert_contains "$out" "Listing plan changed"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 rm "$fixture/versioned-plan" "$app/.listing-kit/listing.json"
+it "Ruby failure reports the missing locale and confirmed fields without captured API output"
+mv "$app/Gemfile" "$fixture/project-gemfile"
+touch "$fixture/missing-locale"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "missing locale fr-FR"
+assert_contains "$out" "0 fields written"
+assert_not_contains "$out" "private-response-marker"
+assert_contains "$out" "Would run ruby "
+rm "$fixture/missing-locale"
+mv "$fixture/project-gemfile" "$app/Gemfile"
+run_lk publish "${a[@]}" --resolve apple not-applied
+assert_eq "$rc" 0
+
 it "A1 scoped Apple upload preserves a console edit and re-encoded images"
 cp "$rs/en-US/02_recipe-detail_iphone-large.png" "$rs/en-US/01_recipes_iphone-large.png"
 touch "$fixture/reencode"
@@ -392,7 +430,8 @@ assert_eq "$(cat "$fixture/sent")" "apple $name"
 assert_file "$app/.listing-kit/publish.approved.json"
 assert_file "$app/.listing-kit/publish.receipt.json"
 python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" apple && pass || fail "Apple text-only command"
-assert_contains "$(cat "$STUB_LOG")" '"--skip_screenshots"'
+assert_contains "$out" "Cannot touch"
+assert_contains "$out" "Would run bundle exec ruby "
 assert_not_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
 cmp -s "$rs/en-US/01_recipes_iphone-large.png" "$rs/en-US/02_recipe-detail_iphone-large.png" && pass || fail "console edit lost"
 cp "$example/screenshots/en-US/01_recipes_iphone-large.png" "$rs/en-US/01_recipes_iphone-large.png"
@@ -502,6 +541,25 @@ rm -r "$play_gallery"
 mv "$fixture/remote-gallery" "$play_gallery"
 export LK_PUBLISH_UNVERIFIED=apple:example.apple
 cp "$app/.listing-kit/remote.lock.json" "$fixture/pre-upload.lock"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['sendForReview']")" False
+
+it "Play refuses automatic review until explicitly approved"
+export LK_PUBLISH_UNVERIFIED=play:example.play
+echo 'Consent test title' > "$title"
+touch "$fixture/auto-review"
+run_lk publish "${p[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "this app sends changes for review automatically; rerun with --send-for-review to accept that"
+assert_not_contains "$out" "SECRET-stub"
+assert_ne "$(cat "$play_store_title")" "Consent test title"
+run_lk publish "${p[@]}" --send-for-review --yes
+assert_eq "$rc" 0
+assert_contains "$out" "send for review"
+assert_not_contains "$out" "--changes_not_sent_for_review"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['sendForReview']")" True
+assert_eq "$(cat "$play_store_title")" "Consent test title"
+rm "$fixture/auto-review"
+export LK_PUBLISH_UNVERIFIED=apple:example.apple
 it "unchanged Apple whitespace does not send copy; changed screenshot restores whole locale"
 printf '  New name \n' > "$meta/$name"
 cp "$shots/en-US/02_recipe-detail_iphone-large.png" "$shots/en-US/01_recipes_iphone-large.png"

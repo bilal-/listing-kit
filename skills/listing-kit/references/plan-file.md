@@ -4,6 +4,8 @@ Save UTF-8 JSON at `.listing-kit/listing.json` in the app root. Format 2 require
 
 Use this single plan for new listings. Validation fails if a screenshot or graphic is missing at its planned output path. The last column of `listing-kit plan outputs` gives the exact path. Validation counts the outputs for each store locale after applying target `locales` and screen `only` or `except` filters. Apple checks exact counts per display and filenames for planned headers. Play fails validation when a type has a different count. Review and the hand-upload index show why an optional Apple display was deferred. The publish preview checks coverage for its selected store and upload route.
 
+To clear a live Google Play video, leave the corresponding `video.txt` empty and set `"clearPlayVideo": true` on that locale object in `locales` (for example, `{"id":"en","play":"en-US","clearPlayVideo":true}`). Remove the setting after the clear. Omitting the file preserves the live video.
+
 ## Format compatibility
 
 Format 2 is stable. Each kit reads its own plan format and every older format it documents. Format 2 is the first documented kit plan format. When a plan uses a newer format, the kit refuses it, reports both the plan's format and the format it supports, and asks you to update listing-kit.
