@@ -30,6 +30,29 @@ img { flex: 1; min-height: 0; width: 100%; object-fit: contain }
 </html>
 ```
 
+## Adapting an existing composition
+
+For an asymmetric header or feature graphic, start with `"align": "start", "gap": 3` on that graphic in the plan. The gap is three percent of the shorter canvas side.
+
+For more exact geometry, copy the bundled `caption-top.html` or `panel.html` into the app's template directory with a new name. Its companion CSS can adjust the existing elements. For example, these rules give a bleed frame different widths in portrait and landscape:
+
+```css
+body[data-fit="bleed"] .device { width: 82vw }
+@media (orientation: landscape) {
+  body[data-fit="bleed"] .device { width: 68vw }
+}
+```
+
+For a panel, use an orientation rule to tune padding and row spacing together. Check the longest translation in preview before approving the layout.
+
+```css
+@media (orientation: landscape) {
+  body { padding: 4vh 8vw; gap: 3vh }
+  .rows { gap: 2vh }
+  .brand img.logo { max-height: 10vh }
+}
+```
+
 ## Values and measurements
 
 | Input | How to use it |

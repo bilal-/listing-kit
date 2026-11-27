@@ -6,9 +6,17 @@ Use this single plan for new listings. Validation counts the outputs for each st
 
 ## Format compatibility
 
-Format 2 is stable. Each kit reads its own plan format and every older format it documents. Format 2 is the first documented plan format, so there is nothing to migrate. When a plan uses a newer format, the kit refuses it, reports both the plan's format and the format it supports, and asks you to update listing-kit.
+Format 2 is stable. Each kit reads its own plan format and every older format it documents. Format 2 is the first documented kit plan format. When a plan uses a newer format, the kit refuses it, reports both the plan's format and the format it supports, and asks you to update listing-kit.
 
 Adding an optional key keeps the same format number. Removing a key or changing its meaning requires a new format number. Unknown top-level keys are validation errors. Update the kit before using an optional key introduced by a later release.
+
+## Port an existing listing
+
+1. Run `listing-kit detect` and `listing-kit validate` at the app root. With an unversioned JSON object at the plan path, these commands use project files and the existing store directories. Use `listing-kit review` to inspect the finished images already on disk.
+2. Search the repository for consumers of `listing.json` and `asset-plan.json`, including capture scripts, CI and packaging jobs. Preserve the original plan as `.listing-kit/listing.legacy.json`. Check that the backup path is unused before copying, and compare the bytes before editing the original. Update existing consumers to read their intended file.
+3. Map the app IDs, store locale codes, ordered screens and target sizes to format 2. Match each size to its store slot, preserve filename suffixes and put localized image descriptions in `altText`. Review route and flow choices, panels, deferrals and store-specific console values with the maintainer. Hand-written plans have no common schema.
+4. Compare `listing-kit plan outputs` with existing filenames. To reuse archived unframed captures, set a target's optional `rawPattern`, for example `"archive/tablet/{locale}/{index}_{screen}.png"`. The pattern is app-relative. It accepts `{target}`, `{screen}`, the capture locale ID `{locale}`, and the two-digit gallery position `{index}`. Compose reads those PNGs. Capture continues to write to `.listing-kit/raw/`.
+5. Use `listing-kit compose --preview` to inspect proposed artwork in `.listing-kit/preview.html`. Both preview and dry run accept repeated `--target` and `--screen` IDs. A job must match both filters when both are supplied. For example, `listing-kit compose --preview --screen legend` previews that screen across targets. Panels and graphics use their declared inputs. Missing raw captures produce labeled gaps and a failing exit status while available jobs still appear. Finished store artwork belongs in the review gallery.
 
 ## Example
 
@@ -243,12 +251,12 @@ This is the [test fixture](../../../tests/fixtures/plan-example.json). The annot
 | `screens` | Order the screens as they should appear in the gallery and give each a unique `id`. Filenames get numeric prefixes. |
 | `flow`, `flows` | Give a capture screen one Maestro file. An entry in `flows` keyed by target ID takes precedence over a store override and then the base flow. The selected file must exist even for [manual capture](driving/maestro.md#manual-navigation). |
 | `route`, screen `state` | These record where the screen lives and what should be visible. Put navigation and assertions in the flow. |
-| `caption`, `detail`, `altText` | These hold headline, supporting copy and alternative text keyed by locale ID. A missing translation falls back to the primary locale or empty text with a warning. |
+| `caption`, `detail`, `altText` | These hold headline, supporting copy and alternative text keyed by locale ID. Review uses resolved screen and graphic `altText` on images, and the manual upload index prints it beside each file. A missing translation falls back to the primary locale or empty text with a warning. |
 | `only`, `except` | Choose one list to include or exclude specific target IDs for this screen. |
 | `panel` | A panel replaces the flow with a localized `headline` and `rows`, each containing localized `label` and `text`. It needs no raw capture. |
 | `draft`, `status` | A draft target, screen or graphic blocks the publish plan check. Targets and graphics may also record a descriptive status string. |
-| `graphics` | Under `apple` or `play`, use a graphic ID from the rules. Headers and the feature graphic take localized headline text and can add detail, alt text, palette, logo and template. The Play icon takes its source path in `from`. |
-| `console` | Record `playCategory`, `contactEmail` and `playPrivacyUrl` as strings or null for manual entry. |
+| `graphics` | Under `apple` or `play`, use a graphic ID from the rules. Headers and the feature graphic take localized headline text and can add detail, alt text, palette, logo and template. Bundled feature and header graphics accept `align` set to `center` (default) or `start` (left in LTR, right in RTL). Set `gap` to the space between the brand, headline and detail, as a percentage of the shorter canvas side (0–100). The Play icon takes its source path in `from`. |
+| `console` | Record `playCategory`, `playPrivacyUrl`, `contactEmail` and `contactWebsite` as strings. Set a field to null to request private console entry. For omitted keys, handoff reads `category.txt`, `privacy_url.txt`, `contact_email.txt` and `contact_website.txt` under the Play metadata root or its locale directories. |
 | `notes`, `approved` | Notes is a free-form object. Optional approval flags `metadata` and `screens` record decisions in the plan. |
 | `platforms` | Set a rule condition such as `supportsIpad` to true or false to override detection. Ask about unknown support before setting a flag. |
 | `trees` | Set each store's `fastlaneDir` and optional `metadata`, Apple's `screenshots`, and the shared `storeAssets` directory as app-relative paths. See the [split fixture](../../../tests/fixtures/plan-split.json). |

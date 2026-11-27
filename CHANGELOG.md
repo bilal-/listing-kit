@@ -5,6 +5,12 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ## Unreleased
 
+### Existing listings
+
+- Doctor identifies unversioned plans and reports the installed hook status. Detect and validate can inspect the existing listing while the maintainer ports the plan. Detect also reports declared Play phone coverage separately from device capability evidence.
+- Compose filters previews and dry runs by target and screen. Preview labels missing captures alongside available artwork. Targets can read archived PNGs through `rawPattern`, and bundled feature and header graphics support start alignment and per-graphic spacing.
+- Review and handoff preserve localized image descriptions. The manual upload guide includes Play console fields and completed receipt entries. Validation explains that other repository tools may still use the old Apple coverage file.
+
 ### Composition
 
 - Framed screenshots can place captions below the device with `caption-bottom` or over an edge-to-edge capture with `full-bleed`.
