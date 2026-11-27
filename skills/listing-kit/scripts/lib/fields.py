@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 import detect
+import secret_scan
 import specs
 
 
@@ -85,7 +86,7 @@ def rows(store, locale_dir, fallback_dir, rules, requirements):
             if os.path.isfile(cand):
                 path = cand
                 try:
-                    value = read(cand, strip=store != "play")
+                    value = read(cand, strip=store != "play" and unit != "single-line text")
                 except InvalidFieldText as exc:
                     error = str(exc)
                 break
@@ -108,6 +109,9 @@ def check(r):
         return "WARN", f"{stem}: " + (r["reason"] or "optional, absent")
     if not value.strip():
         return ("FAIL" if r["required"] else "WARN"), f"{stem}: file is empty ({r['path']})"
+    if r["unit"] == "single-line text":
+        if len(value.splitlines()) != 1 or secret_scan.secret_text(value.encode("utf-8")):
+            return "FAIL", f"{stem}: expected a non-secret single-line value"
     if r["unit"] == "email":
         if not re.fullmatch(r"[^@.\s]+(?:\.[^@.\s]+)*@[^@.\s]+(?:\.[^@.\s]+)+", value):
             return "FAIL", f"{stem}: invalid email address"

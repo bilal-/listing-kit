@@ -1,0 +1,128 @@
+"""Exercise live-download shapes and process cleanup against fastlane.test.sh's stub."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+KIT = Path(sys.argv.pop()).resolve().parents[1]
+FIXTURE = Path(os.environ["FL_FIXTURE"])
+CATEGORIES = ("primary_first_sub_category", "primary_second_sub_category", "secondary_category",
+              "secondary_first_sub_category", "secondary_second_sub_category")
+
+
+class LivePull(unittest.TestCase):
+    def setUp(self):
+        case = tempfile.TemporaryDirectory(dir=FIXTURE)
+        self.addCleanup(case.cleanup)
+        self.base = Path(case.name)
+        self.app = self.base / "app"
+        self.app.mkdir()
+        self.remote = self.base / "remote/apple/metadata"
+        (self.remote / "en-US").mkdir(parents=True)
+        (self.remote / "en-US/name.txt").write_text("Sample")
+        (self.base / "remote/apple/screenshots").mkdir()
+        self.env = dict(os.environ, FL_FIXTURE=str(self.base), APP_STORE_CONNECT_API_KEY_PATH=str(FIXTURE / "apple.json"),
+                        SUPPLY_JSON_KEY=str(FIXTURE / "play.json"))
+
+    def command(self, *args):
+        result = subprocess.run([KIT / "bin/listing-kit", *args], cwd=self.app, env=self.env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
+        return result.returncode, result.stdout
+
+    def check_logs(self, mode, code, calls):
+        home, parent = self.base / "home", self.base / "temp"
+        home.mkdir()
+        parent.mkdir()
+        self.env.update(HOME=str(home), TMPDIR=str(parent), FL_LOG_MODE=mode)
+        rc, out = self.command("pull", "--store", "apple", "--app-identifier", "example.apple")
+        self.assertEqual(rc, code, out)
+        records = list(map(json.loads, (self.base / "log-runs").read_text().splitlines()))
+        self.assertEqual(len(records), calls)
+        for tmp, permissions, verbose, umask, stale in records:
+            self.assertEqual(Path(tmp).parent, parent)
+            self.assertEqual(permissions, 0o700)
+            with self.subTest(setting="VERBOSE"):
+                self.assertEqual(verbose, "1")
+            with self.subTest(setting="umask"):
+                self.assertEqual(umask, 0o077)
+            self.assertFalse(stale, "a log survived until the next fastlane call")
+        self.assertEqual(out.count("Spaceship API logs removed: 1"), calls)
+        self.assertNotIn("private-response-marker", out)
+
+    def test_success(self):
+        self.check_logs("success", 0, 3)
+
+    def test_nonzero(self):
+        self.check_logs("error", 1, 2)
+
+    def test_sigterm(self):
+        self.check_logs("term", 130, 2)
+
+    def test_setup_and_pull_with_unreadable_home(self):
+        # A non-directory HOME fails listing even when tests run as root.
+        home = self.base / "inaccessible-home"
+        home.touch()
+        self.env["HOME"] = str(home)
+        for args in (("fastlane", "setup"), ("pull",)):
+            rc, out = self.command(*args, "--store", "apple", "--app-identifier", "chosen.apple")
+            self.assertEqual(rc, 0, out)
+            self.assertNotIn(str(home), out)
+
+    def test_live_fields(self):
+        values = {"en-US/apple_tv_privacy_policy": "Line one\nLine two"}
+        values.update({stem: "UTILITIES" if stem == "secondary_category" else "GAMES_ACTION"
+                       for stem in CATEGORIES})
+        for stem, value in values.items():
+            (self.remote / (stem + ".txt")).write_text(value)
+        rc, out = self.command("pull", "--store", "apple", "--app-identifier", "example.apple")
+        self.assertEqual(rc, 0, out)
+        meta = self.app / "fastlane/metadata"
+        rules = json.loads((KIT / "specs/stores.json").read_text())["stores"]["apple"]["fields"]
+        for stem, value in values.items():
+            self.assertEqual((meta / (stem + ".txt")).read_text(), value)
+            field = next((f for f in rules if f["stem"] == Path(stem).name), None)
+            self.assertIsNotNone(field, stem)
+            self.assertEqual(field["scope"], "locale" if "/" in stem else "app")
+            self.assertEqual(field["required"], {"rule": "never"})
+            self.assertNotIn("limit", field)
+
+        def validate():
+            return subprocess.check_output([sys.executable, KIT / "scripts/lib/fields.py", "apple-app",
+                                            meta, "--app-root", self.app], text=True)
+
+        self.assertIn("PASS\tprimary_first_sub_category:", validate())
+        category = meta / "primary_first_sub_category.txt"
+        for bad in ("line one\nline two", "\nleading blank line", "-----BEGIN PRIVATE KEY-----"):
+            category.write_text(bad)
+            out = validate()
+            self.assertIn("FAIL\tprimary_first_sub_category:", out)
+            self.assertNotIn(bad, out)
+
+    def test_unversioned_plan(self):
+        state = self.app / ".listing-kit"
+        state.mkdir()
+        (state / "listing.json").write_text(json.dumps({
+            "app": {"ios": "wrong.apple", "android": "wrong.play"},
+            "trees": {"apple": {"fastlaneDir": "wrong"}}, "targets": []}))
+        meta = self.app / "ios/fastlane/metadata"
+        meta.mkdir(parents=True)
+        (meta / "copyright.txt").write_text("2026 Example")
+        (self.base / "remote/play/metadata").mkdir(parents=True)
+        for args in (("fastlane", "setup", "--store", "play", "--package-name", "chosen.play"),
+                     ("pull", "--app-identifier", "chosen.apple")):
+            rc, out = self.command(*args)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(out.count("unversioned plan (missing format)"), 1, out)
+            self.assertIn(args[-1], out)
+            self.assertNotIn("wrong", out)
+        self.assertTrue((meta / "en-US/name.txt").is_file())
+        rc, out = self.command("pull", "--store", "apple")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--app-identifier", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

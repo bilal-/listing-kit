@@ -196,12 +196,12 @@ DETECTORS = {
 ENV_FLAGS = {"supportsIphone": "LK_SUPPORTS_IPHONE", "supportsIpad": "LK_SUPPORTS_IPAD"}
 
 
-def resolve(root, rules, ios_sdk=None, errors=None, active_targets=None):
+def resolve(root, rules, ios_sdk=None, errors=None, active_targets=None, *, plan_data=None):
     root = Path(root)
     project = read_project(root)
     explicit = {}
     try:
-        data = plan.load(root)
+        data = plan.load(root) if plan_data is None else plan_data
         explicit = data.get("platforms", {})
         if active_targets is not None:
             active_targets.extend(plan.targets(data))
