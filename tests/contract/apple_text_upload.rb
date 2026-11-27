@@ -9,11 +9,18 @@ require_relative "../../skills/listing-kit/scripts/fastlane/apple_text_upload"
 
 class AppleTextContract < Minitest::Test
   def setup
-    @dir = Dir.mktmpdir
+    @dir = File.realpath(Dir.mktmpdir)
     @writes = []
     @api = Spaceship::ConnectAPI
     @unexpected = []
+    @model = @api::AppStoreVersion.new("version-id", {
+      "versionString" => "1.2.3", "appVersionState" => "PREPARE_FOR_SUBMISSION"
+    })
     @version = strict_double
+    model = @model
+    %i[id version_string app_version_state].each do |attribute|
+      @version.define_singleton_method(attribute) { model.public_send(attribute) }
+    end
     @app = strict_double
     info = strict_double
     local_info = resource(:info)
@@ -29,6 +36,7 @@ class AppleTextContract < Minitest::Test
       raise unless includes == Spaceship::ConnectAPI::AppStoreVersion::ESSENTIAL_INCLUDES + ",appClipDefaultExperience"
       version
     end
+    @app.define_singleton_method(:get_latest_app_store_version) { |platform:| version }
     # Strict doubles expose no creation, release, category, rating, review,
     # attachment or version write methods. Every unexpected call fails the test.
   end
@@ -78,7 +86,7 @@ class AppleTextContract < Minitest::Test
     File.write(file, value)
   end
 
-  def upload
+  def upload(args = ["write", "test.app", "private-key-path", @dir, "version-id", "approved"], approval_token: "approved")
     token = Object.new
     loader = ->(hash:, filepath:) { raise unless hash.nil? && filepath == "private-key-path"; token }
     finder = ->(identifier) { raise unless identifier == "test.app"; @app }
@@ -86,11 +94,102 @@ class AppleTextContract < Minitest::Test
       @api.stub(:token=, ->(actual) { raise unless actual.equal?(token) }) do
         @api::App.stub(:find, finder) do
           output = StringIO.new
-          result = AppleTextUpload.run("test.app", "private-key-path", @dir, output)
+          result = AppleTextUpload.run(args, output, approval_token: approval_token)
           return result, output.string
         end
       end
     end
+  end
+
+  def test_describe_is_read_only_and_needs_no_approval
+    status, output = upload(%w[describe test.app private-key-path], approval_token: nil)
+    assert_equal 0, status
+    assert_equal ["version 1.2.3 version-id PREPARE_FOR_SUBMISSION", "locale en-US"], output.lines.map(&:chomp)
+    assert_empty @writes
+  end
+
+  def test_describe_refuses_to_compare_a_different_download_version
+    latest = Struct.new(:id).new("other-id")
+    @app.define_singleton_method(:get_latest_app_store_version) { |platform:| latest }
+    status, output = upload(%w[describe test.app private-key-path], approval_token: nil)
+    refute_equal 0, status
+    assert_includes output, "download version differs from editable version"
+    assert_empty @writes
+  end
+
+  def test_successor_refused_before_writing
+    stage("en-US/name.txt", "private name")
+    status, output = upload(["write", "test.app", "private-key-path", @dir, "old-id", "approved"])
+    refute_equal 0, status
+    assert_includes output, "editable version changed"
+    assert_empty @writes
+  end
+
+  def test_state_allowlist
+    stage("en-US/name.txt", "private name")
+    %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED REJECTED].each do |state|
+      @model.app_version_state = state
+      assert_equal 0, upload.first
+    end
+    @writes.clear
+    %w[WAITING_FOR_REVIEW IN_REVIEW UNKNOWN].each do |state|
+      @model.app_version_state = state
+      status, output = upload
+      refute_equal 0, status
+      assert_includes output, state
+      assert_empty @writes
+    end
+  end
+
+  def test_write_requires_matching_nonempty_approval
+    stage("en-US/name.txt", "private name")
+    [nil, "", "different"].each do |token|
+      refute_equal 0, upload(approval_token: token).first
+    end
+    refute_equal 0, upload(["test.app", "private-key-path", @dir]).first
+    assert_empty @writes
+  end
+
+  def test_symlink_in_staging_path_refused
+    Dir.mktmpdir do |parent|
+      link = File.join(parent, "link")
+      File.symlink(@dir, link)
+      stage("metadata/en-US/name.txt", "private name")
+      status, = upload(["write", "test.app", "private-key-path", File.join(link, "metadata"), "version-id", "approved"])
+      refute_equal 0, status
+      assert_empty @writes
+    end
+  end
+
+  def test_staged_review_information_refused_before_any_write
+    stage("review_information/notes.txt", "private review")
+    stage("en-US/name.txt", "private name")
+    status, output = upload
+    refute_equal 0, status
+    refute_includes output, "private"
+    assert_empty @writes
+  end
+
+  def test_verified_fastlane_versions
+    %w[2.240.1 2.241.0 2.242.0].each { |v| AppleTextUpload.verify_fastlane!(v) }
+    %w[2.240.0 2.242.1].each do |v|
+      error = assert_raises(AppleTextUpload::Refusal) { AppleTextUpload.verify_fastlane!(v) }
+      assert_includes error.message, v
+    end
+  end
+
+  def test_unverified_loaded_gem_stops_before_writing
+    loaded = Fastlane::VERSION
+    Fastlane.send(:remove_const, :VERSION)
+    Fastlane.const_set(:VERSION, "2.242.1")
+    stage("en-US/name.txt", "private name")
+    status, output = upload
+    refute_equal 0, status
+    assert_includes output, "unsupported fastlane 2.242.1"
+    assert_empty @writes
+  ensure
+    Fastlane.send(:remove_const, :VERSION)
+    Fastlane.const_set(:VERSION, loaded)
   end
 
   def test_exact_localized_updates

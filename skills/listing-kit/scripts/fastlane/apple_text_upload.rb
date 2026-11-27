@@ -6,9 +6,13 @@ module AppleTextUpload
             .merge("release_notes" => "whats_new").freeze
   INFO = {"name" => "name", "subtitle" => "subtitle", "privacy_url" => "privacy_policy_url"}.freeze
   LOCALE = /\A[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*\z/
+  VERIFIED_FASTLANE = (Gem::Version.new("2.240.1")..Gem::Version.new("2.242.0")).freeze
+  WRITE_STATES = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED REJECTED].freeze
+
   class Refusal < StandardError; end
 
   def self.staged_fields(folder)
+    raise Refusal, "invalid staged directory" unless File.realpath(folder) == File.expand_path(folder)
     fields = {}
     Dir.children(folder).sort.each do |entry|
       path = File.join(folder, entry)
@@ -37,9 +41,22 @@ module AppleTextUpload
     value
   end
 
-  def self.run(identifier, key_path, folder, output)
+  def self.verify_fastlane!(loaded)
+    raise Refusal, "unsupported fastlane #{loaded}" unless VERIFIED_FASTLANE.cover?(Gem::Version.new(loaded))
+  end
+
+  def self.run(args, output, approval_token: ENV["LK_APPLE_WRITE_TOKEN"])
+    mode, identifier, key_path, folder, expected_id, token_arg = args
     written = 0
-    fields = staged_fields(folder)
+    describe = mode == "describe" && args.size == 3
+    unless describe
+      raise Refusal, "invalid writer arguments" unless mode == "write" && args.size == 6 && !expected_id.empty?
+      # Defence in depth against accidental standalone invocation. A caller
+      # controlling both arguments and environment can satisfy it, so it provides no security boundary.
+      raise Refusal, "write approval missing" if token_arg.empty? || token_arg != approval_token
+    end
+    verify_fastlane!(Fastlane::VERSION)
+    fields = staged_fields(folder) unless describe
     # deliver/lib/deliver/runner.rb:34,36 (API-key login only).
     token = Spaceship::ConnectAPI::Token.from(hash: nil, filepath: key_path)
     raise Refusal, "API key unavailable" unless token
@@ -51,6 +68,26 @@ module AppleTextUpload
     platform = Spaceship::ConnectAPI::Platform.map("ios")
     version = app.get_edit_app_store_version(platform: platform, includes: Spaceship::ConnectAPI::AppStoreVersion::ESSENTIAL_INCLUDES + ",appClipDefaultExperience")
     raise Refusal, "editable version unavailable" unless version
+
+    state = version.app_version_state
+    if describe
+      # deliver download_metadata selects the latest iOS version. Only use
+      # that copy for a text approval when it describes this editable ID.
+      latest = app.get_latest_app_store_version(platform: platform)
+      raise Refusal, "download version differs from editable version" unless latest && latest.id == version.id
+      raise Refusal, "invalid version identity" unless /\A[0-9]+(?:\.[0-9]+)*\z/.match?(version.version_string) &&
+                                                     /\A[A-Za-z0-9-]+\z/.match?(version.id) && /\A[A-Z_]+\z/.match?(state)
+      locales = version.get_app_store_version_localizations.map(&:locale).uniq.sort
+      raise Refusal, "invalid version locale" unless locales.all? { |locale| LOCALE.match?(locale) }
+      output.puts "version #{version.version_string} #{version.id} #{state}"
+      locales.each { |locale| output.puts "locale #{locale}" }
+      return 0
+    end
+    raise Refusal, "editable version changed" unless version.id == expected_id
+    unless WRITE_STATES.include?(state)
+      label = /\A[A-Z_]+\z/.match?(state) ? state : "UNKNOWN"
+      raise Refusal, "Apple text writes refused in #{label}"
+    end
 
     # Resolve every destination before issuing the first PATCH.
     locales = fields.keys.map(&:first).compact.uniq
@@ -94,7 +131,7 @@ module AppleTextUpload
     output.puts "Apple text update failed"
     1
   ensure
-    output.puts "#{written} fields written"
+    output.puts "#{written} fields written" unless describe
   end
 end
 
@@ -106,7 +143,7 @@ if $PROGRAM_NAME == __FILE__
   STDOUT.reopen(File::NULL, "w")
   STDERR.reopen(File::NULL, "w")
   ENV["VERBOSE"] = "1"
-  unless ARGV.size == 3
+  unless (ARGV.first == "describe" && ARGV.size == 3) || (ARGV.first == "write" && ARGV.size == 6)
     report.puts "invalid writer arguments", "0 fields written"
     exit 1
   end
@@ -117,5 +154,5 @@ if $PROGRAM_NAME == __FILE__
     report.puts "fastlane unavailable", "0 fields written"
     exit 1
   end
-  exit AppleTextUpload.run(*ARGV, report)
+  exit AppleTextUpload.run(ARGV, report)
 end

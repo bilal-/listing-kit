@@ -17,6 +17,33 @@ abort "Missing explicit fastlane subcommand" unless cases.fetch("commands") == e
 Dir.mktmpdir("listing-kit-command-contract") do |scratch|
   env = { "FASTLANE_SKIP_UPDATE_CHECK" => "1", "FASTLANE_OPT_OUT_USAGE" => "1",
           "GIT_CEILING_DIRECTORIES" => File.dirname(scratch) }
+  # Run the real Supply CLI through configuration creation. Stop at the
+  # uploader entry point, before any client or edit can be created.
+  File.write(File.join(scratch, "key.json"), "{}")
+  Dir.mkdir(File.join(scratch, "metadata"))
+  cases.fetch("play_review").each do |policy, argv|
+    flags = %w[--changes_not_sent_for_review --rescue_changes_not_sent_for_review]
+    abort "Review opt-in must omit both kit flags" if policy == "send" && !(flags & argv).empty?
+    pid = fork do
+      Dir.chdir(scratch)
+      ENV.update(env)
+      ENV.delete_if { |key, _| key.start_with?("SUPPLY_") }
+      $stdout.reopen(File::NULL, "w")
+      $stderr.reopen(File::NULL, "w")
+      require "supply/commands_generator"
+      Supply::Uploader.define_method(:perform_upload) do
+        expected = policy == "hold" ? [true, false] : [false, true]
+        actual = flags.map { |flag| Supply.config[flag.delete_prefix("--").to_sym] }
+        exit!(actual == expected ? 0 : 1)
+      end
+      ARGV.replace(argv.drop(1))
+      Supply::CommandsGenerator.start
+      exit! 1
+    end
+    _, status = Process.wait2(pid)
+    abort "Supply review policy failed real CLI parsing (#{policy})" unless status.success?
+  end
+
   expected_commands.each do |tool, commands|
     commands.each do |command|
       # Exercise the installed dispatcher away from the checkout and its configuration.

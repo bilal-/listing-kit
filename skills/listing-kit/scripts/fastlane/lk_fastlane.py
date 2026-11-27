@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -327,7 +328,7 @@ class Store:
                 return ["bundle", "exec", executable], gemfile
         return [executable], None
 
-    def run(self, args, cwd, upload=False):
+    def run(self, args, cwd, upload=False, apple_write_token=None):
         prefix, gemfile = self.tool(args)
         # A clean cwd precludes implicit Deliverfile, Supplyfile and binary discovery.
         # Remove inherited tool overrides, including JSON objects and submission settings.
@@ -335,6 +336,9 @@ class Store:
             ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE"))}
         # UNVERIFIED in S3: fastlane update-check and telemetry environment switches.
         env.update(TMPDIR=str(self.scratch), VERBOSE="1", FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
+        env.pop("LK_APPLE_WRITE_TOKEN", None)
+        if apple_write_token is not None:
+            env["LK_APPLE_WRITE_TOKEN"] = apple_write_token
         if gemfile:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
@@ -352,6 +356,13 @@ class Store:
                 count = re.search(rb"(?m)^([0-9]{1,9}) fields written$", result.stdout)
                 missing = re.search(rb"(?m)^missing locale ([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$", result.stdout)
                 reason = "Apple text update failed"
+                diagnostic = re.search(
+                    rb"(?m)^(editable version changed|editable version unavailable|download version differs from editable version|"
+                    rb"Apple text writes refused in [A-Z_]{1,64}|unsupported fastlane [0-9][0-9A-Za-z.-]{0,63})$", result.stdout)
+                if diagnostic:
+                    reason = diagnostic[1].decode("ascii")
+                if args[1] == "describe":
+                    raise FastlaneExit(reason if diagnostic else "Apple version lookup failed")
                 if missing:
                     reason += " (missing locale %s)" % missing[1].decode("ascii")
                 if count:
@@ -437,13 +448,34 @@ def raise_walk_error(error):
     raise error
 
 
-def download(store, scratch):
+def describe_apple(store, scratch):
+    report = store.run([APPLE_TEXT_WRITER, "describe", store.app, str(store.key)], scratch)
+    lines = report.splitlines()
+    header = re.fullmatch(rb"version ([0-9]+(?:\.[0-9]+)*) ([a-zA-Z0-9-]{1,128}) ([A-Z_]{1,64})", lines[0]) if lines else None
+    locales = set()
+    if not header:
+        raise ValueError("Invalid Apple version description")
+    for line in lines[1:]:
+        match = re.fullmatch(rb"locale ([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)", line)
+        if not match:
+            raise ValueError("Invalid Apple version locale")
+        locales.add(match[1].decode("ascii"))
+    version, version_id, state = (part.decode("ascii") for part in header.groups())
+    return {"string": version, "id": version_id, "state": state, "locales": sorted(locales)}
+
+
+def download(store, scratch, pin_apple=False):
     scratch.mkdir(mode=0o700)
     metadata = scratch / "metadata"
     args = store.key_args()
+    target = None
     if store.name == "apple":
+        version_args = []
+        if pin_apple:
+            target = describe_apple(store, scratch)
+            version_args = ["--app_version", target["string"]]
         try:
-            store.run(["deliver", "download_metadata", *args, "--metadata_path", str(metadata), "--force"], scratch)
+            store.run(["deliver", "download_metadata", *args, *version_args, "--metadata_path", str(metadata), "--force"], scratch)
         finally:
             # Deliver writes the review account even during a metadata-only pull.
             # Inspect names only, before the screenshot download or inventory.
@@ -453,13 +485,17 @@ def download(store, scratch):
                         path = Path(directory) / name
                         if secret_scan.demo_credential(path):
                             path.unlink()
+        if target and describe_apple(store, scratch) != target:
+            raise ValueError("Editable Apple version changed during download. Rerun publish for a new confirmation")
         store.run(["deliver", "download_screenshots", *args, "--screenshots_path",
                    str(scratch / "screenshots")], scratch)
     else:
         store.run(["supply", "init", *args, "--metadata_path", str(metadata)], scratch)
     if not metadata.is_dir():
         raise ValueError("fastlane returned without downloading metadata for %s" % store.app)
-    return inventory(store, metadata, scratch / "screenshots" if store.name == "apple" else metadata, downloaded=True)
+    remote = inventory(store, metadata, scratch / "screenshots" if store.name == "apple" else metadata, downloaded=True)
+    remote.apple_version = target
+    return remote
 
 
 def is_locale(name):
@@ -474,6 +510,8 @@ class Inventory:
     listing_locales: set = field(default_factory=set)
     # Original Play text hashes, keyed by normalized validation-view path.
     working_text_hashes: dict = field(default_factory=dict)
+
+    apple_version: dict = None
 
     def snapshot_hash(self):
         return fingerprint(dict(files=self.hashes(), locales=sorted(self.listing_locales)))
@@ -664,12 +702,10 @@ def checked_copy(path, dest, *, play_text=False):
 def prepared(store, view, platforms):
     if store.name == "apple":
         meta = store.trees["metadata"]
-        review = meta / "review_information"
         allowed_for_comparison = {f["stem"] + ".txt" for f in specs.fields(store.rules, "apple", "app")}
         allowed_for_comparison.update(name for name in listing.DELIVER_APP_FILES if name.endswith(".txt"))
-        if ((review.is_dir() and any(review.iterdir())) or
-                (meta.is_dir() and any(p.is_file() and not p.name.startswith(".")
-                                       and p.name not in allowed_for_comparison for p in meta.iterdir()))):
+        if (meta.is_dir() and any(p.is_file() and not p.name.startswith(".")
+                                       and p.name not in allowed_for_comparison for p in meta.iterdir())):
             raise ValueError(APPLE_CONSOLE_HINT)
     source, coverage = working_inventory(store, require_outputs=True)
     metadata = view / ("fastlane/metadata" if store.name == "apple" else "fastlane/metadata/android")
@@ -1014,7 +1050,7 @@ def summary(store, local, remote, state, pending=()):
     return send
 
 
-def upload_args(store, send, folder):
+def upload_args(store, send, folder, apple_version=None):
     has_shots = any(p.suffix.lower() in IMAGE for p in send.values())
     has_text = any(p.suffix == ".txt" and "/changelogs/" not in k for k, p in send.items())
     meta = str(folder / "metadata")
@@ -1030,7 +1066,9 @@ def upload_args(store, send, folder):
                 if parts[0] == "screenshots":
                     raise ValueError("Apple text and screenshots need separate sends; use the hand-upload folder for a mixed change")
                 raise ValueError(APPLE_CONSOLE_HINT)
-            return [APPLE_TEXT_WRITER, store.app, str(store.key), meta]
+            if not apple_version:
+                raise ValueError("Apple text upload requires an approved version")
+            return [APPLE_TEXT_WRITER, "write", store.app, str(store.key), meta, apple_version["id"]]
         if not has_shots or any(not k.startswith("screenshots/") for k in send):
             raise ValueError(APPLE_CONSOLE_HINT)
         return ["deliver", "run", *store.key_args(), "--skip_binary_upload", "--skip_app_version_update",
@@ -1087,11 +1125,13 @@ class Transfer:
         if not self.enabled:
             return
         store = self.store
-        latest = download(store, self.folder.parent / "recheck")
+        latest = download(store, self.folder.parent / "recheck", pin_apple="appleVersion" in self.approval)
         history = operations(store)
         state = baseline(store, history)
         if len(history) != self.approval["receiptIndex"]:
             raise ValueError("Publish receipt changed; rerun publish for a fresh summary")
+        if latest.apple_version != self.approval.get("appleVersion"):
+            raise ValueError("Editable Apple version changed. Rerun publish for a new confirmation")
         if latest.snapshot_hash() != self.approval["baseline"]:
             print("Remote baseline changed. Review the new summary and confirm again.")
             summary(store, self.local, latest, state)
@@ -1114,7 +1154,11 @@ class Transfer:
         history.append(operation)
         save_operations(store, history)
         try:
-            store.run(self.args, self.folder, upload=True)
+            if self.args[0] == APPLE_TEXT_WRITER:
+                token = secrets.token_hex(32)
+                store.run([*self.args, token], self.folder, upload=True, apple_write_token=token)
+            else:
+                store.run(self.args, self.folder, upload=True)
         except (ChildTimeout, KeyboardInterrupt, ValueError, OSError, MissingFastlane) as exc:
             if "--overwrite_screenshots" in self.args:
                 print("The Apple gallery may now be empty. Run listing-kit handoff . and restore each affected "
@@ -1175,6 +1219,10 @@ def print_text_diff(store, key, staged, state, remote):
         if previous != live:
             versions.append(("fresh download", live))
 
+    if store.name == "apple":
+        for label, raw in versions:
+            print(label, key, sha(raw) if raw is not None else "absent")
+        return
     after = staged.read_bytes().decode("utf-8").splitlines(keepends=True)
     for label, raw in versions:
         before = raw.decode("utf-8").splitlines(keepends=True) if raw else []
@@ -1187,6 +1235,10 @@ def print_text_diff(store, key, staged, state, remote):
 
 def preview(store, local, scratch, remote, history, pending):
     state = baseline(store, history)
+    if remote.apple_version:
+        print("Apple version {string} {id} {state}".format(**remote.apple_version))
+    if store.name == "apple" and (store.trees["metadata"] / "review_information").is_dir():
+        print("Apple review_information/ excluded from staging and upload")
     send = summary(store, local, remote, state, pending)
     if not send:
         print(store.name, "no comparable changes to publish")
@@ -1196,8 +1248,10 @@ def preview(store, local, scratch, remote, history, pending):
     for key, path in send.items():
         dest = folder / key
         checked_copy(path, dest)
-    args = upload_args(store, send, folder)
+    args = upload_args(store, send, folder, remote.apple_version)
     display_args = ["<credential file>" if value == str(store.key) else value for value in args]
+    if args[0] == APPLE_TEXT_WRITER:
+        display_args.append("<per-run approval>")
     print("Would run", shlex.join(store.tool(args)[0] + display_args), flush=True)
     if store.name == "apple" and args[0] == APPLE_TEXT_WRITER:
         print("Cannot touch screenshots, previews, builds, phased release, ratings reset, review details or "
@@ -1246,6 +1300,8 @@ def preview(store, local, scratch, remote, history, pending):
                     manifestHash=manifest_hash, baseline=remote.snapshot_hash(),
                     versionCode=store.code, approvedAt=now(), workingBytes=working_bytes,
                     validateOnly=store.validate_only)
+    if remote.apple_version:
+        approval["appleVersion"] = remote.apple_version
     if store.name == "play" and not store.validate_only:
         approval["sendForReview"] = store.send_for_review
     return Transfer(store, local, folder, args, approval, enabled)
@@ -1279,7 +1335,7 @@ def matches_manifest(store, op, remote, live):
 def reconcile(store, history, scratch, resolve, operation_id):
     state = baseline(store, history)
     try:
-        remote = download(store, scratch)
+        remote = download(store, scratch, pin_apple=True)
     except (ChildTimeout, MissingFastlane, ValueError, OSError) as exc:
         print(store.name, "readback unavailable:", exc)
         remote = None
@@ -1290,12 +1346,14 @@ def reconcile(store, history, scratch, resolve, operation_id):
         if op["status"] not in ("pending", "exit-error") or op["identity"] != store.identity:
             continue
         manual = resolve and (not operation_id or operation_id == op["operation"])
-        if not manual and remote and snapshot == op["baseline"] and op["status"] == "exit-error":
+        same_version = not op.get("appleVersion") or (remote and remote.apple_version and
+                       remote.apple_version["id"] == op["appleVersion"]["id"])
+        if not manual and remote and same_version and snapshot == op["baseline"] and op["status"] == "exit-error":
             op.update(status="not-applied", resolvedAt=now())
             save_operations(store, history)
             print(store.name, op["operation"], "baseline unchanged after fastlane failure; marked not-applied")
             continue
-        if not manual and remote and matches_manifest(store, op, remote, live):
+        if not manual and remote and same_version and matches_manifest(store, op, remote, live):
             complete(store, history, op, state)
             print(store.name, op["operation"], "store matches the approved manifest; marked done")
             continue
@@ -1484,7 +1542,7 @@ def main(argv):
                     if store.name in readbacks:
                         remote, pending = readbacks[store.name]
                     else:
-                        remote = download(store, dest / "before")
+                        remote = download(store, dest / "before", pin_apple=True)
                         pending = []
                     transfer = preview(store, views[store.name], dest, remote, histories[store.name], pending)
                     if transfer:

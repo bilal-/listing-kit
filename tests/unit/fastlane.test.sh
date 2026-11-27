@@ -25,7 +25,8 @@ from pathlib import Path
 base = Path(os.environ["FL_FIXTURE"])
 args = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a") as log:
-    print(json.dumps(args), file=log)
+    logged = args[:-1] + ["<approval>"] if args[1:2] == ["write"] else args
+    print(json.dumps(logged), file=log)
 if "FL_LOG_MODE" in os.environ:
     import signal, time
     tmp = Path(os.environ["TMPDIR"])
@@ -54,7 +55,18 @@ def opt(key):
     return Path(args[args.index("--" + key) + 1])
 apple_writer = Path(args[0]).name == "apple_text_upload.rb"
 if apple_writer:
-    script, app_id, key_path, metadata = args
+    if args[1] == "describe":
+        assert len(args) == 4 and "LK_APPLE_WRITE_TOKEN" not in os.environ
+        if (base / "bad-description").exists():
+            print("private-response-marker")
+        version_id = "successor" if (base / "version-race").exists() and Path.cwd().name == "recheck" else "version-id"
+        print("version 1.2.3", version_id, "PREPARE_FOR_SUBMISSION")
+        print("locale en-US")
+        sys.exit(0)
+    script, mode, app_id, key_path, metadata, version_id, token = args
+    assert mode == "write" and version_id == "version-id"
+    assert token and token == os.environ["LK_APPLE_WRITE_TOKEN"]
+    assert not (Path(metadata) / "review_information").exists()
     assert app_id == "example.apple" and key_path == str(base / "apple.json")
     args = ["apple_writer", "run", "--metadata_path", metadata]
 if args == ["--version"]:
@@ -67,6 +79,8 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
         sys.exit(1)
     store = "apple" if args[0] in ("deliver", "apple_writer") else "play"
     kind = "screenshots" if args[1] == "download_screenshots" else "metadata"
+    if args[1] == "download_metadata" and Path.cwd().name in ("before", "recheck"):
+        assert args[args.index("--app_version") + 1] == "1.2.3"
     stall("hang-download")
     dest = opt(kind + "_path")
     if store == "play":
@@ -133,7 +147,7 @@ cp "$STUB_BIN/fastlane" "$STUB_BIN/ruby" || exit 1
 export STUB_LOG
 cat > "$STUB_BIN/bundle" <<'SH2'
 #!/usr/bin/env bash
-echo "bundle $* $BUNDLE_GEMFILE" >> "$STUB_LOG"
+echo "bundle $1 $2 $3 $BUNDLE_GEMFILE" >> "$STUB_LOG"
 [ "$1" = exec ] && { [ "$2" = fastlane ] || [ "$2" = ruby ]; } || exit 2
 shift 2
 exec "$LK_TEST_FASTLANE" "$@"
@@ -295,11 +309,14 @@ cp -R "$example/metadata/en-US/." "$ra/en-US/"
 echo 'New name' > "$meta/$name"
 mkdir -p "$meta/review_information"
 for stem in demo_user demo_password; do echo fixture-only > "$meta/review_information/$stem.txt"; done
-it "Apple text publish refuses review information, age rating, unknown app files and category changes"
+it "Apple text publish excludes review information"
 run_lk publish "${a[@]}" --yes
-assert_eq "$rc" 1
-assert_contains "$out" "App Store Connect"
+assert_eq "$rc" 0
+assert_contains "$out" "review_information/ excluded"
+assert_not_contains "$out" "fixture-only"
 rm "$meta/review_information/demo_user.txt" "$meta/review_information/demo_password.txt"
+echo fixture-only > "$meta/review_information/notes.txt"
+it "Apple text publish refuses age rating, unknown app files and category changes"
 for file in age_rating_declaration.json arbitrary.txt secondary_category.txt; do
   echo GAMES > "$meta/$file"
   run_lk publish "${a[@]}" --yes
@@ -320,6 +337,8 @@ assert_contains "$out" "apple_text_upload.rb"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 assert_file "$app/.listing-kit/publish.approved.json"
+assert_contains "$out" "version 1.2.3 version-id PREPARE_FOR_SUBMISSION"
+python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" approval "$app/.listing-kit/publish.approved.json" && pass || fail "Apple approval target"
 [ ! -e "$app/.listing-kit/publish.receipt.json" ] && pass "gated preview has no upload receipt" || fail "gated preview wrote an upload receipt"
 
 it "A1 remote-only differences alongside a title edit never propose an overwrite"
@@ -378,6 +397,13 @@ for control in eof interrupt; do
     assert_contains "$out" "not approved"
     assert_not_contains "$out" "Traceback"
 done
+it "a successor version with identical files invalidates the Apple approval"
+touch "$fixture/version-race"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "confirm"
+assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+rm "$fixture/version-race"
 it "changed remote invalidates approval before transfer"
 touch "$fixture/race"
 run_lk publish "${a[@]}" --yes

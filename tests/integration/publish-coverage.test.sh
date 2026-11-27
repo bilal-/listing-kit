@@ -13,6 +13,9 @@ cat > "$STUB_BIN/fastlane" <<'PY'
 import os, sys
 from pathlib import Path
 args = sys.argv[1:]
+if args[1:2] == ["describe"] and Path(args[0]).name == "apple_text_upload.rb":
+    print("version 1.0 version-id PREPARE_FOR_SUBMISSION", "locale en-US", "locale fr-FR", sep="\n")
+    sys.exit(0)
 if args == ["--version"]:
     print("fastlane 2.242.0")
     sys.exit(0)
@@ -30,6 +33,7 @@ Path(os.environ["VIEW_FILES"]).write_text("\n".join(sorted(
     str(path.relative_to(view)) for path in view.rglob("*") if path.is_file())))
 PY
 chmod +x "$STUB_BIN/fastlane"
+ln -s fastlane "$STUB_BIN/ruby"
 lk="$SKILL_DIR/bin/listing-kit"
 git init -q "$app"
 export VIEW_FILES="$credentials/view-files"
