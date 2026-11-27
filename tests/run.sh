@@ -13,7 +13,7 @@ files_errored=0
 required_skips=0
 file_count=0
 
-for f in $(find tests -name '*.test.sh' | sort); do
+for f in $(find tests -type f \( -name '*.test.sh' -o -path 'tests/e2e/example.sh' \) | sort); do
   file_count=$((file_count + 1))
   printf '\n%s▶ %s%s\n' "$B" "${f#tests/}" "$Z"
   out="$(cd "$SUITE_ROOT" && bash "$ROOT/$f" --suite-root "$SUITE_ROOT" 2>&1)"; rc=$?

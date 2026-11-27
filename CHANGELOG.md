@@ -7,6 +7,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Composition
 
+- Framed screenshots can place captions below the device with `caption-bottom` or over an edge-to-edge capture with `full-bleed`.
+
 - Apps can keep marketing templates, styles and assets in `.listing-kit/templates/`. Create a starter with `listing-kit template new <name>`. Plan checks include source locations, preview embeds the rendered PNG, and template edits use the existing restyle approval.
 
 ### Rules and validation
@@ -19,6 +21,7 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Plan and capture
 
+- Plan format 2 is stable. Newer plans report the required and supported formats and ask you to update listing-kit.
 - Format 2 records targets, ordered screens, locales, flow overrides and split fastlane roots. Plan commands check it and print capture jobs and output paths.
 - Capture selects simulators or emulators, runs Maestro flows and saves checked raw PNGs. It supports manual navigation, device pins, job selection and a dry run.
 
@@ -36,6 +39,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 - Publish validates a scratch copy, compares listings and previews the proposed command and gallery replacements. Uploads are disabled for both stores pending live tests.
 
 ### Command and CI
+
+- A weekly and manually dispatched macOS job runs the Expo example from checked-in captures through compose, validation, review, and handoff. Run it locally with `bash tests/e2e/example.sh`.
 
 - The launcher exposes plan, capture, compose, validation, review, hook and delivery commands. CI templates generate listing checks, review artifacts and manual store jobs for GitHub or GitLab.
 - The marketplace metadata and Gemini manifest come from the plugin manifest. Gemini uses on-demand skill loading. Contributor instructions and installation instructions now have separate homes.

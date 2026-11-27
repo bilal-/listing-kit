@@ -4,6 +4,12 @@ Save UTF-8 JSON at `.listing-kit/listing.json` in the app root. Format 2 require
 
 Use this single plan for new listings. Validation counts the outputs for each store locale after applying target `locales` and screen `only` or `except` filters. Apple checks exact counts per display and filenames for planned headers. Play reports a warning when a type has a different count. Review and the hand-upload index show why an optional Apple display was deferred. The publish preview checks coverage for its selected store and upload route.
 
+## Format compatibility
+
+Format 2 is stable. Each kit reads its own plan format and every older format it documents. Format 2 is the first documented plan format, so there is nothing to migrate. When a plan uses a newer format, the kit refuses it, reports both the plan's format and the format it supports, and asks you to update listing-kit.
+
+Adding an optional key keeps the same format number. Removing a key or changing its meaning requires a new format number. Unknown top-level keys are validation errors. Update the kit before using an optional key introduced by a later release.
+
 ## Example
 
 This is the [test fixture](../../../tests/fixtures/plan-example.json). The annotations below the block keep the JSON directly usable. The paths and copy belong to the example app. Replace them for a real capture.

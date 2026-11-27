@@ -224,11 +224,13 @@ class Job:
                  "logo": self.digest(self.logo) if self.logo else None, "locale": self.rec.get("storeCode")}
         if self.user or self.kind == "shot":
             style["fit"] = self.fit()
-            if self.user or self.template == "caption-top":
+            if self.user or self.template in ("caption-top", "caption-bottom"):
                 style["bezel"] = self.style.get("bezel")
         return sha_obj(content), sha_obj(style)
 
     def fit(self):
+        if self.template == "full-bleed":
+            return "cover"
         return self.style.get("fit") or ("bleed" if (self.style.get("bezel") or {}).get("bleed") else "contain")
 
     def asset_args(self):

@@ -1,7 +1,7 @@
 """The plan values accepted by the bundled marketing templates."""
 import re
 
-TEMPLATES = ("caption-top", "band", "panel", "feature", "header")
+TEMPLATES = ("caption-top", "caption-bottom", "full-bleed", "band", "panel", "feature", "header")
 
 
 def template_name(name):
