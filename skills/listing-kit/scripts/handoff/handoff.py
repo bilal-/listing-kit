@@ -19,6 +19,7 @@ import rules_check
 from secret_scan import DEMO_GUIDANCE, demo_credential
 import screenshots as store_shots
 import specs
+from sync_state import read_state
 
 import handoff_output as output
 
@@ -43,6 +44,8 @@ class Plan:
         self.items = []
         self.omitted = []
         self.paths = set()
+        self.descriptions = {}
+        self.receipts = []
 
     def nonempty(self, path):
         path = Path(path)
@@ -285,6 +288,40 @@ def play(root, data, plan, coverage):
         screenshots(plan, data, "play", base, groups, MAIN_LISTING)
 
 
+def console_fields(plan, declared):
+    fields = (
+        ("playCategory", "category.txt", "Category", "Store settings"),
+        ("playPrivacyUrl", "privacy_url.txt", "Privacy policy URL", "App content > Privacy policy"),
+        ("contactEmail", "contact_email.txt", "Contact email", "Store settings > Store listing contact details"),
+        ("contactWebsite", "contact_website.txt", "Contact website", "Store settings > Store listing contact details"),
+    )
+    meta = plan.trees["play"]["metadata"]
+    for key, filename, label, destination in fields:
+        if key in declared:
+            values = [("", declared[key])]
+        else:
+            values = []
+            for directory in [meta, *map(Path, listing.play_locales(meta))]:
+                content = read_text(directory / filename)
+                if content and content.strip():
+                    values.append((directory.name if directory != meta else "", content.decode().strip()))
+        for locale, value in values:
+            source = f" ({locale})" if locale else ""
+            plan.checklist.append(f"{label}{source}: {value or 'enter privately'} — enter in Play Console > {destination}")
+
+
+def completed_receipts(plan):
+    path = plan.root / ".listing-kit/publish.receipt.json"
+    if path.is_symlink():
+        raise ValueError("Refusing linked publish receipt")
+    for store, entry in read_state(path)["stores"].items():
+        identity = entry["identity"]
+        files = {key for operation in entry["operations"] if operation["status"] == "done"
+                 for key in operation["files"]}
+        for key in sorted(files):
+            plan.receipts.append(f"{store} ({identity['app']}, {identity['selector']}) — {key}")
+
+
 def build(root):
     root = Path(root).resolve()
     plan = Plan(root)
@@ -293,6 +330,9 @@ def build(root):
         data = specs.load(root)
         try:
             coverage = apple_assets.load_coverage(root, data)
+            plan.descriptions = coverage.get("descriptions", {})
+            console_fields(plan, coverage.get("console", {}))
+            completed_receipts(plan)
             apple(root, data, plan, coverage)
             play(root, data, plan, coverage.get("play", {}))
         except KeyError as error:

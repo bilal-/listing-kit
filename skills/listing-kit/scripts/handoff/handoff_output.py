@@ -116,8 +116,8 @@ def guide(plan):
                   if path.parts[2:] in (("text", "name.txt"), ("text", "title.txt"))), "")
     yield "h1", "Upload your store listing" + (" — " + title if title else "")
     yield "p", "Built " + datetime.date.today().isoformat()
-    yield "p", ("Run listing-kit publish first and check its receipt. Then hand upload the remaining items "
-                "below, including Play graphics and console-only screenshots. An Apple gallery replacement "
+    yield "p", ("To upload manually, follow the destinations below. If you used listing-kit publish, "
+                "check its receipt before uploading the same files again. An Apple gallery replacement "
                 "clears all screenshot sets for the uploaded locale.")
     yield "p", ("This folder is a copy. Edit the source files under the paths printed by listing-kit detect and rerun. "
                 "Rebuilds are refused if you edit files in this folder.")
@@ -134,13 +134,22 @@ def guide(plan):
         yield "h2", console + " — " + language
         rows = []
         for folder, files in groupby(items, key=lambda item: item[1].parent):
-            if folder.name[:1].isdigit() and len(folder.parts) == 3:
-                group = list(files)
+            group = list(files)
+            gallery = folder.name[:1].isdigit() and len(folder.parts) == 3
+            if gallery:
                 action = " — drag all %d files in file-name order" % len(group)
                 rows.append((str(folder) + "/", group[0][2] + action))
-            else:
-                rows.extend((str(dest), place) for _, dest, place, _ in files)
+            for src, dest, place, _ in group:
+                description = plan.descriptions.get(src.relative_to(plan.root).as_posix()) if src else None
+                if description:
+                    rows.append((str(dest), f"{place} — Image description: {description}"))
+                elif not gallery:
+                    rows.append((str(dest), place))
         yield "table", rows
+    if plan.receipts:
+        yield "h2", "Files recorded in completed store uploads"
+        yield "p", "These paths come from the local publish receipt. Check the store before replacing later edits."
+        yield "ul", plan.receipts
     if plan.missing:
         yield "h2", "Missing"
         yield "ul", plan.missing

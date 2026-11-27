@@ -576,7 +576,7 @@ class _Checker:
             if v is not None:
                 self.visit(v, p, str)
         self.obj(value, path, dict(playCategory=nullable_string, contactEmail=nullable_string,
-                 playPrivacyUrl=nullable_string))
+                 playPrivacyUrl=nullable_string, contactWebsite=nullable_string))
 
     def active_targets(self, data):
         groups = {}

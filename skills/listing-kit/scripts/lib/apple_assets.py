@@ -64,7 +64,12 @@ def planned_coverage(root, data, rules, outputs, publish_store=None, text_locale
         disk.update(Path(loc).name for loc in listing_apple_locales(tree, rules, files_only=True))
         disk.update(loc for loc in header_locales(tree) if header_files(tree, loc)
                     or any(images(folder) for folder in (header_dir(tree, loc) / "screenshots").glob("*")))
-    return listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk, text_locales=text_locales)
+    result = listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk, text_locales=text_locales)
+    if not publish_store:
+        result["descriptions"] = {row["outputPath"]: row["text"]["altText"]["value"]
+                                  for row in outputs if "altText" in row["text"]}
+        result["console"] = data.get("console", {})
+    return result
 
 
 def load_plan(root, rules=None):

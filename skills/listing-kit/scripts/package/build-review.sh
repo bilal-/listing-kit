@@ -112,6 +112,7 @@ try:
 except (OSError, ValueError):
     coverage = {"apple": {}}  # The validation section displays the malformed plan error.
 
+descriptions = coverage.get("descriptions", {})
 apple_plan = coverage["apple"]
 planned = "play" in coverage
 requirements.apply_inferred(coverage.get("inferred", {}))
@@ -211,7 +212,8 @@ def render_shots(shots):
     for cls, files in shots.items():
         out.append(f'<div class="dc">{esc(cls)} <span class="muted">({len(files)})</span></div><div class="gal">')
         for rel in files:
-            out.append(f'<a href="{esc(rel)}" target="_blank"><img src="{esc(rel)}" loading="lazy"><span>{esc(os.path.basename(rel))}</span></a>')
+            alt = descriptions.get(rel, f"{cls} screenshot — {os.path.basename(rel)}")
+            out.append(f'<a href="{esc(rel)}" target="_blank"><img src="{esc(rel)}" alt="{esc(alt)}" loading="lazy"><span>{esc(os.path.basename(rel))}</span></a>')
         out.append('</div>')
     return "".join(out)
 
@@ -237,8 +239,9 @@ def render_graphics(graphics):
         return ""
     out = ['<div class="dc">Graphics</div><div class="gal">']
     for lbl, rel, wh in graphics:
+        alt = descriptions.get(rel, lbl)
         sz = f"{wh[0]}×{wh[1]}" if wh else ""
-        out.append(f'<a href="{esc(rel)}" target="_blank"><img src="{esc(rel)}" loading="lazy"><span>{esc(lbl)} {sz}</span></a>')
+        out.append(f'<a href="{esc(rel)}" target="_blank"><img src="{esc(rel)}" alt="{esc(alt)}" loading="lazy"><span>{esc(lbl)} {sz}</span></a>')
     out.append('</div>')
     return "".join(out)
 
