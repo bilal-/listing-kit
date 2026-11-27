@@ -65,6 +65,7 @@ esac
 OUT="$ROOT/listing-review.html"
 python3 -I -B - "$ROOT" "$VAL_TXT" "$OUT" "$SELF_DIR/../lib" "$crash" "$coverage_view" <<'PY' || { rc=$?; echo "Error: review page generation failed." >&2; exit "$rc"; }
 import sys, os, html, datetime
+from urllib.parse import quote
 
 root, val_txt, out_path, lib_dir = sys.argv[1:5]
 sys.path.insert(0, lib_dir)
@@ -220,6 +221,17 @@ def render_deferred(deferred):
         f'<p class="muted"><strong>{esc(display)} — deferred</strong>: {esc(reason)}</p>'
         for display, reason in deferred)
 
+def render_status_bars(locale):
+    strips = []
+    for raw in apple_plan.get(locale, {}).get("rawCaptures", []):
+        if os.path.isfile(os.path.join(root, raw)):
+            label = raw.removeprefix(".listing-kit/raw/")
+            strips.append(f'<figure><figcaption>{esc(label)}</figcaption><div class="strip">'
+                          f'<img src="{esc(quote(raw))}" alt="{esc(label)} status bar" loading="lazy"></div></figure>')
+    if not strips:
+        return ""
+    return '<details class="bars"><summary>Inspect raw status bars</summary>' + "".join(strips) + '</details>'
+
 def render_graphics(graphics):
     if not graphics:
         return ""
@@ -238,6 +250,8 @@ for i, (plat, data) in enumerate(platforms.items()):
     for L in data["locales"]:
         left = "".join(render_field(r) for r in L["fields"]) + "".join(render_field(r) for r in data["applevel"])
         right = render_shots(L["shots"]) + render_deferred(L.get("deferred", {})) + render_graphics(L["graphics"])
+        if plat == "iOS":
+            right += render_status_bars(L["locale"])
         body.append(f'<div class="loc"><div class="loclabel">locale: {esc(L["locale"])}</div>'
                     f'<div class="cols"><div class="left">{left}</div><div class="right">{right}</div></div></div>')
     if not body and data["applevel"]:
@@ -275,7 +289,7 @@ header .meta{color:#9a948a;font-size:12px;margin-top:2px}
 .loclabel{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#9a948a;margin:8px 0}
 .cols{display:flex;gap:24px;align-items:flex-start}
 .left{flex:1;min-width:0}
-.right{flex:1;min-width:0}
+.right{flex:1;min-width:0;max-width:100%}
 .row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #ece8df}
 .lbl{width:130px;color:#7a7468;flex:none}
 .field{flex:1;min-width:0;background:#fff;border:1px solid #e6e1d6;border-radius:6px;padding:6px 8px;max-height:120px;overflow:auto}
@@ -293,6 +307,10 @@ header .meta{color:#9a948a;font-size:12px;margin-top:2px}
 .gal a{text-decoration:none;color:#7a7468;font-size:11px;text-align:center}
 .gal img{display:block;width:120px;border:1px solid #ddd6c8;border-radius:6px;background:#fff}
 .gal span{display:block;margin-top:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bars{margin-top:16px}.bars summary{cursor:pointer;font-weight:600}
+.bars figure{margin:12px 0}.bars figcaption{overflow-wrap:anywhere}
+.strip{height:128px;overflow-x:auto;overflow-y:hidden;border:1px solid #ddd6c8}
+.strip img{display:block}
 @media(max-width:720px){.cols{flex-direction:column}}
 """
 

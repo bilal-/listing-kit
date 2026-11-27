@@ -2,9 +2,9 @@
  "format": 1,
  "outputs": {
   ".listing-kit/preview.html": {
-   "content": "e457aefdd63bc23ee8d5c0c73577bf4694b6c48050dd5e166e1f9cf20da71da6",
-   "sha256": "e457aefdd63bc23ee8d5c0c73577bf4694b6c48050dd5e166e1f9cf20da71da6",
-   "style": "e457aefdd63bc23ee8d5c0c73577bf4694b6c48050dd5e166e1f9cf20da71da6"
+   "content": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725",
+   "sha256": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725",
+   "style": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725"
   },
   "fastlane/metadata/android/en-US/images/featureGraphic.png": {
    "checks": {
@@ -114,12 +114,12 @@
     "textShare": 0.0524,
     "worstContrast": 8.554990224924925
    },
-   "content": "4baa7960b542a72dfb708e824406a9af9026b442e313865e961088ed29ba93c3",
+   "content": "7efb2481e16354ed813728902910b550970f77bd85dfe99a2bbf3fb48166b45e",
    "renderer": {
     "browser": "158",
     "os": "darwin"
    },
-   "sha256": "962f0c16cb6382b183b6a43e4415b3e1ba7515c566960bd6959525271bf84360",
+   "sha256": "c99cb673fd5de3669494bc55aa95493107223ac5898bc3176d1bfdbd93017425",
    "size": [
     2064,
     2752

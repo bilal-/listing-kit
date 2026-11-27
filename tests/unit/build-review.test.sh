@@ -291,4 +291,20 @@ assert_eq 0 "$RC"
 assert_contains "$(cat "$T/listing-review.html")" "2026 Studio"
 rm -rf "$T"
 
+it "links the available planned Apple raw captures for status-bar inspection"
+new_tempdir T
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+mkdir -p "$T/.listing-kit/raw/ipad/en-US"
+example="$ROOT/examples/expo-recipe-box"
+cp -R "$example/.listing-kit/listing.json" "$example/.listing-kit/flows" "$T/.listing-kit/"
+cp -R "$example/assets" "$T/"
+raw=".listing-kit/raw/ipad/en-US/recipes.png"
+cp "$example/$raw" "$T/$raw"
+OUT="$(bash "$SUT" "$T" 2>&1)"
+assert_eq 0 "$?"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" 'Inspect raw status bars'
+assert_contains "$PAGE" "src=\"$raw\""
+assert_not_contains "$PAGE" 'src=".listing-kit/raw/ipad/en-US/shopping.png"'
+
 summary

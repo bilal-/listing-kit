@@ -24,6 +24,8 @@ case "$*" in
   'simctl list devices available -j') cat "$IOS_DEVICES";;
   'simctl list devicetypes -j') echo '{"devicetypes":[{"name":"iPhone 17","identifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17"}]}';;
   'simctl get_app_container '*) [ -z "${NOT_INSTALLED:-}" ] && echo /container/App.app;;
+  'simctl terminate '*) exit "${TERMINATE_RC:-0}";;
+  'simctl launch '*) exit "${LAUNCH_RC:-0}";;
   'simctl io '*screenshot*) for out; do :; done; cp "$IOS_IMAGE" "$out";;
   'simctl boot '*|'simctl bootstatus '*|'simctl status_bar '*) exit 0;;
   *) exit 99;;
@@ -132,6 +134,23 @@ assert_contains "$(cat "$CALLS")" '-e LK_LOCALE=en-US -e LK_TARGET=iphone-medium
 assert_eq $'maestro\nsanitize\ncapture\nnormalize' "$(sed -n -e '/^maestro --device ON test /s/.*/maestro/p' -e '/simctl status_bar ON /s/.*/sanitize/p' -e '/simctl io ON screenshot --type=png --display internal/s/.*/capture/p' -e '/^magick .*PNG24:/s/.*/normalize/p' "$CALLS")"
 assert_not_contains "$(cat "$CALLS")" 'simctl boot '
 assert_contains "$(cat "$KIT/logs/iphone-medium/agents.en-US.log")" 'flow output'
+
+it 'terminates and launches the installed iOS app directly before every flow'
+TERMINATE_RC=3 run --target iphone-medium --screen agents --screen terminal
+assert_eq 0 "$RC"
+sequence="$(sed -n -e '/^xcrun simctl terminate ON sh\.bilal\.shellbell$/s/.*/terminate/p' \
+                   -e '/^xcrun simctl launch ON sh\.bilal\.shellbell$/s/.*/launch/p' \
+                   -e '/^maestro --device ON test /s/.*/flow/p' "$CALLS")"
+assert_eq $'terminate\nlaunch\nflow\nterminate\nlaunch\nflow' "$sequence"
+TERMINATE_RC=1 ios
+assert_eq 1 "$RC"
+assert_not_contains "$(cat "$CALLS")" 'simctl launch '
+LAUNCH_RC=1 ios
+assert_eq 1 "$RC"
+assert_not_contains "$(cat "$CALLS")" 'maestro --device'
+ios --manual <<< ''
+assert_eq 0 "$RC"
+assert_contains "$(cat "$CALLS")" $'simctl terminate ON sh.bilal.shellbell\nxcrun simctl launch ON sh.bilal.shellbell\nxcrun simctl status_bar ON'
 
 it 'honors local pins and CLI precedence and waits for a shutdown simulator'
 echo '{"devices":{"iphone-medium":"OFF"}}' > "$KIT/local.json"

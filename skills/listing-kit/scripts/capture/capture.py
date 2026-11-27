@@ -2,6 +2,7 @@
 """Drive installed apps and capture the selected jobs from a listing-kit plan."""
 import argparse
 from collections import Counter, deque
+import errno
 import json
 import math
 import os
@@ -290,6 +291,13 @@ def capture_size(job, row, device):
 
 def capture(job, row, root, device, magick, manual, native):
     ios = job["store"] == "apple"
+    if ios:
+        app = job["appId"]
+        stopped = run_tool(("xcrun", "simctl", "terminate", device, app))
+        # simctl returns ESRCH when the installed app is already stopped.
+        if stopped.returncode not in (0, errno.ESRCH):
+            raise CaptureError(f"Could not terminate {app}: {stopped.stderr.decode('utf-8', 'replace').strip()}")
+        command("xcrun", "simctl", "launch", device, app)
     if manual:
         print(f"Navigate to {job['screenId']} ({job['deviceLocale']}) on {device}, "
               "then press Enter to capture.", file=sys.stderr, flush=True)
