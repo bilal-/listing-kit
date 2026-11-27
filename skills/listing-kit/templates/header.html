@@ -8,14 +8,14 @@
    point, short readable text and room for placement crops, so everything sits in the
    middle band with wide margins. */
 body{justify-content:center;padding:14vh 16vw}
-.header{width:100%;display:flex;flex-direction:column;align-items:center;gap:4.5vh}
+.header{width:100%;display:flex;flex-direction:column;align-items:var(--graphic-align,center);gap:var(--graphic-gap,4.5vh)}
 .brand{display:flex;align-items:center;justify-content:center;gap:3vh}
 .brand:empty,.brand:has(> .name:only-child:empty),.name:empty{display:none}
 .brand img{display:block;max-height:16vh;max-width:40vw}
 .name{font-family:var(--font-headline);font-size:7vh;font-weight:700}
-.headline,.detail{text-align:center}
 .headline{font-size:13vh}
 .detail{font-size:6vh}
+.headline,.detail{text-align:var(--graphic-align,center)}
 </style>
 <body><main class="header">
 <div class="brand">{{brand}}</div>

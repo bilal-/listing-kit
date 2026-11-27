@@ -22,7 +22,7 @@ Usage: listing-kit <command> [arguments]
   detect [app-root]                       Report detected app capabilities
   hook install|status [app-root]          Install or check the review hook
   template new <name>                 Create an app-owned screenshot template
-  compose [args]                          Render planned store assets
+  compose [args]                          Render planned store assets (see listing-kit compose --help)
   fastlane setup|pull|publish [args]      Configure or sync a store listing
   pull [args]                             Alias for fastlane pull
   publish [args]                          Alias for fastlane publish (preview while gated)

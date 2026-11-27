@@ -93,6 +93,14 @@ def _vars(style, shot=None):
     v = {"--bg-a": bg[0], "--bg-b": bg[-1], "--ink": pal["ink"], "--detail": pal.get("detail", pal["ink"]),
          "--bezel": bezel.get("color", pal["ink"]), "--bezel-w": str(bezel.get("width", 1.2)),
          "--radius": str(bezel.get("radius", 5)), "--shadow": bezel.get("shadow", "#00000040")}
+    if "gap" in style:
+        if not template_values.measurement(style["gap"], 100):
+            raise RenderError("graphic gap must be a number in [0,100]")
+        v["--graphic-gap"] = f"{style['gap']}vmin"
+    if "align" in style:
+        if style["align"] not in ("start", "center"):
+            raise RenderError("graphic alignment must be start or center")
+        v["--graphic-align"] = style["align"]
     if shot:
         v["--shot-w"], v["--shot-h"] = str(shot[0]), str(shot[1])
     return ":root{%s}" % ";".join("%s:%s" % kv for kv in sorted(v.items()))

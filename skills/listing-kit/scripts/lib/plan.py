@@ -254,6 +254,7 @@ class _Checker:
         self.palette = dict(background=self.background, ink=colour, detail=colour)
         def measure(limit):
             return partial(self.expect, lambda v: template_values.measurement(v, limit), "expected number in [0, %d]" % limit)
+        self.graphic_layout = dict(align=("start", "center"), gap=measure(100))
         self.style = dict(mode=("raw", "framed"), template=self.template, fit=("contain", "cover", "bleed"), palette=self.palette,
                           bezel=dict(color=colour, shadow=colour, width=measure(10), radius=measure(50), bleed=bool), fonts=self.fonts, logo=self.file_ref)
         self.capture = dict(deviceType=self.nonempty, display=self.nonempty, orientation=("portrait", "landscape"),
@@ -454,12 +455,21 @@ class _Checker:
         else:
             seen.add(value)
 
+    def raw_pattern(self, value, path):
+        if isinstance(value, str):
+            sample = re.sub(r"\{(?:target|locale|screen|index)\}", "sample", value)
+            if ("{" not in sample and "}" not in sample and sample.endswith(".png")
+                    and all(specs.component(part) and part.lower() != ".git" for part in sample.split("/"))):
+                return
+        self.error(path, "expected an app-relative PNG path using {target}, {locale}, {screen} or {index}")
+
     def target(self, t, path):
         if not self.obj(t, path,
                         dict(id=str, store=("apple", "play"), slot=self.nonempty, size=[int],
                         state=("active", "deferred", "retired"), reason=str,
                         suffix=self.filename_id, upload=("fastlane", "console"),
-                        locales=self.locale_list, style=self.style, template=self.template, capture=self.capture, captureLocales=("primary", "all"),
+                        locales=self.locale_list, style=self.style, template=self.template, capture=self.capture,
+                        rawPattern=self.raw_pattern, captureLocales=("primary", "all"),
                         status=self.nonempty, draft=bool), ("id", "store", "slot", "size", "state")):
             return
         if "id" in t:
@@ -534,7 +544,8 @@ class _Checker:
         self.obj(value, path,
                  dict(template=self.template, headline=self.localized, detail=self.localized,
                  altText=self.localized, draft=bool, status=self.nonempty, palette=self.palette,
-                 logo=self.file_ref, **({"from": self.file_ref} if is_icon else {})), ("from",) if is_icon else ("headline",))
+                 logo=self.file_ref, **({"from": self.file_ref} if is_icon else self.graphic_layout)),
+                 ("from",) if is_icon else ("headline",))
 
     def store_graphics(self, value, path):
         rules = self.rules["stores"][path.split(".")[-1]]["graphics"]
@@ -687,6 +698,8 @@ class _Checker:
         paths = {s["id"]: f"screens[{i}]" for i, s in enumerate(data["screens"])}
         base = dict(mode="raw", template=None, fit=None, palette={}, bezel={})
         suffixes = apple_suffixes(data, self.rules)
+        archive_paths = {}
+        archive_owners = {}
         for t, s, slot, upload, locale, primary, index in _allocation(data, self.rules, targets(data)):
             store, loc, tid, sid = t["store"], locale["id"], t["id"], s["id"]
             code, tree = locale[store], trees[store]
@@ -717,6 +730,16 @@ class _Checker:
                 self.captures[raw] = dict(targetId=tid, store=store, screenId=sid, localeId=capture["id"],
                                           deviceLocale=capture[store], flowPath=flow, demoEntry=self.resolved(self.demo),
                                           rawPath=raw, **settings)
+            if raw and "rawPattern" in t:
+                if raw not in archive_paths:
+                    archive = t["rawPattern"].format(target=tid, locale=capture["id"], screen=sid, index=f"{index:02d}")
+                    file = _destination(self.app_root, Path(archive))
+                    owner = archive_owners.setdefault(_fold(file), raw)
+                    if owner != raw:
+                        self.error(f"{tid}.rawPattern", f"{archive} also maps to {owner}")
+                    self.files[archive] = (self.app_root / archive, file)
+                    archive_paths[raw] = archive
+                raw = archive_paths[raw]
             style = _style(dict(base, template=slot.get("defaultTemplate")), data.get("style", {}))
             for item in (t, s):
                 style = _style(style, item.get("style", {}))
@@ -735,7 +758,7 @@ class _Checker:
             rules = {g["id"]: g for g in self.rules["stores"][store]["graphics"]}
             for name, graphic in entries.items():
                 rule = rules[name]
-                style = _style(graphic_base, {k: graphic[k] for k in ("palette", "logo", "template") if k in graphic})
+                style = _style(graphic_base, {k: graphic[k] for k in ("palette", "logo", "template", *self.graphic_layout) if k in graphic})
                 for locale in _target_locales(self.locales.values(), {"store": store}):
                     code, loc = locale[store], locale["id"]
                     tree = trees[store]
@@ -789,7 +812,11 @@ class _Checker:
                 register(leaf, name, owner)
             except (OSError, RuntimeError, ValueError) as exc:
                 self.error(owner, f"invalid output {name}: {exc}")
+        capture_inputs = {_fold((self.app_root / row["rawPath"]).resolve()) for row in rows if row["rawPath"]}
         for path in stale:
+            if _fold((self.app_root / path).resolve()) in capture_inputs:
+                self.error(path, "stale output is also a capture input; move the archived capture before composing")
+                continue
             (self.error if self.purpose == "publish" else self.warn)(path, "stale output")
         self.result = dict(manifest=1, app=self.ids,
                            trees={s: {k: p.as_posix() for k, p in tree.items()} for s, tree in trees.items()},
