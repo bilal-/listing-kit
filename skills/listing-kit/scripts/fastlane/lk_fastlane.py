@@ -6,13 +6,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import fcntl
-import fnmatch
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
-import pwd
 import re
 import shlex
 import shutil
@@ -21,6 +19,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -55,77 +54,153 @@ class ChildTimeout(Exception):
     pass
 
 
-def run_child(command, *, upload=False, check=False, **options):
-    timeout = float(os.environ.get("LK_FASTLANE_TIMEOUT", 900 if upload else 300))
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("LK_FASTLANE_TIMEOUT must be a positive finite number of seconds")
-    with subprocess.Popen(command, start_new_session=True, **options) as child:
-        try:
-            stdout, stderr = child.communicate(timeout=timeout)
-        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.communicate()
-            if isinstance(exc, KeyboardInterrupt):
-                raise
-            raise ChildTimeout("%s timed out after %g seconds" % (Path(command[0]).name, timeout))
-        result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
-        if check:
-            result.check_returncode()
-        return result
-
-
-def spaceship_logs(scratch, external_dirs):
-    """Inspect file metadata only. Shared directories are scanned at the top level."""
-    def directories():
-        for folder, _, files in os.walk(scratch, onerror=raise_walk_error):
-            yield Path(folder), files
-        for folder in external_dirs:
-            try:
-                yield folder, os.listdir(folder)
-            except FileNotFoundError:
-                continue
-
-    for folder, names in directories():
-        for name in fnmatch.filter(names, "spaceship*.log"):
-            path = folder / name
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                continue
-            if stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid():
-                yield path, (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+HANDLED_SIGNALS = {signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT}
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+SPACESHIP_LOG = re.compile(r"spaceship[0-9]+_([0-9]+)_[0-9]+\.log")
 
 
 @contextmanager
-def clean_spaceship_logs(scratch):
-    external_dirs = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
-    if os.environ.get("HOME"):
-        external_dirs.add(Path(os.environ["HOME"]).resolve())
+def open_fd(name, flags, *, dir_fd=None):
+    fd = os.open(name, flags, dir_fd=dir_fd)
     try:
-        external_dirs.add(Path(pwd.getpwuid(os.getuid()).pw_dir).resolve())
-    except KeyError:
-        pass  # An unmapped container UID may have only an environment-provided home.
-    before = dict(spaceship_logs(scratch, external_dirs))
-    try:
-        yield
+        yield fd
     finally:
-        removed = 0
-        failed = 0
-        for path, stamp in spaceship_logs(scratch, external_dirs):
-            if before.get(path) != stamp:
+        os.close(fd)
+
+
+def remove_log(directory, name):
+    # POSIX unlinkat takes a name. Pin the inode, then claim the entry in
+    # a private directory and compare identities before unlinking there.
+    expected = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    if not stat.S_ISREG(expected.st_mode):
+        return False
+    with open_fd(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY,
+                 dir_fd=directory) as fd:
+        info = os.fstat(fd)
+        if not os.path.samestat(info, expected) or not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            return False
+        stage = ".listing-kit-log-" + uuid.uuid4().hex
+        os.mkdir(stage, mode=0o700, dir_fd=directory)
+        try:
+            with open_fd(stage, DIRECTORY_FLAGS, dir_fd=directory) as private:
+                os.rename(name, "entry", src_dir_fd=directory, dst_dir_fd=private)
+                claimed = os.stat("entry", dir_fd=private, follow_symlinks=False)
+                if not os.path.samestat(info, claimed):
+                    # Restore the replacement without overwriting a newer arrival.
+                    os.link("entry", name, src_dir_fd=private, dst_dir_fd=directory,
+                            follow_symlinks=False)
+                    os.unlink("entry", dir_fd=private)
+                    return False
+                os.unlink("entry", dir_fd=private)
+                return True
+        finally:
+            os.rmdir(stage, dir_fd=directory)
+
+
+def remove_new_logs(directory, before, pids):
+    removed = failed = 0
+    for name in set(os.listdir(directory)) - before:
+        match = SPACESHIP_LOG.fullmatch(name)
+        if match and match[1] in pids:
+            try:
+                removed += remove_log(directory, name)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                failed += 1
+    return removed, failed
+
+
+@contextmanager
+def clean_spaceship_logs(locations):
+    # Only Store.run supplies locations: its private TMPDIR. Pin directories
+    # across spawn so even a renamed parent cannot redirect cleanup.
+    pids = set()
+    snapshots = {}
+    failed = removed = 0
+    try:
+        for location in locations:
+            try:
+                directory = os.open(location, DIRECTORY_FLAGS)
+                snapshots[directory] = None  # Never clean without a complete snapshot.
+                snapshots[directory] = set(os.listdir(directory))
+            except OSError:
+                failed += 1
+        yield pids
+    finally:
+        for directory, before in snapshots.items():
+            try:
+                if before is not None:
+                    count, errors = remove_new_logs(directory, before, pids)
+                    removed += count
+                    failed += errors
+            except OSError:
+                failed += 1
+            finally:
                 try:
-                    path.unlink()
-                    removed += 1
-                except FileNotFoundError:
-                    pass
+                    os.close(directory)
                 except OSError:
                     failed += 1
-        print("Spaceship API logs removed:", removed)
+        if locations:
+            print("Spaceship API logs removed:", removed, file=sys.stderr)
         if failed:
-            raise RuntimeError("Could not remove %d Spaceship API log(s)" % failed)
+            print("could not check %d locations" % failed, file=sys.stderr)
+
+
+@contextmanager
+def block_child_signals():
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
+    try:
+        yield previous
+    except BaseException:
+        # Deliver any deferred signals here, preserving the original exception.
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        except KeyboardInterrupt:
+            pass
+        raise
+    else:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+def communicate(child, timeout, interrupts):
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            if signal.sigpending() & interrupts:
+                raise KeyboardInterrupt
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ChildTimeout("%s timed out after %g seconds" % (Path(child.args[0]).name, timeout))
+            try:
+                return child.communicate(timeout=min(remaining, 0.1))
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait()
+        raise
+
+
+def run_child(command, *, upload=False, check=False, log_dirs=(), **options):
+    timeout = float(os.environ.get("LK_FASTLANE_TIMEOUT", 900 if upload else 300))
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("LK_FASTLANE_TIMEOUT must be a positive finite number of seconds")
+    # This CLI is single-threaded. Restore the original mask in the forked
+    # child before exec. Keep the parent masked through reaping and cleanup.
+    with block_child_signals() as previous, clean_spaceship_logs(log_dirs) as pids:
+        with subprocess.Popen(command, start_new_session=True, umask=0o077,
+                              preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous),
+                              **options) as child:
+            pids.add(str(child.pid))
+            stdout, stderr = communicate(child, timeout, HANDLED_SIGNALS - previous)
+            result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+            if check:
+                result.check_returncode()
+            return result
 
 
 def now():
@@ -242,16 +317,15 @@ class Store:
         env = {k: v for k, v in os.environ.items() if not k.startswith(
             ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE"))}
         # UNVERIFIED in S3: fastlane update-check and telemetry environment switches.
-        env.update(TMPDIR=str(self.scratch), FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
+        env.update(TMPDIR=str(self.scratch), VERBOSE="1", FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
         if gemfile:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
-        with clean_spaceship_logs(self.scratch):
-            try:
-                result = run_child(prefix + args, upload=upload, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            except FileNotFoundError:
-                raise MissingFastlane(INSTALL)
+        try:
+            result = run_child(prefix + args, upload=upload, cwd=cwd, env=env, log_dirs=(self.scratch,),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except FileNotFoundError:
+            raise MissingFastlane(INSTALL)
         if result.returncode == 127:
             raise MissingFastlane(INSTALL)
         if result.returncode:
@@ -275,15 +349,20 @@ def report_version(store, cwd):
         print("fastlane", match.group(1).decode())
 
 
-def selected(args, root, rules):
-    data = manifest = {}
-    if (root / plan.LISTING).exists():
-        try:
-            data = plan.load(root)
-        except plan.UnversionedPlan:
-            if args.command == "publish":
-                raise
+def effective_plan(root, warn=False):
+    if not (root / plan.LISTING).exists():
+        return {}
+    try:
+        return plan.load(root)
+    except plan.UnversionedPlan:
+        if warn:
             print("listing.json ignored: unversioned plan (missing format). Using project evidence.", file=sys.stderr)
+        return {}
+
+
+def selected(args, root, rules):
+    data = effective_plan(root, warn=True)
+    manifest = {}
     if data:
         manifest = plan.manifest(data, rules, root)
         trees = manifest["trees"]
@@ -920,7 +999,7 @@ class Transfer:
                 staged[path.relative_to(self.folder).as_posix()] = file_hash(path)
         if staged != self.approval["files"]:
             raise ValueError("The approved files changed. Rerun publish for a new confirmation")
-        current_plan = plan.load(store.root) if (store.root / plan.LISTING).exists() else {}
+        current_plan = effective_plan(store.root)
         if current_plan != store.data:
             raise ValueError("Listing plan changed. Rerun publish for a new confirmation")
         files = {k: self.folder / k for k in staged}
@@ -1178,8 +1257,8 @@ def main(argv):
                         raise ValueError("Plan inputs failed the secret scan")
                     run_child([sys.executable, "-EsB", str(SCRIPTS / "lib/plan.py"), "check", str(root),
                                     "--for", "publish"], check=True)
-                platforms = {name: value for name, (value, _) in detect.resolve(root, rules).items()
-                             if value is not None}
+                evidence = detect.resolve(root, rules, plan_data=stores[0].data)
+                platforms = {name: value for name, (value, _) in evidence.items() if value is not None}
                 for store in stores:
                     views[store.name] = prepared(store, scratch / (store.name + "-view"), platforms)
                 transfers = []
@@ -1228,7 +1307,7 @@ if __name__ == "__main__":
     # These signals unwind the active child process group and TemporaryDirectory.
     # A closed terminal (SIGHUP) or Ctrl-\ (SIGQUIT) would otherwise skip the cleanup
     # while the detached fastlane child finished writing the store's demo credentials.
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+    for sig in HANDLED_SIGNALS:
         signal.signal(sig, signal.default_int_handler)
     try:
         sys.exit(main(sys.argv[1:]))

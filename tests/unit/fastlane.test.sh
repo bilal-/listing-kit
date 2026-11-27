@@ -29,19 +29,14 @@ with open(os.environ["STUB_LOG"], "a") as log:
 if "FL_LOG_MODE" in os.environ:
     import signal, time
     tmp = Path(os.environ["TMPDIR"])
-    parent = Path(os.environ["FL_PARENT_TMP"])
-    home = Path.home()
-    record = parent / "invocations"
-    paths = [tmp / "spaceship-private.log", parent / "spaceship-temp.log", home / "spaceship-home.log"]
-    nested = Path.cwd() / "nested"
-    nested.mkdir(exist_ok=True)
-    paths.append(nested / "spaceship-nested.log")
-    with record.open("a") as stream:
-        print(json.dumps([str(tmp), tmp.stat().st_mode & 0o777, any(p.exists() for p in paths)]), file=stream)
-    for path in paths:
-        path.write_text("private-response-marker")
+    logfile = tmp / f"spaceship123_{os.getpid()}_456.log"
+    with (base / "log-runs").open("a") as record:
+        print(json.dumps([str(tmp), tmp.stat().st_mode & 0o777, os.environ.get("VERBOSE"),
+                          os.umask(0o077), list(p.name for p in tmp.glob("spaceship*.log"))]), file=record)
+    # Emulate a logger ignoring VERBOSE to exercise the fallback on every exit path.
+    logfile.write_text("private-response-marker")
+    print("private-response-marker", flush=True)
     if args != ["--version"]:
-        (home / "spaceship-modified.log").write_text("after!")
         if os.environ["FL_LOG_MODE"] == "error":
             sys.exit(17)
         if os.environ["FL_LOG_MODE"] == "term":
@@ -77,6 +72,8 @@ elif args[1] in ("init", "download_metadata", "download_screenshots"):
         for image in dest.rglob("*.png"):
             with image.open("ab") as stream:
                 stream.write(b"store encoding")
+    if "recheck" in dest.parts and (base / "versioned-plan").exists():
+        shutil.copyfile(base / "saved", base / "repo/mobile/.listing-kit/listing.json")
     if "recheck" in dest.parts and (base / "tamper").exists():
         extra = dest.parent.parent / "upload/metadata/en-US/subtitle.txt"
         extra.write_text("outside approved set")
@@ -152,6 +149,9 @@ rm "$example/screenshots/en-US/"*_iphone-medium.png
 cp -R "$example/metadata/." "$ra/"
 rm -rf "$ra/android"
 cp -R "$example/screenshots/." "$rs/"
+it "Spaceship log ownership and child lifecycle"
+python3 "$HELPER_DIR/unit/fastlane_logs.py" && pass || fail "Spaceship cleanup"
+
 it "live pull regressions with stub fastlane"
 python3 "$HELPER_DIR/unit/fastlane_live.py" "$lk" && pass || fail "live pull regressions"
 
@@ -272,7 +272,10 @@ echo 'New name' > "$meta/$name"
 mkdir -p "$meta/review_information"
 for stem in demo_user demo_password; do echo fixture-only > "$meta/review_information/$stem.txt"; done
 it "disabled preview lists exact upload command without uploading"
+printf '%s\n' '{"app":{"ios":"wrong.apple"}}' > "$app/.listing-kit/listing.json"
 run_lk publish "${a[@]}" --yes
+rm "$app/.listing-kit/listing.json"
+assert_eq "$(printf '%s\n' "$out" | grep -c 'unversioned plan (missing format)')" 1
 assert_eq "$rc" 0
 assert_contains "$out" "publishing to apple is not enabled"
 assert_not_contains "$out" "demo_user.txt"
@@ -354,12 +357,24 @@ assert_eq "$rc" 1
 assert_contains "$out" "approved files changed"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 rm "$fixture/tamper"
+
+it "a versioned plan appearing after approval stops upload"
+printf '%s\n' '{"app":{"ios":"wrong.apple"}}' > "$app/.listing-kit/listing.json"
+touch "$fixture/versioned-plan"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 1
+assert_contains "$out" "Listing plan changed"
+assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
+rm "$fixture/versioned-plan" "$app/.listing-kit/listing.json"
 it "A1 scoped Apple upload preserves a console edit and re-encoded images"
 cp "$rs/en-US/02_recipe-detail_iphone-large.png" "$rs/en-US/01_recipes_iphone-large.png"
 touch "$fixture/reencode"
 : > "$STUB_LOG"
 : > "$fixture/sent"
+printf '%s\n' '{"app":{"ios":"wrong.apple"}}' > "$app/.listing-kit/listing.json"
 run_lk publish "${a[@]}" --yes
+rm "$app/.listing-kit/listing.json"
+assert_eq "$(printf '%s\n' "$out" | grep -c 'unversioned plan (missing format)')" 1
 assert_eq "$rc" 0
 assert_contains "$out" "uploads are enabled for this run by LK_PUBLISH_UNVERIFIED"
 assert_eq "$(cat "$fixture/sent")" "apple $name"
