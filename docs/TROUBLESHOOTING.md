@@ -25,6 +25,12 @@ Match the message or excerpt to the command that printed it. Paths, IDs and dime
 
 If the review hook flags a public key in a device declaration, follow the [staged blob review procedure](../skills/listing-kit/references/metadata/fastlane-layout.md#what-to-commit).
 
+### Fastlane failures
+
+After the failure category, `listing-kit: fastlane said: [!] …` shows fastlane’s final marked error on stderr. The kit strips terminal formatting, redacts credentials, email addresses and long token-like strings, and limits the detail to 300 characters. A hit from the kit’s secret detector replaces the whole message with `[redacted]`. If there is no usable marked error or the final safety check flags the result, only the category appears. Captured API requests and responses stay private. The Apple text writer keeps its own diagnostics.
+
+If supply cannot find the requested track, rerun with `--track <track>` using the track’s Play Console name. If several releases share the track, or supply cannot find the release for a changelog, rerun with `--version-code <code>` using the intended release’s version code. [Fastlane 2.242.0 track and release lookup](https://github.com/fastlane/fastlane/blob/2.242.0/supply/lib/supply/uploader.rb#L97-L99), [multiple-release error](https://github.com/fastlane/fastlane/blob/2.242.0/supply/lib/supply/uploader.rb#L125-L127), [missing changelog version code](https://github.com/fastlane/fastlane/blob/2.242.0/supply/lib/supply/uploader.rb#L269)
+
 ## Browser launch flags
 
 Set `LK_BROWSER_ARGS` to pass additional space-separated arguments to the browser. For example, an isolated Linux CI runner that cannot start Chrome with its sandbox can use `LK_BROWSER_ARGS=--no-sandbox`.

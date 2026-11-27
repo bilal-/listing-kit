@@ -33,6 +33,56 @@ class LivePull(unittest.TestCase):
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
         return result.returncode, result.stdout
 
+    def test_supply_error_diagnostics(self):
+        body = '{"description":"[!] private listing copy"}'
+        category = "listing-kit: supply action failed for example.play (exit 17)"
+        version_fix = "listing-kit: supply version code required or unknown for example.play (exit 17); rerun with --version-code <code>"
+        track_fix = "listing-kit: supply track not found for example.play (exit 17); rerun with --track <track>"
+        google = "Google Api Error: Invalid request - Edit expired"
+        ambiguous = "More than one release found in this track. Please specify with the :version_code option to select a release."
+        missing = "Unable to find the requested track - 'beta'"
+        capped = "[!] " + "échec " * 70
+        cases = [
+            ("[!] earlier\n" + body + "\n\x1b[31m[12:34:56]: \x1b[1m[!] " +
+             google.replace(" - ", "\t-  ") + "\x1b[0m\r\n" + body, category, "[!] " + google),
+            (body + "\n [!] indented\ntrace\r[!] carriage return", category, None),
+            ("[!] first\n[!] ", category, None),
+            ("[!] -----BEGIN PRIVATE KEY----- short key material", category, "[!] [redacted]"),
+            ('[!] invalid "private_key": "short value"', category, "[!] [redacted]"),
+            ("[!] Authorization: Bearer " + "a" * 24, category, "[!] [redacted]"),
+            ("[!] bad Bearer a.b~c==", category, "[!] bad [redacted]"),
+            ("[!] invalid token=Abcdefgh123456", category, "[!] [redacted]"),
+            ("[!] denied for first.last+play@example.org", category, "[!] denied for [redacted]"),
+            ('[!] denied for "two words"@example.org', category, "[!] denied for [redacted]"),
+            ("[!] opaque " + "ab" * 10 + " YWJjZGVmZ2hpamtsbW4= aaaaaa.bbbbbb.cccccc",
+             category, "[!] opaque [redacted] [redacted] [redacted]"),
+            (capped, category, capped[:300]),
+            ("[!] " + "a " * 138 + "token = abcdefghijkl in prose", category, None),
+            ("[!] " + ambiguous, version_fix, "[!] " + ambiguous),
+            ("[!] " + missing, track_fix, "[!] " + missing),
+            ("[!] Google Api Error: Invalid request - Track not found: beta", track_fix,
+             "[!] Google Api Error: Invalid request - Track not found: beta"),
+            ("[!] Could not find release for version code '43' to update changelog", version_fix,
+             "[!] Could not find release for version code '43' to update changelog"),
+            ("[!] Cannot find changelog because no version code given - please specify :version_code", version_fix,
+             "[!] Cannot find changelog because no version code given - please specify :version_code"),
+            ('{"description":"[!] ' + ambiguous + '"}', category, None),
+        ]
+        for output, first, detail in cases:
+            with self.subTest(output=output):
+                (self.base / "supply-error").write_bytes(output.encode())
+                result = subprocess.run([KIT / "bin/listing-kit", "pull", "--store", "play",
+                                         "--package-name", "example.play"], cwd=self.app, env=self.env,
+                                        capture_output=True, text=True, timeout=20)
+                expected = [first]
+                if detail:
+                    expected.append("listing-kit: fastlane said: " + detail)
+                self.assertEqual(result.returncode, 1)
+                errors = [line for line in result.stderr.splitlines() if line != "Spaceship API logs removed: 0"]
+                self.assertEqual(errors, expected)
+                self.assertNotIn("[!]", result.stdout)
+                self.assertNotIn("private listing copy", result.stdout)
+
     def test_pinned_download_uses_read_only_describe(self):
         sys.path.insert(0, str(KIT / "scripts/fastlane"))
         self.addCleanup(sys.path.pop, 0)
