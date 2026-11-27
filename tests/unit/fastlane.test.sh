@@ -123,7 +123,10 @@ meta="$app/fastlane/metadata"
 shots="$app/fastlane/screenshots"
 ra="$remote/apple/metadata"
 rs="$remote/apple/screenshots"
-example="$ROOT/examples/expo-recipe-box/fastlane"
+# Start with two display sets. The plan-coverage cases add a medium set later.
+example="$fixture/example-fastlane"
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$example"
+rm "$example/screenshots/en-US/"*_iphone-medium.png
 cp -R "$example/metadata/." "$ra/"
 rm -rf "$ra/android"
 cp -R "$example/screenshots/." "$rs/"
@@ -327,7 +330,7 @@ assert_contains "$out" "approved files changed"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 rm "$fixture/tamper"
 it "A1 scoped Apple upload preserves a console edit and re-encoded images"
-cp "$rs/en-US/02_recipe-detail.png" "$rs/en-US/01_recipes.png"
+cp "$rs/en-US/02_recipe-detail_iphone-large.png" "$rs/en-US/01_recipes_iphone-large.png"
 touch "$fixture/reencode"
 : > "$STUB_LOG"
 : > "$fixture/sent"
@@ -339,8 +342,8 @@ assert_file "$app/.listing-kit/publish.approved.json"
 assert_file "$app/.listing-kit/publish.receipt.json"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_screenshots"'
 assert_not_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
-cmp -s "$rs/en-US/01_recipes.png" "$rs/en-US/02_recipe-detail.png" && pass || fail "console edit lost"
-cp "$example/screenshots/en-US/01_recipes.png" "$rs/en-US/01_recipes.png"
+cmp -s "$rs/en-US/01_recipes_iphone-large.png" "$rs/en-US/02_recipe-detail_iphone-large.png" && pass || fail "console edit lost"
+cp "$example/screenshots/en-US/01_recipes_iphone-large.png" "$rs/en-US/01_recipes_iphone-large.png"
 rm "$fixture/reencode"
 
 it "A5 publish advances the pull ancestor and preserves the next local edit"
@@ -355,7 +358,7 @@ cp -R "$meta/en-US" "$meta/fr-FR"
 cp -R "$meta/fr-FR" "$ra/fr-FR"
 cp -R "$shots/en-US" "$shots/fr-FR"
 mkdir "$rs/fr-FR"
-cp "$rs/en-US/01_recipes.png" "$rs/fr-FR/"
+cp "$rs/en-US/01_recipes_iphone-large.png" "$rs/fr-FR/"
 run_lk pull "${a[@]}"
 assert_eq "$rc" 0
 cp "$fixture/sent" "$fixture/before-publish"
@@ -391,13 +394,13 @@ export LK_PUBLISH_UNVERIFIED=apple:example.apple
 cp "$app/.listing-kit/remote.lock.json" "$fixture/pre-upload.lock"
 it "unchanged Apple whitespace does not send copy; changed screenshot restores whole locale"
 printf '  New name \n' > "$meta/$name"
-cp "$shots/en-US/02_recipe-detail.png" "$shots/en-US/01_recipes.png"
+cp "$shots/en-US/02_recipe-detail_iphone-large.png" "$shots/en-US/01_recipes_iphone-large.png"
 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 0
 assert_contains "$out" "every screenshot set"
-digest="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()[:12])' "$shots/en-US/01_recipes.png")"
-assert_contains "$out" "changed $digest screenshots/en-US/01_recipes.png"
-assert_contains "$out" "screenshots/en-US/02_recipe-detail.png"
+digest="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()[:12])' "$shots/en-US/01_recipes_iphone-large.png")"
+assert_contains "$out" "changed $digest screenshots/en-US/01_recipes_iphone-large.png"
+assert_contains "$out" "screenshots/en-US/02_recipe-detail_iphone-large.png"
 assert_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
 assert_eq "$(grep -c '^apple en-US/.*png$' "$fixture/sent" 2>/dev/null)" 8
 it "A1 receipt prevents repeat overwrite if the lock predates the successful send"
@@ -482,8 +485,8 @@ assert_eq "$(cat "$fixture/sent")" ""
 export LK_PUBLISH_UNVERIFIED=apple:example.apple
 it "an unmapped downloaded Apple gallery blocks destructive replacement"
 mkdir -p "$rs/unexpected/gallery"
-cp "$rs/en-US/01_recipes.png" "$rs/unexpected/gallery/unknown.png"
-cp "$shots/en-US/03_shopping.png" "$shots/en-US/01_recipes.png"
+cp "$rs/en-US/01_recipes_iphone-large.png" "$rs/unexpected/gallery/unknown.png"
+cp "$shots/en-US/03_shopping_iphone-large.png" "$shots/en-US/01_recipes_iphone-large.png"
 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "hand-upload folder"

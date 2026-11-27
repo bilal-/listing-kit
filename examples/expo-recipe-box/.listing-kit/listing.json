@@ -1,0 +1,175 @@
+{
+  "format": 2,
+  "app": {
+    "id": "sh.bilal.recipebox"
+  },
+  "locales": [
+    "en-US"
+  ],
+  "style": {
+    "mode": "framed",
+    "template": "caption-top",
+    "fit": "contain",
+    "palette": {
+      "background": [
+        "#FFF7EA",
+        "#F3E3CD"
+      ],
+      "ink": "#2B201B",
+      "detail": "#53433C"
+    },
+    "fonts": {
+      "default": {
+        "headline": [
+          "bundled:Inter"
+        ],
+        "detail": [
+          "bundled:Inter"
+        ]
+      }
+    }
+  },
+  "targets": [
+    {
+      "id": "iphone-medium",
+      "store": "apple",
+      "slot": "iphone-di-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPhone 17 Pro",
+        "nativeSize": [
+          1206,
+          2622
+        ],
+        "orientation": "portrait"
+      }
+    },
+    {
+      "id": "iphone-large",
+      "store": "apple",
+      "slot": "iphone-di-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPhone 17 Pro Max",
+        "nativeSize": [
+          1320,
+          2868
+        ],
+        "orientation": "portrait"
+      }
+    },
+    {
+      "id": "ipad",
+      "store": "apple",
+      "slot": "ipad-13",
+      "size": [
+        2064,
+        2752
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "iPad Pro 13-inch (M5)",
+        "nativeSize": [
+          2064,
+          2752
+        ],
+        "orientation": "portrait"
+      }
+    },
+    {
+      "id": "play-phone",
+      "store": "play",
+      "slot": "phone",
+      "size": [
+        1080,
+        1920
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "pixel_9_pro_xl",
+        "nativeSize": [
+          1344,
+          2992
+        ],
+        "orientation": "portrait"
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "recipes",
+      "flow": ".listing-kit/flows/recipes.yaml",
+      "caption": {
+        "en-US": "Your recipe box"
+      },
+      "detail": {
+        "en-US": "See how long each of the five recipes takes."
+      }
+    },
+    {
+      "id": "recipe-detail",
+      "flow": ".listing-kit/flows/recipe-detail.yaml",
+      "caption": {
+        "en-US": "Lemon herb pasta"
+      },
+      "detail": {
+        "en-US": "Gather five ingredients and follow four short steps."
+      }
+    },
+    {
+      "id": "shopping",
+      "flow": ".listing-kit/flows/shopping.yaml",
+      "caption": {
+        "en-US": "Your shopping list"
+      },
+      "detail": {
+        "en-US": "Check off ingredients as you go."
+      }
+    },
+    {
+      "id": "settings",
+      "flow": ".listing-kit/flows/settings.yaml",
+      "caption": {
+        "en-US": "Recipe Box settings"
+      },
+      "detail": {
+        "en-US": "Find the theme switch and app version."
+      }
+    }
+  ],
+  "graphics": {
+    "apple": {
+      "header-16x9": {
+        "template": "header",
+        "headline": {
+          "en-US": "What’s for dinner?"
+        },
+        "detail": {
+          "en-US": "Pick a recipe and check your shopping list."
+        }
+      }
+    },
+    "play": {
+      "featureGraphic": {
+        "template": "feature",
+        "headline": {
+          "en-US": "What’s for dinner?"
+        },
+        "detail": {
+          "en-US": "Pick a recipe and check your shopping list."
+        }
+      },
+      "icon": {
+        "from": "assets/icon.png"
+      }
+    }
+  }
+}

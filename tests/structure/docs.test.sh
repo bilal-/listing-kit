@@ -145,20 +145,21 @@ if hook_example not in layout.read_text().splitlines():
 result = run("plan", "check")
 if result.returncode:
     errors.append(result.stdout)
-# Exercise the first-run recipe too. Reuse an existing frame for the HTML
-# preview so missing fonts or colors fail here without a simulator or browser.
+# Exercise the shipped guide inputs without booting a device.
 guide = (root / "docs/GUIDE.md").read_text()
-recipe, = re.findall(r"^```json\n(.*?)^```$", guide, re.M | re.S)
+if "../examples/expo-recipe-box/.listing-kit/listing.json" not in guide:
+    errors.append("Guide must use the shipped capture plan")
 source = root / "examples/expo-recipe-box"
 copy = app / "recipe-box"
 copy.mkdir()
 for name in (".gitignore", "app.json"):
     shutil.copyfile(source / name, copy / name)
-for name in ("fastlane", ".listing-kit/flows"):
+for name in ("assets", "fastlane", "store-assets", ".listing-kit/flows", ".listing-kit/raw"):
     shutil.copytree(source / name, copy / name)
+shutil.copyfile(source / ".listing-kit/listing.json", copy / ".listing-kit/listing.json")
 subprocess.run(["git", "init", "-q", str(copy)], check=True)
 for cmd, status, evidence in [
-    (("validate",), 1, "no iPhone Dynamic Island (medium display) screenshots"),
+    (("validate",), 0, "LISTING VALID"),
     (("review",), 0, "listing-review.html"),
     (("hook", "install"), 0, "Installed"),
     (("hook", "status"), 0, "active"),
@@ -170,16 +171,10 @@ for path in ("local.json", "upload/INDEX.html", "logs/flow.log", "compose.flock"
     if subprocess.run(["git", "check-ignore", "-q", f".listing-kit/{path}"], cwd=copy).returncode:
         errors.append(f"Recipe Box should ignore .listing-kit/{path}")
 
-(copy / ".listing-kit/listing.json").write_text(recipe)
 plan_check = run("plan", "check", "--for", "capture", cwd=copy)
 if plan_check.returncode:
     errors.append(plan_check.stdout)
 else:
-    manifest = json.loads(run("plan", "manifest", cwd=copy).stdout)
-    for job in manifest["captures"]:
-        path = copy / job["rawPath"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / "fastlane/screenshots/en-US/01_recipes.png", path)
     preview = run("compose", "--preview", cwd=copy)
     if preview.returncode or not (copy / ".listing-kit/preview.html").is_file():
         errors.append("guide preview failed: " + preview.stdout)

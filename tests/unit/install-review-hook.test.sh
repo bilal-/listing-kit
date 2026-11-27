@@ -294,7 +294,6 @@ it "header-only and plan-only commits refresh from staged assets"
 new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
-fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
 bash "$SUT" "$T" >/dev/null
 git -C "$T" add fastlane && git -C "$T" commit -qm "listing" >/dev/null 2>&1
 fake_png "$T/store-assets/apple/en-US/header.png" 5244 2950
@@ -317,8 +316,7 @@ it "flow-only and app-config-only commits refresh validation from the index"
 new_tempdir T; git -C "$T" init -q
 git -C "$T" config user.email "listing-kit@example.test"; git -C "$T" config user.name "listing-kit test"
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
-rm "$T"/fastlane/screenshots/en-US/ipad13_*.png
-fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
+rm "$T"/fastlane/screenshots/en-US/*_ipad13.png
 printf '%s\n' '{"expo":{"ios":{"supportsTablet":false}}}' > "$T/app.json"
 bash "$SUT" "$T" >/dev/null
 git -C "$T" add fastlane app.json && git -C "$T" commit -qm "phone listing" >/dev/null 2>&1

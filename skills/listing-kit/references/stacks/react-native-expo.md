@@ -53,6 +53,28 @@ npx react-native run-ios --mode Release --simulator "iPhone 17 Pro"
 npx react-native run-android --mode release
 ```
 
+### Install one Expo Release build on several devices
+
+Recipe Box uses Expo's bundled native template. From the app root, generate the native projects once. This creates the workspace after CocoaPods finishes.
+
+```sh
+npm ci
+npx expo prebuild --no-install --template ./node_modules/expo/template.tgz
+(cd ios && EXPO_USE_PRECOMPILED_MODULES=0 pod install)
+NODE_ENV=production xcodebuild -workspace ios/RecipeBox.xcworkspace -scheme RecipeBox \
+  -configuration Release -destination "id=$IPHONE_UDID" -derivedDataPath ios/build \
+  CODE_SIGNING_ALLOWED=NO build
+(cd android && NODE_ENV=production ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a)
+```
+
+Set `IPHONE_UDID` to the selected iPhone before building and `ANDROID_HOME` to the installed SDK. The Gradle command targets an arm64 emulator. For each selected Apple UDID, run the following two commands with `DEVICE_UDID` set. Use the online emulator serial for the Android install. Installing directly avoids Expo's post-install URL prompt.
+
+```sh
+xcrun simctl bootstatus "$DEVICE_UDID" -b
+xcrun simctl install "$DEVICE_UDID" ios/build/Build/Products/Release-iphonesimulator/RecipeBox.app
+adb -s "$EMULATOR_SERIAL" install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
 ## Status bar style (Android)
 Recent Expo/RN Android templates draw edge-to-edge with **light** status-bar icons
 by default. On a light-themed screen they're invisible, so the sanitized 9:41 bar

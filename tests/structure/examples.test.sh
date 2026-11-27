@@ -4,8 +4,12 @@
 # Detection, validation and secret scanning may consult Git. Run them only on
 # the suite's isolated copies, including when this test runs from a worktree.
 new_tempdir EXAMPLES
-cp -R "$ROOT/examples/." "$EXAMPLES/" || exit 1
 APP="$EXAMPLES/expo-recipe-box"
+source_app="$ROOT/examples/expo-recipe-box"
+mkdir -p "$APP/.listing-kit"
+cp -R "$source_app"/{app,assets,data,app.json,package.json,fastlane,store-assets,README.md} "$APP/" || exit 1
+cp -R "$source_app/.listing-kit"/{listing.json,flows,raw} "$APP/.listing-kit/" || exit 1
+cp -R "$ROOT/examples"/{ios,android,flutter}-recipe-box "$EXAMPLES/" || exit 1
 
 it "example app.json is valid JSON and registers the recipebox scheme"
 assert_file "$APP/app.json"
@@ -36,26 +40,37 @@ assert_eq 0 "$RC" "flows are secret-clean"
 it "examples/README.md tells the truth about the example's validation state"
 # Detection overrides in the caller's environment must not change what is checked.
 OUT="$(env -u LK_SUPPORTS_IPHONE -u LK_SUPPORTS_IPAD bash "$SCRIPTS/validate/validate-listing.sh" "$APP" 2>&1)"; RC=$?
-README="$(cat "$ROOT/examples/README.md")"
 ROWS="$(grep -c '^| \[`expo-recipe-box`\](expo-recipe-box) |' "$ROOT/examples/README.md")"
 assert_eq 1 "$ROWS" "one status row for the example"
 STATUS="$(grep '^| \[`expo-recipe-box`\](expo-recipe-box) |' "$ROOT/examples/README.md")"
-FAILS="$(printf '%s\n' "$OUT" | sed -n 's/^.* · \([0-9][0-9]*\) failures\{0,1\} .*$/\1/p' | tail -1)"
-if [ "$RC" = 0 ]; then
-  assert_contains "$STATUS" "passes validation" "example validates, so the row must say so"
-  for stale in "needs recapture" "missing medium set" "predate Apple" "Recapture it" "historical listing output"; do
-    assert_not_contains "$README" "$stale" "nothing in the README may still call the example stale"
-  done
-else
-  assert_eq 1 "$RC" "the validator ran and reported failures (not a usage error)"
-  assert_contains "$STATUS" "needs recapture" "example fails validation, so the row must say so"
-  assert_contains "$STATUS" "medium" "the row names what is missing"
-  assert_not_contains "$STATUS" "passes validation" "the row must not also claim it passes"
-  assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots" "the known failure is the missing medium iPhone set"
-  assert_eq 1 "$FAILS" "exactly one failure"
-fi
+assert_eq 0 "$RC" "the committed example passes validation"
+assert_contains "$STATUS" "passes validation"
+assert_contains "$(cat "$APP/README.md")" "passes validation"
 
 LAUNCHER="$SKILL_DIR/bin/listing-kit"
+it "ships each planned Expo raw capture and upload image at its declared size"
+"$LAUNCHER" plan manifest "$APP" > "$EXAMPLES/manifest.json" || exit 1
+if PYTHONPATH="$SCRIPTS/lib" python3 - "$APP" "$EXAMPLES/manifest.json" <<'PYIMAGES'
+import json
+from pathlib import Path
+import sys
+from imginfo import image_info
+
+app = Path(sys.argv[1])
+manifest = json.loads(Path(sys.argv[2]).read_text())
+screens = ["recipes", "recipe-detail", "shopping", "settings"]
+for target in ("iphone-medium", "iphone-large", "ipad", "play-phone"):
+    jobs = [job for job in manifest["captures"] if job["targetId"] == target]
+    assert [job["screenId"] for job in jobs] == screens, target
+    for job in jobs:
+        path = app / job["rawPath"]
+        assert list(image_info(path)[:2]) == job["nativeSize"], path
+for output in manifest["outputs"]:
+    path = app / output["outputPath"]
+    assert list(image_info(path)[:2]) == output["size"], path
+PYIMAGES
+then pass; else fail "missing or wrong-size Expo images"; fi
+
 for stack in expo ios android flutter; do
   app="$EXAMPLES/$stack-recipe-box"
   status_line="Source and plan only. Not yet built or captured on a device."
@@ -71,10 +86,10 @@ for stack in expo ios android flutter; do
   assert_eq 0 "$?" "detect $stack"
   assert_eq "$kind" "$(printf '%s\n' "$OUT" | awk -F '\t' '$1=="stack"{print $2}')" "$stack stack"
   assert_eq "$stores" "$(printf '%s\n' "$OUT" | awk -F '\t' '$1=="stores"{print $2}')" "$stack stores"
-  [ "$stack" = expo ] && continue
 
   it "$stack plan is valid with all capture inputs present"
   "$LAUNCHER" plan check "$app" && "$LAUNCHER" plan check --for capture "$app" && pass || fail "invalid plan"
+  [ "$stack" = expo ] && continue
   it "$stack README and example index record device status"
   grep -Fxq "$status_line" "$app/README.md" && pass || fail "missing README status"
   row="$(grep -F "| [\`$stack-recipe-box\`]($stack-recipe-box) |" "$ROOT/examples/README.md")"

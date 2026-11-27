@@ -15,6 +15,7 @@ platform="${1:-}"
 case "$platform" in
   ios)
     device="${2:-booted}"
+    # --time fixes the clock. Xcode 27.2 has no iPad date visibility override.
     xcrun simctl status_bar "$device" override \
       --time "9:41" \
       --dataNetwork wifi \

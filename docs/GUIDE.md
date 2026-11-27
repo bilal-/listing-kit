@@ -1,91 +1,38 @@
 # First run with Recipe Box
 
-The [bundled Expo app](../examples/expo-recipe-box) has seeded recipes, four Maestro flows and a historical listing. You can inspect the listing without a simulator.
+The [bundled Expo app](../examples/expo-recipe-box/README.md) includes the four Maestro flows, native captures and store images from a Release build. You can compose and inspect the listing without a device.
 
 ## Inspect the example
 
-[Install the launcher](INSTALL.md). From the root of the kit checkout, copy the app outside the checkout. Initialize the copy as its own Git repository. Never install the review hook in the kit repository.
+[Install the launcher](INSTALL.md). From the kit checkout, export the committed example into a disposable Git repository. Install the review hook only in that copy.
 
 ```sh
 app=$(mktemp -d /tmp/recipe-box.XXXXXX)
-cp -R examples/expo-recipe-box/. "$app/"
+git archive HEAD:examples/expo-recipe-box | tar -x -C "$app"
 cd "$app"
 git init
-```
-
-```sh
 listing-kit doctor
 listing-kit detect
-```
-
-Doctor exits 0 when Python 3.8+ and the bundled store rules pass their checks. It exits 3 if either check fails. Missing tools, a missing or invalid plan and an inactive hook appear in the report. They do not change the exit status. For this app, detect exits 0 and prints the Apple and Play paths along with the evidence for each platform condition. Use the paths relative to the app directory.
-
-```sh
+listing-kit plan check --for capture
+listing-kit plan outputs
 listing-kit validate
-```
-
-On the untouched example, validation exits **1**. The older iPhone screenshots do not cover the required Dynamic Island medium display. Run review as a separate command even when validation fails.
-
-```sh
 listing-kit review
 ```
 
-Review exits **0** and writes `listing-review.html`. Open it to see the saved copy, galleries and validation result.
-
-## Plan a new set
-
-Ask the agent to “prepare my store listing.” Read the routes and the flows together. The recipe list shows seeded recipes and the detail flow checks an ingredient. Start with these two screens for the missing iPhone slot. Agree on the captions and device before building.
-
-Save this plan as `.listing-kit/listing.json` in the copy. It captures two iPhone screens. Standalone review and handoff still show the existing iPad and Play assets. After composing only this target, the Apple publish preview exits 1. It checks planned screenshots, and Recipe Box declares iPad support. Add an active `ipad-13` target and compose its images before previewing an Apple submission.
-
-```json
-{
-  "format": 2,
-  "app": {"ios": "sh.bilal.recipebox"},
-  "locales": ["en-US"],
-  "style": {
-    "mode": "framed",
-    "palette": {"background": ["#FFF7EA"], "ink": "#25180D"},
-    "fonts": {
-      "default": {"headline": ["bundled:Inter"], "detail": ["bundled:Inter"]}
-    }
-  },
-  "targets": [
-    {"id": "iphone", "store": "apple", "slot": "iphone-di-medium",
-     "size": [1206, 2622], "state": "active"}
-  ],
-  "screens": [
-    {"id": "recipes", "flow": ".listing-kit/flows/recipes.yaml",
-     "caption": {"en-US": "Your recipe box"}},
-    {"id": "recipe-detail", "flow": ".listing-kit/flows/recipe-detail.yaml",
-     "caption": {"en-US": "Ingredients at a glance"}}
-  ]
-}
-```
-
-The two screens assigned to the active iPhone target tell validation to expect two medium-display screenshots in `en-US`. This walkthrough needs only `.listing-kit/listing.json`.
-
-Run `listing-kit plan check --for capture` to check the plan and flow paths. Run `listing-kit plan outputs` to see where the two raw and final images will go. For a larger plan, add locales, approved target slots, graphics and split roots as needed. [Plan reference](../skills/listing-kit/references/plan-file.md)
+Validation exits 0. Open `listing-review.html` to inspect the saved copy, galleries and validation report. Doctor reports optional tools separately. Store synchronization needs fastlane.
 
 ## Build and capture
 
-Use a Mac with Node.js and npm, CocoaPods, and Xcode 26 or later. Select that Xcode as the developer directory. Install a compatible iOS runtime and create an iPhone 17 Pro simulator (1206 × 2622). Automated capture needs Maestro, JDK 17+ and ImageMagick. Framed composition also needs a Chromium browser. See the [Expo build instructions](../skills/listing-kit/references/stacks/react-native-expo.md).
+The [shipped plan](../examples/expo-recipe-box/.listing-kit/listing.json) selects two iPhone display sizes, a 13-inch iPad and a Play phone. Inspect the device types and native sizes before building. Use `xcrun simctl list devices available` and `emulator -list-avds` to identify matching devices. Start the selected AVD and check its name with `adb -s SERIAL emu avd name`. Pin the three simulator UDIDs and emulator serial in the ignored `.listing-kit/local.json`, under `devices` keyed by the plan target IDs.
 
-Build and install the Release app. Its JS bundle survives the flows' app-state reset.
-
-```sh
-npm ci
-npx expo run:ios --configuration Release --device "iPhone 17 Pro"
-```
-
-If Expo leaves an “Open in Recipe Box?” alert on screen, shut down that simulator before capture. Capture boots it again.
+Install dependencies and build Release with bundled JavaScript. The [Expo reference](../skills/listing-kit/references/stacks/react-native-expo.md) includes native build commands. The simulator build can be installed on all three Apple devices. Use the AVD serial when installing the APK.
 
 ```sh
 listing-kit capture --dry-run
 listing-kit capture
 ```
 
-Dry run checks device selection. Capture runs the saved flows, sanitizes the status bar and writes the PNGs under `.listing-kit/raw/iphone/en-US/`. For an Android plan, install the app on the matching running emulator first.
+For a single installed device, select its target, for example `listing-kit capture --target iphone-medium`. The dry run checks the device and display selection. Capture runs each flow and writes the PNGs under `.listing-kit/raw/TARGET/en-US/`. Inspect the status bar, navigation and seeded content in the raw images before composing. On iPadOS 26, check the lower-right corner for the window handle and follow the [Full Screen Apps instructions](../skills/listing-kit/references/driving/maestro.md#write-a-flow) if it appears. Shut down the devices you started.
 
 ## Compose, validate and review
 
