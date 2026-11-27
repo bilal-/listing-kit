@@ -44,4 +44,15 @@ rm "$suite/tests/render.test.sh"
 out="$(bash "$suite/tests/run.sh")"
 assert_ne 0 "$?"
 assert_contains "$out" "ALL SKIPPED"
+it "the standalone Expo example counts as a suite test file"
+mkdir "$suite/tests/e2e"
+cat > "$suite/tests/e2e/example.sh" <<'FIXTURE'
+. "$(dirname "$0")/../helpers.sh"
+pass "ran the Expo example"
+summary
+FIXTURE
+out="$(bash "$suite/tests/run.sh")"
+assert_eq 0 "$?" "$out"
+assert_contains "$out" "ran the Expo example"
+
 summary

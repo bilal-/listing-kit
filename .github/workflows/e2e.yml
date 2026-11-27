@@ -1,0 +1,25 @@
+name: Expo listing end to end
+
+on:
+  schedule:
+    - cron: '37 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  example:
+    runs-on: macos-latest
+    steps:
+      - name: Install ImageMagick
+        run: brew install imagemagick
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Simulator capture needs an installed app and a booted device. Start from the
+      # checked-in captures so this job exercises the listing pipeline without either.
+      - name: Compose and verify the Expo listing
+        env:
+          LK_REQUIRE_RENDER: '1'
+        run: bash tests/e2e/example.sh

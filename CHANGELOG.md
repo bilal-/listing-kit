@@ -40,6 +40,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Command and CI
 
+- A weekly and manually dispatched macOS job runs the Expo example from checked-in captures through compose, validation, review, and handoff. Run it locally with `bash tests/e2e/example.sh`.
+
 - The launcher exposes plan, capture, compose, validation, review, hook and delivery commands. CI templates generate listing checks, review artifacts and manual store jobs for GitHub or GitLab.
 - The marketplace metadata and Gemini manifest come from the plugin manifest. Gemini uses on-demand skill loading. Contributor instructions and installation instructions now have separate homes.
 - Tests check the version badge, the example's validation status, documented commands and the plan example.
