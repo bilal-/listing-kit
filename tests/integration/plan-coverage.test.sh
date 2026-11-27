@@ -71,7 +71,10 @@ assert_contains "$warning" "en-US/promo.jpg"
 assert_contains "$warning" "en-US/$medium"
 assert_not_contains "$warning" "safe to delete"
 printf '{"apple":{"en-US":{"headers":["header-16x9.png"],"screenshots":{"%s":4}}}}' "$medium" > "$app/.listing-kit/asset-plan.json"
-assert_contains "$("$lk" validate "$app" 2>&1)" "safe to delete"
+result="$("$lk" validate "$app" 2>&1)"
+assert_not_contains "$result" "safe to delete"
+assert_contains "$result" "Other tooling in this repository may still use it"
+assert_not_contains "$result" "! asset-plan.json"
 
 it "review and handoff label the deferred display and explain its omission"
 "$lk" review "$app" >/dev/null 2>&1

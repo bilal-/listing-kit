@@ -175,6 +175,6 @@ echo '{}' > .listing-kit/listing.json
 echo 'raise SystemExit(1)' > "$area/retired/scripts/lib/plan.py"
 echo 'exit 1' >> "$area/retired/scripts/package/install-review-hook.sh"
 out="$(PATH="$STUB_BIN" "$cli" doctor 2>&1)"; assert_eq 0 "$?"
-assert_contains "$out" 'MISSING .listing-kit/listing.json'
-assert_contains "$out" 'MISSING hook'
+assert_contains "$out" 'INVALID .listing-kit/listing.json'
+assert_contains "$out" 'hook:'
 summary

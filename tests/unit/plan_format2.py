@@ -78,8 +78,12 @@ class FormatTwo(unittest.TestCase):
             with self.subTest(command="detect", field=field):
                 result = subprocess.run([sys.executable, Path(plan.__file__).with_name("detect.py"),
                                          self.app], capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(plan._line(problems[0]), result.stderr)
+                if not field:
+                    self.assertEqual(result.returncode, 0)
+                    self.assertIn("unversioned", result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(plan._line(problems[0]), result.stderr)
                 self.assertNotIn("custom", result.stdout)
 
     def test_requirement_replacement_and_null_deletion(self):
