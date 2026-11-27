@@ -6,12 +6,21 @@ Resolve these paths from the app root. In a monorepo, each mobile app can have i
 
 Run `listing-kit detect <app-root>` before reading or writing a listing. It prints
 app-relative `fastlaneDir`, `metadata`, `screenshots`, and `storeAssets` paths
-for each store. If the root has no listing content or explicit `trees` and detect finds child
-apps, select one of the reported candidates and run detect there. To keep the
-listing at the workspace root, set `trees` in its plan.
+for each store. For a listing spanning sibling native apps, keep one plan in
+`.listing-kit/listing.json` at the workspace root. For example, a plan can include
+the following `trees` and resolve both stores from the root.
 
-The fastlane directories below are relative to the selected app. A dash means
-the platform is absent or the app still needs to be selected.
+```json
+{
+  "trees": {
+    "apple": {"fastlaneDir": "apps/tablet/fastlane"},
+    "play": {"fastlaneDir": "apps/handset/fastlane"}
+  }
+}
+```
+
+For an independent single-app listing, run detect in that app’s folder.
+Fastlane directories in the table are relative to the selected app.
 
 | Layout | App directory | Stores or candidates | Apple fastlane directory | Play fastlane directory |
 | --- | --- | --- | --- | --- |
@@ -21,10 +30,13 @@ the platform is absent or the app still needs to be selected.
 | flutter | . | apple play | fastlane | fastlane |
 | native-ios | . | apple | fastlane | — |
 | native-android | . | play | — | fastlane |
-| monorepo-siblings | workspace root | choose apps/android apps/ios | — | — |
+| monorepo-siblings | workspace root | apps/android apps/ios | — | — |
 | monorepo-siblings | apps/ios | apple | fastlane | — |
 | monorepo-siblings | apps/android | play | — | fastlane |
-| monorepo-js | workspace root | choose apps/mobile | — | — |
+| monorepo-module | workspace root | apps/handset apps/tablet | — | — |
+| monorepo-module | apps/handset | play | — | fastlane |
+| monorepo-module | apps/tablet | apple | fastlane | — |
+| monorepo-js | workspace root | apps/mobile | — | — |
 | monorepo-js | apps/mobile | apple play | fastlane | fastlane |
 | existing-root-fastlane | . | apple play | fastlane | fastlane |
 | root-listing-build-ios | . | apple play | fastlane | fastlane |
@@ -70,6 +82,14 @@ Use the [Apple](../stores/apple-app-store.md) and [Play](../stores/google-play.m
 
 In the [plan](../plan-file.md), set `trees.apple.fastlaneDir` to `ios/fastlane` and `trees.play.fastlaneDir` to `android/fastlane` for a split project. Each store can override its `metadata` directory. Apple can also override `screenshots`. Set `trees.storeAssets` to change the shared creative root. All explicit paths are app-relative, including metadata overrides. Inspect the resolved paths with `listing-kit plan manifest`.
 
+A Play metadata override names the directory **above** the locales. Finished
+graphics must use the fastlane layout. With `"metadata": "artwork"`, move a
+finished `artwork/icon.png` to `artwork/en-US/images/icon.png` for en-US.
+If the plan uses the flat file as `graphics.play.icon.from`, keep the source
+and copy it or run compose to create the upload. Validate, review and handoff
+use the locale-specific upload path. Run `listing-kit plan check` for the
+paths in your plan.
+
 ## What to commit
 
 Commit the plan, saved flows, public copy, graphics and final screenshots. Keep the source captures and brand inputs available for anyone who needs to reproduce the images. Commit `.listing-kit/compose.lock.json` (input keys, output hashes and renderer details) and `.listing-kit/outputs.json` (the inventory of written paths) with the images. When a planned path disappears, compose moves unchanged owned output into `.listing-kit/held/` under its old relative path. Inspect held files before archiving them. Compose leaves manually changed stale files in place.
@@ -110,7 +130,7 @@ Before the first pull, configure the external key path and run `listing-kit fast
 
 `listing-kit publish` validates a scratch copy, compares it with the store and prints a summary and proposed command for comparable changes. Fastlane uses deliver for Apple and supply for Play. The preview identifies gallery replacement scope. Apple replacement affects all screenshot sets in an uploaded locale. The adapter leaves console slots and Play listing graphics for hand upload. Publishing does not upload by default. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch.
 
-`listing-kit handoff --open` builds a copy in `.listing-kit/upload/` with Apple and Play folders, ordered screenshots, text and graphics. Open `INDEX.html` or read `INDEX.md` for destinations, missing items and omissions. Edit the source listing. Handoff refuses to replace a modified or unrecognized upload folder.
+`listing-kit handoff --open` builds a copy in `.listing-kit/upload/` with Apple and Play folders, ordered screenshots, text and graphics. Open `INDEX.html` or read `INDEX.md` for destinations, missing items and omissions. Handoff exits non-zero if a planned file is absent from the package or the package contains zero listing files. A partial package keeps its index so you can see which paths to fix. Edit the source listing. Handoff refuses to replace a modified or unrecognized upload folder.
 
 ## Standalone tools with split roots
 

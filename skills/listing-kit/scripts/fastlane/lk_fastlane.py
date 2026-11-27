@@ -28,6 +28,7 @@ import listing
 import plan
 from review_inputs import write_view_plan
 import secret_scan
+from sync_state import fingerprint, read_json, read_state, sha
 import specs
 
 # UNVERIFIED: real account access and store-side effects on versions, gallery
@@ -76,17 +77,6 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def read_json(path, fallback):
-    try:
-        with path.open(encoding="utf-8") as stream:
-            obj = json.load(stream)
-    except FileNotFoundError:
-        return fallback
-    if not isinstance(obj, dict):
-        raise ValueError("Expected a JSON object in %s" % path)
-    return obj
-
-
 def safe(root, path):
     """Refuse indirect writes, including an absent file beneath a symlink."""
     rel = path.relative_to(root)
@@ -117,40 +107,10 @@ def write_json(path, obj):
     atomic(path, (json.dumps(obj, sort_keys=True, indent=2) + "\n").encode(), 0o600)
 
 
-def read_state(path):
-    try:
-        obj = read_json(path, {"format": 2, "stores": {}})
-        if type(obj.get("format")) is not int or obj["format"] != 2:
-            raise ValueError
-        for name, entry in obj["stores"].items():
-            if name not in CREDENTIAL or not isinstance(entry["identity"], dict):
-                raise ValueError
-            if path.name == "remote.lock.json":
-                maps = ("files", "ancestors", "workingBytes", "galleries", "remoteGalleries")
-                if not all(isinstance(entry[k], dict) for k in maps) or not isinstance(entry["appliedOperations"], list):
-                    raise ValueError
-            elif path.name == "publish.receipt.json":
-                if not isinstance(entry["operations"], list):
-                    raise ValueError
-                for op in entry["operations"]:
-                    if (op["store"] != name or op["identity"] != entry["identity"] or not op["operation"]
-                            or op["status"] not in ("pending", "done", "resolved", "failed")
-                            or op["manifestHash"] != fingerprint(dict(files=op["files"], galleries=op["galleries"]))):
-                        raise ValueError
-        return obj
-    except (ValueError, TypeError, KeyError, AttributeError):
-        pass
-    raise ValueError("Unrecognized state format: delete %s and pull again" % path)
-
-
 def record(path, store, entry):
     obj = read_state(path)
     obj["stores"][store] = entry
     write_json(path, obj)
-
-
-def sha(data):
-    return hashlib.sha256(data).hexdigest()
 
 
 def file_hash(path):
@@ -163,10 +123,6 @@ def file_hash(path):
 
 def comparable(store, raw):
     return raw.strip(b" \t\n\r\v\f\0") if store == "apple" else raw
-
-
-def fingerprint(files):
-    return sha(json.dumps(files, sort_keys=True, separators=(",", ":")).encode())
 
 
 def read_key(root, repo, store, args, config):

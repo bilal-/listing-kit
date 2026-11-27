@@ -116,11 +116,16 @@ ambiguous() {
     it "$name $cmd stops at the workspace root and explains the choice"
     if out="$("$lk" $cmd "$repo" 2>&1)"; then fail "unexpected success"; fi
     for candidate in $candidates; do assert_contains "$out" "$candidate"; done
-    assert_contains "$out" "run inside"
+    if [ "$name" = monorepo-js ]; then
+      assert_contains "$out" "run inside"
+    else
+      assert_contains "$out" "one root .listing-kit/listing.json"
+      assert_contains "$out" '"trees"'
+    fi
   done
   it "$name leaves the workspace root untouched"
   if [ -e "$repo/fastlane" ] || [ -e "$repo/.listing-kit" ]; then fail "created listing at workspace root"; else pass; fi
-  echo "| $name | workspace root | choose $candidates | — | — |" >> "$area/rows.md"
+  echo "| $name | workspace root | $candidates | — | — |" >> "$area/rows.md"
 }
 
 layout expo-managed . expo-managed 'apple play' fastlane fastlane
@@ -132,6 +137,9 @@ layout native-android . native-android play — fastlane
 ambiguous monorepo-siblings 'apps/android apps/ios'
 layout monorepo-siblings apps/ios native-ios apple fastlane —
 layout monorepo-siblings apps/android native-android play — fastlane
+ambiguous monorepo-module 'apps/handset apps/tablet'
+layout monorepo-module apps/handset native-android play — fastlane
+layout monorepo-module apps/tablet native-ios apple fastlane —
 ambiguous monorepo-js apps/mobile
 layout monorepo-js apps/mobile expo-managed 'apple play' fastlane fastlane
 layout existing-root-fastlane . expo-prebuild 'apple play' fastlane fastlane

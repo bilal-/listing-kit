@@ -88,6 +88,50 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("packages/client", output)
         self.assertIn("trees", output)
 
+    def test_disabled_android_plugins(self):
+        self.write("gradle/libs.versions.toml", '[plugins]\nmobile = { id = "com.android.application" }')
+        for plugin in ('id("com.android.application")', "id 'com.android.application'", 'alias(libs.plugins.mobile)'):
+            for suffix in (' apply false', '.apply(false)', ' version("1").apply(false)',
+                           '.version("1").apply(false)', ' version "1" apply false'):
+                with self.subTest(plugin=plugin, suffix=suffix):
+                    self.write("apps/aggregate/build.gradle.kts", "plugins { " + plugin + suffix + " }")
+                    self.assertEqual(self.dirs(), ["fastlane", "fastlane"])
+
+    def test_disabled_app_submodule(self):
+        self.write("app/build.gradle.kts", 'plugins { id("com.android.application").apply(false) }')
+        self.assertIn("stack\tunknown\n", self.run_cmd(CLI, "detect"))
+
+    def test_catalog_stops_at_selected_workspace(self):
+        self.write("gradle/libs.versions.toml", '[plugins]\nmobile = { id = "com.android.application" }')
+        self.write("nested/apps/module/build.gradle.kts", "plugins { alias(libs.plugins.mobile) }")
+        self.assertEqual(self.run_cmd(CLI, "detect", "nested").splitlines()[0], "stack\tunknown")
+
+    def test_catalog_only_staged_change(self):
+        catalog = "android/gradle/libs.versions.toml"
+
+        def declare(kind):
+            self.write(catalog, f'[plugins]\nandroid-application = {{ id = "com.android.{kind}" }}')
+
+        declare("application")
+        self.write("android/app/build.gradle.kts", "plugins { alias(libs.plugins.android.application) }")
+        self.write("android/app/src/main/AndroidManifest.xml",
+                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                   '<uses-feature android:name="android.hardware.type.watch"/></manifest>')
+        self.write("fastlane/metadata/android/en-US/title.txt", "Watch")
+        self.write("listing-review.html", "old page")
+        self.commit_fixture()
+
+        declare("library")
+        self.assertIn("hasWearOs\tunknown", self.run_cmd(CLI, "detect"))
+        self.run_cmd("git", "add", catalog)
+        declare("application")
+        self.assertIn("hasWearOs\tyes", self.run_cmd(CLI, "detect"))
+        self.assertIn("no Wear OS screenshots", self.run_cmd(CLI, "validate", success=False))
+        self.run_cmd("bash", ".git/hooks/pre-commit")
+        page = self.run_cmd("git", "show", ":listing-review.html")
+        self.assertIn("Watch", page)
+        self.assertNotIn("no Wear OS screenshots", page)
+
     def test_duplicate(self):
         self.fixture("duplicate-apple")
         with self.assertRaisesRegex(ValueError, r"fastlane.*ios/fastlane.*trees"):

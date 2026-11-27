@@ -222,6 +222,7 @@ class Job:
         fonts = {role: [self.digest(p) for p in paths] for role, paths in self.fonts.items()}
         style = {"template": template_hash(self.template, self.user), "palette": self.style.get("palette"), "fonts": fonts,
                  "logo": self.digest(self.logo) if self.logo else None, "locale": self.rec.get("storeCode")}
+        style.update({key: self.style[key] for key in ("align", "gap") if key in self.style})
         if self.user or self.kind == "shot":
             style["fit"] = self.fit()
             if self.user or self.template in ("caption-top", "caption-bottom"):
@@ -233,16 +234,24 @@ class Job:
             return "cover"
         return self.style.get("fit") or ("bleed" if (self.style.get("bezel") or {}).get("bleed") else "contain")
 
+    def capture_input(self, *, pin=False):
+        data = self.read_input(self.raw)
+        raw = self.rec["rawPath"]
+        # Older framed captures in the kit's capture directory may be JPEGs.
+        jpeg = self.mode != "raw" and raw.startswith(".listing-kit/raw/") and data.startswith(b"\xff\xd8")
+        inspect = imginfo._jpeg if jpeg else imginfo._png
+        w, h, _, _ = inspect(io.BytesIO(data))
+        if self.mode == "raw" and (w, h) != tuple(self.rec["size"]):
+            raise ValueError("raw mode needs a %dx%d capture in PNG format; %s is %sx%s"
+                             % (*self.rec["size"], raw, w, h))
+        if not w:
+            raise ValueError(f"{raw}: unreadable PNG capture")
+        if pin and self.raw not in self.digests:
+            self.digests[self.raw] = hashlib.sha256(data).hexdigest()
+        return data, (w, h)
+
     def asset_args(self):
-        data = None
-        shot_size = None
-        if self.raw and self.kind == "shot":
-            data = self.read_input(self.raw)
-            inspect = imginfo._jpeg if data.startswith(b"\xff\xd8") else imginfo._png
-            w, h, _, _ = inspect(io.BytesIO(data))
-            if not w:
-                raise render.RenderError("raw capture is not a readable image: %s" % self.rec["rawPath"])
-            shot_size = (w, h)
+        data, shot_size = self.capture_input() if self.raw and self.kind == "shot" else (None, None)
         font_paths = dict.fromkeys(p for paths in self.fonts.values() for p in paths)
         assets = {p: render.Asset(p, self.read_input(p)) for p in font_paths}
         fonts = {role: [assets[p] for p in paths] for role, paths in self.fonts.items()}
@@ -253,9 +262,6 @@ class Job:
 
     def missing_inputs(self):
         out = []
-        if self.mode in ("raw", "framed", "band") or (self.kind == "shot" and self.template):
-            if not self.raw or not os.path.isfile(self.raw):
-                out.append("no raw capture at %s" % self.rec.get("rawPath"))
         if self.template:
             for role in ("headline", "detail"):
                 for p in self.fonts.get(role, []):
@@ -273,12 +279,7 @@ def build(job, renderer):
     deadline = render.cdp.new_deadline()
     w, h = job.rec["size"]
     if job.mode == "raw":
-        data = job.read_input(job.raw)
-        iw, ih, _, _ = imginfo._png(io.BytesIO(data))
-        if (iw, ih) != (w, h):
-            job.problems.append("raw mode needs a %dx%d capture in PNG format; %s is %sx%s" %
-                                (w, h, job.rec["rawPath"], iw, ih))
-            return None
+        data, _ = job.capture_input()
         return verify_rgb(flatten_rgb(data, deadline), w, h, deadline)
     if job.mode == "icon":
         if not job.source:
@@ -328,6 +329,11 @@ def inline_asset(url, assets):
 def preview_page(jobs, renderer=None):
     frames = []
     for job in jobs:
+        if job.problems:
+            label = html.escape(job.rec["outputPath"])
+            detail = html.escape(", ".join(job.problems))
+            frames.append(f"<figure><figcaption>{label}</figcaption><p>{detail}</p></figure>")
+            continue
         w, h = job.rec["size"]
         if job.user:
             png = build(job, renderer)
@@ -376,21 +382,39 @@ def report_failures(failed):
 def compose_outputs(args, man, state, templates, input_roots):
     root = state.root
     digests = {}
-    jobs = [Job(root, rec, templates, input_roots, digests) for rec in man["outputs"] if args.preview or
-            ((not args.target or rec.get("targetId") in args.target) and
-             (not args.screen or rec.get("screenId") in args.screen))]
+    jobs = [Job(root, rec, templates, input_roots, digests) for rec in man["outputs"]
+            if (not args.target or rec.get("targetId") in args.target)
+            and (not args.screen or rec.get("screenId") in args.screen)]
+    missing = set()
     for job in jobs:
+        if job.kind == "shot" and (not job.raw or not os.path.isfile(job.raw)):
+            missing.add(job.raw)
+            rec = job.rec
+            job.problems.append(f"no raw capture at {rec.get('rawPath')} (target {rec['targetId']}, "
+                                f"screen {rec['screenId']}, locale {rec.get('localeId', 'unknown')})")
+        elif job.raw and (args.preview or args.dry_run):
+            try:
+                job.capture_input(pin=True)
+            except (OSError, ValueError, zlib.error) as exc:
+                job.problems.append(str(exc))
+        job.problems.extend(job.missing_inputs())
         if job.branded and not job.rec.get("appName"):
             job.rec = dict(job.rec, appName=listing_name(root, man, job.rec))
+    if missing:
+        print("compose: %d missing capture%s" % (len(missing), "" if len(missing) == 1 else "s"), file=sys.stderr)
     if args.preview:
         rel = ".listing-kit/preview.html"
         current = state.digest(rel)
         conflict = current and current != state.outputs.get(rel, {}).get("sha256")
+        failures = [job for job in jobs if job.problems]
+        report_failures(failures)
+        if conflict and failures and args.adopt:
+            raise ValueError(f"{rel}: cannot adopt an existing preview with failed inputs")
         if conflict and not args.adopt:
             raise ValueError("%s: %s" % (rel, ownership.CONFLICT))
         with ExitStack() as resources:
             renderer = None
-            if any(job.user for job in jobs):
+            if any(job.user and not job.problems for job in jobs):
                 browser, renderer = render.open_browser()
                 resources.callback(browser.close)
             page = preview_page(jobs, renderer)
@@ -400,7 +424,7 @@ def compose_outputs(args, man, state, templates, input_roots):
             if conflict:
                 print("adopting " + rel)
         print(os.path.join(root, rel))
-        return 0
+        return int(bool(failures))
 
     todo, restyled, failed = [], [], []
     planned = {rec["outputPath"] for rec in man["outputs"]}
@@ -421,7 +445,6 @@ def compose_outputs(args, man, state, templates, input_roots):
                 job.problems.append(ownership.CONFLICT)
             else:
                 job.adopted = current
-        job.problems.extend(job.missing_inputs())
         if job.problems:
             failed.append(job)
             continue
@@ -552,13 +575,13 @@ def compose_outputs(args, man, state, templates, input_roots):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root")
-    ap.add_argument("--target", action="append", default=[])
-    ap.add_argument("--screen", action="append", default=[])
+    ap.add_argument("--target", action="append", default=[], help="select a target ID (repeatable)")
+    ap.add_argument("--screen", action="append", default=[], help="select a screen ID within the selected targets (repeatable)")
     ap.add_argument("--restyle", action="store_true")
     ap.add_argument("--adopt", action="store_true", help="list and replace conflicting planned files")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
-    mode.add_argument("--preview", action="store_true", help="write a self-contained HTML preview of the plan")
+    mode.add_argument("--preview", action="store_true", help="write selected outputs to .listing-kit/preview.html, labeling missing raw captures")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:

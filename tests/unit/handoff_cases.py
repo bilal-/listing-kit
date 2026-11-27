@@ -61,7 +61,7 @@ class HandoffTests(unittest.TestCase):
         self.name.unlink()
         self.name.parent.rmdir()
         self.put("fastlane/metadata/review_information/notes.txt", b"private fixture value")
-        self.run_build()
+        self.assertIn("nothing was packaged", self.run_build(success=False))
         self.assertIn("enter in App Store Connect", (self.out / "INDEX.md").read_text())
         self.assertFalse(list(self.out.rglob("*.txt")))
 

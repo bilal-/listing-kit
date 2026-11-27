@@ -340,7 +340,7 @@ git diff --cached --name-status --no-renames -z "${base[@]}" -- | (
       esac
       case "$rel" in
         fastlane|fastlane/*|ios/fastlane|ios/fastlane/*|android/fastlane|android/fastlane/*|store-assets/*|.listing-kit/*|app.json) found=0 ;;
-        *.pbxproj|Info.plist|*/Info.plist|AndroidManifest.xml|*/AndroidManifest.xml|build.gradle|*/build.gradle|build.gradle.kts|*/build.gradle.kts)
+        *.pbxproj|Info.plist|*/Info.plist|AndroidManifest.xml|*/AndroidManifest.xml|build.gradle|*/build.gradle|build.gradle.kts|*/build.gradle.kts|gradle/libs.versions.toml|*/gradle/libs.versions.toml)
           case "/$rel/" in
 RUN
   python3 -I -B - "$SELF_DIR/../lib" <<'PYSKIP'

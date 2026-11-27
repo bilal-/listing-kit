@@ -1,5 +1,6 @@
 """Prepare manual review inputs when ignored or credential-named files need excluding."""
 
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import plan
 import specs
 from plan import PlanError, listing_roots
 from project_files import project_files
+from regular_files import directory, open_regular
 from secret_scan import (
     DEMO_GUIDANCE, credential_file, demo_credential, ignored_private_files,
     private_local, scan, sensitive_name, tracked,
@@ -69,11 +71,32 @@ def write_view_plan(view, trees, data, preserve_errors=False):
     path.write_text(json.dumps(projected), encoding="utf-8")
 
 
-def prepare_view(view, trees, source, coverage_path, repo_root=None):
+def working_archive_captures(root, paths):
+    for path in paths:
+        try:
+            with open_regular(root, path) as stream:
+                if stream.read(8) == b"\x89PNG\r\n\x1a\n":
+                    yield path
+        except (OSError, ValueError):
+            continue  # An unavailable capture has no preview.
+
+
+def archive_previews(view, rows, available):
+    """The HTML links to the original images. Only their presence is needed in the view."""
+    paths = {Path(row["rawPath"]) for row in rows if row["store"] == "apple" and row["rawPath"]}
+    paths = {path for path in paths if not (view / path).exists() and ".listing-kit" not in path.parts
+             and not sensitive_name(path) and not any(credential_file(p) or demo_credential(p)
+                                                      for p in (path, *path.parents))}
+    for path in available(paths):
+        with directory(view, path.parent, create=True) as parent:
+            os.close(os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=parent))
+
+
+def prepare_view(view, trees, source, coverage_path, repo_root=None, ignore_plan=False, available_captures=None):
     """Keep coverage before replacing the source plan with its Git-free layout."""
     data = {}
     coverage = None
-    if (source / plan.LISTING).is_file():
+    if not ignore_plan and (source / plan.LISTING).is_file():
         data = plan.read_listing(source)
         try:
             rules = specs.load(source)
@@ -83,6 +106,8 @@ def prepare_view(view, trees, source, coverage_path, repo_root=None):
             return []
     write_view_plan(view, trees, data)
     if data:
+        if available_captures:
+            archive_previews(view, manifest["outputs"], available_captures)
         coverage = apple_assets.planned_coverage(view, data, rules, manifest["outputs"])
     coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
     return ["--coverage-view", str(coverage_path)]
@@ -104,16 +129,24 @@ def run(script, root, args):
         status = set(scan(root / config, root, ignored | unsafe | demo_files, [root], follow_root=True))
         if status:
             return (3 if 1 in status else 2) if Path(script).name == "build-review.sh" else 1
-    resolved = plan.listing_trees(root)
+    unversioned = False
+    try:
+        resolved = plan.listing_trees(root)
+    except plan.UnversionedPlan:
+        unversioned = True
+        resolved = plan.listing_trees(root, ignore_unversioned=True)
     trees = listing_roots(root, resolved)
-    if Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved):
+    if (Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved)
+            and (unversioned or not (root / plan.LISTING).is_file())):
         print(f"No listing directories under: {root} (run Assemble first).", file=sys.stderr)
         return 2
     ignored, unsafe, demo_files = exclusions(root, trees)
     cmd = ["bash", script, ".", "--prepared", *args]
     env = os.environ.copy()
+    if unversioned:
+        env["LK_REVIEW_UNVERSIONED"] = "1"
     env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
-    if not (ignored or unsafe or demo_files or any((root / tree).is_symlink() for tree in trees)):
+    if not (unversioned or ignored or unsafe or demo_files or any((root / tree).is_symlink() for tree in trees)):
         return subprocess.call(cmd, cwd=root, env=env)
 
     # Only these trees and device declarations are consumed by listing tools.
@@ -135,7 +168,9 @@ def run(script, root, args):
             (view / path.parent).mkdir(exist_ok=True, parents=True)
             link_file(source, view / path)
         if "--coverage-view" not in args:
-            cmd.extend(prepare_view(view, resolved, root, Path(tmp) / "coverage.json"))
+            captures = partial(working_archive_captures, root) if Path(script).name == "build-review.sh" else None
+            cmd.extend(prepare_view(view, resolved, root, Path(tmp) / "coverage.json",
+                                    ignore_plan=unversioned, available_captures=captures))
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():

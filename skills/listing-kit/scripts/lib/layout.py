@@ -32,7 +32,7 @@ def dependencies(root):
     return deps
 
 
-def stack(root):
+def stack(root, workspace=None):
     ios = root / "ios"
     android = root / "android"
     deps = dependencies(root)
@@ -45,12 +45,16 @@ def stack(root):
         return "react-native-bare", tuple(s for s, folder in zip(BOTH, (ios, android)) if folder.is_dir()) or BOTH
     if any(p.is_dir() for ext in ("*.xcodeproj", "*.xcworkspace") for p in root.glob(ext)):
         return "native-ios", APPLE
-    if any((root / "app" / filename).is_file() for filename in ("build.gradle", "build.gradle.kts")):
+    if android_application_plugin(root, workspace or root):
         return "native-android", PLAY
+    app = root / "app"
+    if any((app / filename).is_file() for filename in ("build.gradle", "build.gradle.kts")):
+        if android_application_plugin(app, workspace or root) is not False:
+            return "native-android", PLAY
     return "unknown", ()
 
 
-def native_app(folder):
+def native_app(folder, root):
     for base in (folder, folder / "ios"):
         for project in base.glob("*.xcodeproj/project.pbxproj"):
             try:
@@ -58,20 +62,22 @@ def native_app(folder):
                     return True
             except (ValueError, KeyError, TypeError, AttributeError, ExpatError, plistlib.InvalidFileException):
                 continue
+    if android_application_plugin(folder, root):
+        return True
     for module in (folder / "app", folder / "android/app"):
         manifest = module / "src/main/AndroidManifest.xml"
         if manifest.is_file():
             try:
-                if app_manifest(manifest, ElementTree.parse(manifest)):
+                if app_manifest(manifest, ElementTree.parse(manifest), root):
                     return True
             except ElementTree.ParseError:
                 pass
-        elif android_application_plugin(module):
+        elif android_application_plugin(module, root):
             return True
     return False
 
 
-def app_candidate(folder):
+def app_candidate(folder, root):
     """A workspace package needs an application declaration or entry point."""
     if (folder / ".listing-kit/listing.json").is_file():
         return True
@@ -88,7 +94,7 @@ def app_candidate(folder):
     if pubspec.is_file() and (folder / "lib/main.dart").is_file():
         if re.search(r"(?m)^\s+sdk:\s*flutter\s*(?:#.*)?$", pubspec.read_text(encoding="utf-8")):
             return True
-    return native_app(folder)
+    return native_app(folder, root)
 
 
 def project(root):
@@ -103,10 +109,20 @@ def project(root):
                if p != root and not p.is_symlink() and p.is_dir()}
     if folders and not any(holds_listing(root, store, base)
                            for store, native in NATIVE.items() for base in (SHARED, native)):
-        candidates = sorted(p.relative_to(root).as_posix() for p in folders if app_candidate(p))
+        candidates = sorted(p.relative_to(root).as_posix() for p in folders if app_candidate(p, root))
         if candidates:
-            raise ValueError(f"Mobile app candidates: {', '.join(candidates)}. Choose one and run inside "
-                             "its app folder, or set trees in the root .listing-kit/listing.json.")
+            message = f"Mobile app candidates: {', '.join(candidates)}."
+            native = {}
+            for candidate in candidates:
+                kind, stores = stack(root / candidate, root)
+                if kind in ("native-ios", "native-android"):
+                    native.setdefault(stores[0], {"fastlaneDir": candidate + "/fastlane"})
+            if all(store in native for store in BOTH):
+                example = json.dumps({"trees": native})
+                raise ValueError(f"{message} For a two-store listing, use one root .listing-kit/listing.json "
+                                 f"with explicit trees, for example {example}")
+            raise ValueError(f"{message} For a single app, run inside its folder. "
+                             "For a shared listing, set trees in the root .listing-kit/listing.json.")
     return stack(root)
 
 

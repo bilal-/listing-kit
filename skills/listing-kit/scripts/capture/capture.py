@@ -384,7 +384,8 @@ def main():
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 2
-    rows = {r["rawPath"]: r for r in manifest["outputs"] if r["rawPath"]}
+    rows = {(r["targetId"], r["screenId"], r["captureLocaleId"]): r
+            for r in manifest["outputs"] if r["rawPath"]}
     counts = Counter()
     status = 0
     for target, jobs in groups.items():
@@ -403,7 +404,7 @@ def main():
                     if setup_error:
                         raise setup_error
                     detail = f"{device} {job['flowPath']} -> {job['rawPath']}"
-                    row = rows[job["rawPath"]]
+                    row = rows[job["targetId"], job["screenId"], job["localeId"]]
                     native = capture_size(job, row, device)
                     if args.dry_run:
                         action = "planned"

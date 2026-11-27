@@ -1,4 +1,5 @@
 """Embedded in each installed runner so path selection works even if the kit moves."""
+from functools import partial
 import hashlib
 import json
 import os
@@ -57,7 +58,8 @@ def listing_input(path, prefix, directories, ignorecase=False):
         return True
     parts = rel.split(b"/")
     native_files = (b"Info.plist", b"AndroidManifest.xml", b"build.gradle", b"build.gradle.kts")
-    if parts[-1] not in (tuple(n.lower() for n in native_files) if ignorecase else native_files) and not rel.endswith(b".pbxproj"):
+    if (parts[-1] not in (tuple(n.lower() for n in native_files) if ignorecase else native_files)
+            and parts[-2:] != [b"gradle", b"libs.versions.toml"] and not rel.endswith(b".pbxproj")):
         return False
     return not any(skipped_directory(os.fsdecode(part), ignorecase) for part in parts[:-1])
 
@@ -70,7 +72,8 @@ def pathspecs(prefixes, ignorecase=False):
                      (*directories, b"app.json"))
         escaped = re.sub(rb"([\\*?\[])", rb"\\\1", prefix)
         specs.extend(magic + b"glob)" + escaped + pattern for pattern in
-                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist", b"**/AndroidManifest.xml", b"**/build.gradle", b"**/build.gradle.kts"))
+                     (b"app.config.*", b"**/*.pbxproj", b"**/Info.plist", b"**/AndroidManifest.xml",
+                      b"**/build.gradle", b"**/build.gradle.kts", b"**/gradle/libs.versions.toml"))
     return specs
 
 
@@ -280,6 +283,16 @@ def media_index(media, snap):
     return str(manifest)
 
 
+def indexed_archive_captures(app, paths):
+    wanted = {os.fsencode(Path(app) / path): path for path in paths}
+    if wanted:
+        for raw, mode, oid, stage in index_records([b":(literal)" + name for name in wanted]):
+            if raw in wanted and mode in (b"100644", b"100755") and stage == b"0":
+                with blob(oid) as proc:
+                    if proc.stdout.read(8) == b"\x89PNG\r\n\x1a\n":
+                        yield wanted[raw]
+
+
 def refresh(apps, removals, paths, media, kit, snap):
     if paths:
         git("checkout-index", "-z", "--stdin", "--ignore-skip-worktree-bits",
@@ -311,7 +324,8 @@ def refresh(apps, removals, paths, media, kit, snap):
         if has_listing_directory(root, trees):
             build_env["LK_REVIEW_DISPLAY_ROOT"] = str(Path(app).resolve())
             with tempfile.TemporaryDirectory() as work:
-                options = prepare_view(root, trees, root, Path(work) / "coverage.json", repo_root=snap)
+                options = prepare_view(root, trees, root, Path(work) / "coverage.json", repo_root=snap,
+                                       available_captures=partial(indexed_archive_captures, app))
                 result = subprocess.run(["bash", kit / BUILDER, root, *options], env=build_env, stdout=subprocess.DEVNULL)
             if result.returncode or not (snap / page).is_file():
                 raise Blocked("could not safely build the staged review page")
