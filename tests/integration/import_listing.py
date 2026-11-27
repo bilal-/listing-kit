@@ -16,6 +16,9 @@ from unittest.mock import patch
 import zlib
 
 KIT = Path(sys.argv.pop(1)).resolve()
+sys.path.insert(0, str(KIT / "scripts/compose"))
+import cdp  # noqa: E402
+HAVE_BROWSER = bool(cdp.find_browser())
 
 
 def png(width, height):
@@ -221,7 +224,11 @@ class ImportListing(unittest.TestCase):
             path.write_bytes(data)
             for flags in [("--preview",), ("--dry-run",), ()]:
                 with self.subTest(style=style, flags=flags, size=len(data)):
-                    out = self.cli("compose", "--target", "handset", "--screen", "map", *flags, rc=1)
+                    # Without a browser a real framed compose stops earlier with exit 3,
+                    # naming the same output, before it can inspect the capture.
+                    blocked = style == "framed" and not flags and not HAVE_BROWSER
+                    out = self.cli("compose", "--target", "handset", "--screen", "map", *flags,
+                                   rc=3 if blocked else 1)
                     self.assertIn("01_map.png", out)
                     self.assertNotIn("would write", out)
                     if flags == ("--preview",):
