@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['2.242.0', latest]
+        version: ['2.240.1', '2.242.0', latest]
     continue-on-error: ${{ matrix.version == 'latest' }}
     steps:
       - uses: actions/checkout@v7
@@ -32,7 +32,9 @@ jobs:
           else
             gem install fastlane --version "$VERSION" --no-document
           fi
-      - run: ruby tests/contract/fastlane.rb
+      - run: |
+          ruby tests/contract/fastlane.rb
+          ruby tests/contract/apple_text_upload.rb
         env:
           FASTLANE_SKIP_UPDATE_CHECK: '1'
           FASTLANE_OPT_OUT_USAGE: '1'

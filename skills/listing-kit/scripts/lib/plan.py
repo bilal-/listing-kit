@@ -403,10 +403,12 @@ class _Checker:
         for i, item in enumerate(value):
             child = f"{path}[{i}]"
             entry = _locale(item)
-            if not self.obj(entry, child, dict(id=self.locale_id, apple=self.store_code, play=self.store_code), ("id",)):
+            if not self.obj(entry, child, dict(id=self.locale_id, apple=self.store_code, play=self.store_code, clearPlayVideo=bool), ("id",)):
                 continue
             if entry.get("apple") is None and entry.get("play") is None:
                 self.error(child, "expected at least one store code")
+            if entry.get("clearPlayVideo") and not entry.get("play"):
+                self.error(child + ".clearPlayVideo", "requires a Play locale code")
             for key in seen:
                 code = entry.get(key)
                 if isinstance(code, str):

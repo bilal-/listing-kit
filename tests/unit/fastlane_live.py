@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 KIT = Path(sys.argv.pop()).resolve().parents[1]
 FIXTURE = Path(os.environ["FL_FIXTURE"])
@@ -31,6 +32,34 @@ class LivePull(unittest.TestCase):
         result = subprocess.run([KIT / "bin/listing-kit", *args], cwd=self.app, env=self.env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
         return result.returncode, result.stdout
+
+    def test_pinned_download_uses_read_only_describe(self):
+        sys.path.insert(0, str(KIT / "scripts/fastlane"))
+        self.addCleanup(sys.path.pop, 0)
+        import lk_fastlane as lk
+
+        store = lk.Store("apple", "example.apple", self.app, {"fastlaneDir": self.app},
+                         lk.specs.load(), {}, {}, "", None, FIXTURE / "apple.json")
+        store.scratch = self.base
+        with patch.dict(os.environ, self.env, LK_APPLE_WRITE_SECRET="inherited"):
+            remote = lk.download(store, self.base / "before", pin_apple=True)
+            self.assertEqual(remote.apple_version, {"id": "version-id", "string": "1.2.3",
+                                                    "state": "PREPARE_FOR_SUBMISSION", "appInfoId": "info-id",
+                                              "appInfoState": "DEVELOPER_REJECTED",
+                                              "localizations": [["en-US", "version-localization", "info-localization"]]})
+            # Apple receipt baselines from before version pinning only hashed files.
+            self.assertEqual(remote.snapshot_hash(), lk.fingerprint(dict(files=remote.hashes(), locales=[])))
+            for marker in ("info-race", "version-locale-race", "info-locale-race"):
+                with self.subTest(marker=marker):
+                    flag = self.base / marker
+                    flag.touch()
+                    with self.assertRaisesRegex(ValueError, "changed during download"):
+                        lk.download(store, self.base / (marker + "-download"), pin_apple=True)
+                    flag.unlink()
+            (self.base / "bad-description").touch()
+            with self.assertRaisesRegex(ValueError, "^Invalid Apple version description$"):
+                lk.download(store, self.base / "recheck", pin_apple=True)
+        self.assertFalse((self.base / "sent").exists())
 
     def check_logs(self, mode, code, calls):
         home, parent = self.base / "home", self.base / "temp"

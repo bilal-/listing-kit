@@ -13,25 +13,35 @@ cat > "$STUB_BIN/fastlane" <<'PY'
 import os, sys
 from pathlib import Path
 args = sys.argv[1:]
+if args[1:2] == ["describe"] and Path(args[0]).name == "apple_text_upload.rb":
+    print("version 1.0 version-id PREPARE_FOR_SUBMISSION", "appInfo info-id PREPARE_FOR_SUBMISSION",
+          "locale en-US version-en info-en", "locale fr-FR version-fr info-fr", sep="\n")
+    sys.exit(0)
 if args == ["--version"]:
     print("fastlane 2.242.0")
     sys.exit(0)
 if args[:2] not in (["deliver", "download_metadata"], ["deliver", "download_screenshots"], ["supply", "init"]):
     sys.exit("Unexpected fastlane command")
 option = "--screenshots_path" if args[1] == "download_screenshots" else "--metadata_path"
-Path(args[args.index(option) + 1]).mkdir()
+destination = Path(args[args.index(option) + 1])
+destination.mkdir()
+if args[1] == "download_metadata":
+    # Ordinary text tests begin with the app's existing category.
+    (destination / "primary_category.txt").write_bytes(Path(os.environ["APPLE_CATEGORY"]).read_bytes())
 store = "apple" if args[0] == "deliver" else "play"
 view = Path.cwd().parents[1] / (store + "-view")
 Path(os.environ["VIEW_FILES"]).write_text("\n".join(sorted(
     str(path.relative_to(view)) for path in view.rglob("*") if path.is_file())))
 PY
 chmod +x "$STUB_BIN/fastlane"
+ln -s fastlane "$STUB_BIN/ruby"
 lk="$SKILL_DIR/bin/listing-kit"
 git init -q "$app"
 export VIEW_FILES="$credentials/view-files"
 example="$ROOT/examples/expo-recipe-box"
 cp -R "$example/fastlane" "$example/app.json" "$app/"
 meta="$app/fastlane/metadata"
+export APPLE_CATEGORY="$meta/primary_category.txt"
 cp -R "$meta/en-US" "$meta/fr-FR"
 mkdir -p "$app/.listing-kit/flows"
 plan="$app/.listing-kit/listing.json"
@@ -117,6 +127,26 @@ assert_contains "$out" 'play metadata/en-US/title.txt added'
 assert_contains "$out" '--skip_upload_screenshots'
 assert_not_contains "$out" 'Credential-like content'
 rm "$manifest"
+
+it "empty video requires explicit consent for that exact Play locale"
+video="$meta/android/en-US/video.txt"
+: > "$video"
+out="$("$lk" publish "$app" --store play 2>&1)"; assert_eq 1 "$?"
+assert_contains "$out" "would clear the live video"
+cp "$plan" "$credentials/before-video.json"
+python3 - "$plan" <<'PYVIDEO'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+data = json.loads(p.read_text())
+data["locales"][0]["clearPlayVideo"] = True
+p.write_text(json.dumps(data))
+PYVIDEO
+out="$("$lk" publish "$app" --store play 2>&1)"; assert_eq 0 "$?"
+assert_contains "$out" "metadata/en-US/video.txt"
+assert_contains "$out" "Cannot touch"
+rm "$video"
+mv "$credentials/before-video.json" "$plan"
 
 it "a missing Play metadata directory fails validation for the exact planned paths"
 mv "$meta/android" "$credentials/play-metadata"

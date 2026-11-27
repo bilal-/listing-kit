@@ -2,6 +2,7 @@
 require "json"
 require "open3"
 require "pathname"
+require "tmpdir"
 require "fastlane"
 require "deliver"
 require "deliver/loader"
@@ -11,6 +12,47 @@ require "supply/uploader"
 cases, result = Open3.capture2("python3", "-IB", File.join(__dir__, "fastlane_cases.py"))
 abort "Could not build listing-kit contract inputs" unless result.success?
 cases = JSON.parse(cases)
+expected_commands = { "deliver" => %w[download_metadata download_screenshots run], "supply" => %w[init run] }
+abort "Missing explicit fastlane subcommand" unless cases.fetch("commands") == expected_commands
+Dir.mktmpdir("listing-kit-command-contract") do |scratch|
+  env = { "FASTLANE_SKIP_UPDATE_CHECK" => "1", "FASTLANE_OPT_OUT_USAGE" => "1",
+          "GIT_CEILING_DIRECTORIES" => File.dirname(scratch) }
+  # Run the real Supply CLI through configuration creation. Stop at the
+  # uploader entry point, before any client or edit can be created.
+  File.write(File.join(scratch, "key.json"), "{}")
+  Dir.mkdir(File.join(scratch, "metadata"))
+  cases.fetch("play_review").each do |policy, argv|
+    flags = %w[--changes_not_sent_for_review --rescue_changes_not_sent_for_review]
+    abort "Review opt-in must omit both kit flags" if policy == "send" && !(flags & argv).empty?
+    pid = fork do
+      Dir.chdir(scratch)
+      ENV.update(env)
+      ENV.delete_if { |key, _| key.start_with?("SUPPLY_") }
+      $stdout.reopen(File::NULL, "w")
+      $stderr.reopen(File::NULL, "w")
+      require "supply/commands_generator"
+      Supply::Uploader.define_method(:perform_upload) do
+        expected = policy == "hold" ? [true, false] : [false, true]
+        actual = flags.map { |flag| Supply.config[flag.delete_prefix("--").to_sym] }
+        exit!(actual == expected ? 0 : 1)
+      end
+      ARGV.replace(argv.drop(1))
+      Supply::CommandsGenerator.start
+      exit! 1
+    end
+    _, status = Process.wait2(pid)
+    abort "Supply review policy failed real CLI parsing (#{policy})" unless status.success?
+  end
+
+  expected_commands.each do |tool, commands|
+    commands.each do |command|
+      # Exercise the installed dispatcher away from the checkout and its configuration.
+      help, status = Open3.capture2e(env, "fastlane", tool, command, "--help", chdir: scratch)
+      abort "Unavailable fastlane command #{tool} #{command}" unless status.success? && help.include?("--metadata_path")
+    end
+  end
+end
+
 { "deliver" => Deliver::Options, "supply" => Supply::Options }.each do |action, options|
   missing = cases.fetch("options").fetch(action) - options.available_options.map { |opt| opt.key.to_s }
   abort "#{action} no longer accepts #{missing.join(', ')}" unless missing.empty?

@@ -40,7 +40,8 @@ def read_state(path):
                     raise ValueError
                 for op in entry["operations"]:
                     if (op["store"] != name or op["identity"] != entry["identity"] or not op["operation"]
-                            or op["status"] not in ("pending", "done", "resolved", "failed")
+                            or op["status"] not in ("pending", "done", "resolved", "failed", "exit-error", "not-applied",
+                                                    "validating", "validated", "validation-incomplete")
                             or op["manifestHash"] != fingerprint(dict(files=op["files"], galleries=op["galleries"]))):
                         raise ValueError
         return obj

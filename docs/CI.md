@@ -29,11 +29,30 @@ Pin the GitLab job image (`ruby:3.3-bookworm`) by digest before release.
 2. Store `APP_STORE_CONNECT_API_KEY_JSON` only in `store-listing-apple` and `PLAY_SERVICE_ACCOUNT_JSON` only in `store-listing-play`. On GitHub, enter the complete JSON as an environment secret. On GitLab, enter it as a protected **File** variable scoped to the matching environment, with variable expansion disabled. GitLab supplies its temporary file path to the publish job. [GitHub Actions secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) and [GitLab CI/CD variables](https://docs.gitlab.com/ci/variables/).
 3. On GitHub, manually dispatch the workflow on the reviewed ref and choose `apple` or `play`. On GitLab, select the manual job for that store on a protected ref. The environment reviewer should check the commit, review page and workflow before approving the deployment. [GitHub manual workflows](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) and [GitLab protected environments](https://docs.gitlab.com/ci/environments/protected_environments/).
 
-The manual CI job uses fastlane 2.242.0. It copies the selected credential to a private temporary file, exports its path and removes the copy on exit. The job passes `--yes` to record approval. Both store gates are off by default. The gated job does not upload or write `.listing-kit/publish.receipt.json`. Read the job log for the preview and any errors. GitLab treats each manual job as optional, so check its status directly.
+The manual jobs use fastlane 2.242.0 and pass `--yes` after the environment approval. A normal gated publish prints a preview. Each `<store> send` line names a staged file and its SHA-256. Text diffs use the last pulled store copy. A second diff shows any intervening console edit. A checkout without a saved text snapshot uses a labeled fresh download. A gated preview creates no upload receipt.
 
-Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`. That variable enables real uploads for maintainers' live tests. Keep it out of CI.
+### Validate an edit on Google Play
 
-With the adapter, the job reports that publishing to that store is disabled and directs you to the hand-upload folder. A build without the adapter prints `this command is not part of this build of listing-kit` and exits 3.
+Select **Validate the Play edit without committing it** with the Play store on GitHub, or set the GitLab pipeline variable `PLAY_VALIDATE_ONLY=true` and start the protected Play job. The resulting command is `listing-kit publish --store play --validate-only --yes`. Regenerate older workflows to expose this option. Locally, omit `--yes` to approve at the prompt.
+
+Validation requires the usual store credentials and approval. Supply stages the selected files in a Google Play edit and calls the validate endpoint. An approved change produces a receipt with status `validated`, outcome `validated, not applied`, and the hashes printed in the preview. It leaves the publish baseline available for a later real upload. An unchanged listing has no edit to validate. Apple has no validate-only mode.
+
+Real uploads remain disabled for both stores. Play validation is allowed without `LK_PUBLISH_UNVERIFIED`. Keep that one-run, app-scoped upload override out of CI. Agents must never pass `--yes` or set the override.
+
+The preview lists each staged field and the store operations outside its scope. Apple text goes through the bundled Spaceship writer for existing localizations. An error reports how many fields the API acknowledged. Real Play publishes request a hold and fail when Google requires automatic review. A maintainer may explicitly accept review with `--send-for-review` in a new publish approval. The receipt records `sendForReview`. Serialize validation and publish jobs for the same Play app and account, since both open a store edit.
+
+### Recover an interrupted upload
+
+Restore the affected app's receipt artifact to `.listing-kit/publish.receipt.json` and select the original app identifier and Play track. For subsequent previews, keep the app’s pull lock and its matching `.listing-kit/remote/` snapshot together. Run publish again to read the store. After a non-zero fastlane exit, an exact match with the pre-upload snapshot closes the operation as `not-applied` and allows a fresh proposal. A readback matching the approved manifest can confirm completion. A partial change, unavailable download, or re-encoded gallery can require a person to inspect the store. Check every affected field and the order and contents of each affected gallery.
+
+After inspection, run one of the following commands with the same app selection. Each updates the local receipt and exits without starting an upload. Both work without a terminal. When several outcomes are unknown, add `--operation ID` from the receipt to select one. Keep the updated state for subsequent jobs. An applied resolution suppresses repeat sends of the confirmed text and galleries, including a retry with the same screenshot selector. Pull again to review subsequent console changes.
+
+```sh
+listing-kit publish --resolve apple applied
+listing-kit publish --resolve play not-applied
+```
+
+Apple screenshot replacement can leave a locale empty between deletion and restoration. The adapter warns after the upload time limit (900 seconds by default) and continues waiting while Deliver restores the gallery. Give the runner enough time to finish. Text-only uploads retain the normal timeout. GitLab manual jobs are optional, so inspect the selected job's result and receipt directly.
 
 ## Keeping keys away from your agent
 

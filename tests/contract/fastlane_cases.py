@@ -12,6 +12,7 @@ import lk_fastlane as lk
 
 def cases(root):
     options = {}
+    commands = {}
     rules = lk.specs.load()
     example = ROOT / "examples/expo-recipe-box/fastlane"
     apple = {}
@@ -35,9 +36,21 @@ def cases(root):
         with patch.object(target, "run", download):
             lk.download(target, root / store)
         for key in ("metadata/en-US/name.txt", "screenshots/en-US/01.png", "metadata/en-US/changelogs/7.txt"):
-            calls.append(lk.upload_args(target, {key: Path(key)}, root))
+            if store == "play" or key.startswith("screenshots/"):
+                calls.append(lk.upload_args(target, {key: Path(key)}, root))
+        if store == "play":
+            target.key = Path("key.json")
+            play_review = {}
+            for policy in ("hold", "send"):
+                target.send_for_review = policy == "send"
+                play_review[policy] = lk.upload_args(target, {"metadata/en-US/title.txt": Path("title.txt")}, Path("."))
+                calls.append(play_review[policy])
+            target.send_for_review = False
+            target.validate_only = True
+            calls.append(lk.upload_args(target, {"metadata/en-US/title.txt": Path("title.txt")}, root))
+        commands[action] = sorted({args[1] for args in calls})
         options[action] = sorted({arg[2:] for args in calls for arg in args if arg.startswith("--")})
-    return dict(options=options, apple=apple)
+    return dict(options=options, apple=apple, commands=commands, play_review=play_review)
 
 
 if __name__ == "__main__":

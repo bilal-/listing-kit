@@ -31,6 +31,16 @@ Enter credentials yourself using the provider’s secure settings. Scope `APP_ST
 
 Store access alone does not enable uploads. Agents must never pass `--yes` to publish or set the maintainers' live-test switch, `LK_PUBLISH_UNVERIFIED`.
 
+### Supervised store tests
+
+Both real-upload gates are off. A maintainer testing a disposable app can set `LK_PUBLISH_UNVERIFIED=apple:<bundle-id>` or `LK_PUBLISH_UNVERIFIED=play:<package-name>` for one single-store invocation. Check the identifier, proposed command, file hashes and Play text diffs before approving. The receipt in `.listing-kit/publish.receipt.json` contains the staged manifest and outcome.
+
+For Play, first run `listing-kit publish --store play --validate-only` and approve the prompt. This uses the same service account and edit permissions. Supply validates the edit without committing it, so this mode works with the gate off and the override unset. The receipt says `validated, not applied`. Apple has no validate-only mode.
+
+A real Play publish requests a review hold and disables Supply’s automatic retry. If Google rejects the hold, the edit fails before commit. A maintainer who accepts automatic review can rerun with `--send-for-review`. The preview and receipt record that choice. Supply can then commit without the hold parameter. Serialize Play jobs sharing the same account and app, including validation jobs, because each opens an edit. [Supply commit behavior](https://github.com/fastlane/fastlane/blob/2.242.0/supply/lib/supply/client.rb#L204-L246).
+
+Apple text sends use the project’s fastlane gem through a bundled Ruby writer. It pins the editable iOS version, editable AppInfo and their localizations by App Store Connect ID. The preview shows the version string and ID alongside both states. A per-run HMAC binds those resource IDs, the bundle ID and the staged file paths and hashes to the approval. Writes require `PREPARE_FOR_SUBMISSION`, `DEVELOPER_REJECTED` or `REJECTED`. The kit excludes `review_information/` from staging. The writer checks every staged locale and value before writing, and updates only approved localized attributes and staged copyright. Use App Store Connect for category, review, age rating and other app-level changes. The writer has no operations for phased release, ratings reset, attachments, builds, screenshots, pricing or release settings. A mixed Apple text and screenshot proposal requires separate sends or the hand-upload folder. After an error, check the reported number of confirmed field writes and reconcile the receipt before retrying.
+
 ## Rotate or revoke
 
 For a planned rotation, create a replacement key for the same scoped identity. Replace the local file or CI secret. Check authentication with a read-only operation against the intended app. Revoke the old Apple key or delete the old Google service account key. Remove old downloads and temporary copies. If the integration is retired, also remove the CI secret and the identity's store access. [Apple API key management](https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api/) and [Google service account key management](https://cloud.google.com/iam/docs/keys-create-delete).
@@ -70,4 +80,6 @@ The CLI loads each tool’s command generator and calls `start` directly. For bo
 
 If a file is created despite redirection, the kit checks only its private `TMPDIR`. Before spawning the child it opens the directory and snapshots its entry names. After the child exits it checks new names in the verified format for that child’s PID. It opens candidates without following symlinks, checks ownership and regular-file type, and verifies the inode in a private staging directory before unlinking. Home and shared temporary directories stay outside the scan. A failed check reports only the number of affected locations.
 
-During spawn, execution and log cleanup, the parent blocks SIGINT, SIGTERM, SIGHUP and SIGQUIT. An interrupt or timeout kills the active child process group and reaps the child before cleanup. A pending interrupt propagates after cleanup.
+During spawn, execution and log cleanup, the parent blocks SIGINT, SIGTERM, SIGHUP and SIGQUIT. An interrupt or hard timeout kills the active child process group and reaps the child before cleanup. A pending interrupt propagates after cleanup.
+
+During an Apple screenshot overwrite the upload time limit issues one warning and the adapter waits for Deliver to finish. Captured fastlane output can contain API bodies. Keep it out of job logs and receipts.

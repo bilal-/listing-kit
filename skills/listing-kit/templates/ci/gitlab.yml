@@ -76,7 +76,13 @@ __LISTING_FILTERS__
       fi
       unset APP_STORE_CONNECT_API_KEY_JSON PLAY_SERVICE_ACCOUNT_JSON
       gem install fastlane -v 2.242.0 --no-document
-      listing-kit publish --store "$STORE" --yes "$APP_ROOT"
+      set --
+      case "${PLAY_VALIDATE_ONLY:-false}" in
+        true) [ "$STORE" = play ] || { echo "Apple has no validate-only mode" >&2; exit 2; }; set -- --validate-only ;;
+        false) ;;
+        *) echo "PLAY_VALIDATE_ONLY must be true or false" >&2; exit 2 ;;
+      esac
+      listing-kit publish --store "$STORE" --yes "$APP_ROOT" "$@"
   artifacts:
     when: always
     paths:
