@@ -33,6 +33,8 @@ def has_listing_files(apple, play, rules, play_locales):
 
 
 def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
+    if os.environ.get("LK_REVIEW_UNVERSIONED") == "1":
+        yield "WARN", "listing.json ignored: unversioned plan (missing format). Checking files on disk."
     rules = specs.load(root)
     verified, age, stale = specs.staleness(rules, as_of)
     yield "NOTE", f"store rules verified on {verified}"

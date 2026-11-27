@@ -26,11 +26,12 @@ ANDROID_PLUGIN = re.compile(
     r"""(?:(?:\bid\s*\(?|\bapply\s*\(?\s*plugin\s*[:=])\s*["']com\.android\."""
     r"""(?P<kind>application|library|dynamic-feature|test)["'](?:[ \t]*\))?|"""
     r"""\balias\s*\(\s*libs\.plugins\.(?P<alias>[\w.]+)\s*\))"""
-    r"""(?:[ \t]+version[ \t]+[^\s}]+)?(?:\s+apply\s*\(?\s*(?P<disabled>false)\b)?"""
+    r"""(?:(?:\s*\.\s*|\s+)version\s*(?:\([^)]*\)|["'][^"']*["']|[\w.$-]+))?"""
+    r"""(?:(?:\s*\.\s*|\s+)apply\s*\(?\s*(?P<disabled>false)\b)?"""
 )
 
 
-def catalog_plugin(module, alias):
+def catalog_plugin(module, alias, root):
     """Read the plugin ID behind a libs.plugins accessor without running Gradle."""
     for folder in (module, *module.parents):
         catalog = folder / "gradle/libs.versions.toml"
@@ -46,7 +47,7 @@ def catalog_plugin(module, alias):
                     match = re.search(r"""\bid\s*=\s*["']([^"']+)["']""", value)
                     return match[1] if match else value.strip().strip("\"'").partition(":")[0]
             return None
-        if ((folder / ".git").exists() or (folder / "settings.gradle").is_file()
+        if (folder == root or (folder / ".git").exists() or (folder / "settings.gradle").is_file()
                 or (folder / "settings.gradle.kts").is_file()):
             break
     # A standalone module can be inspected without its workspace catalog.
@@ -56,14 +57,14 @@ def catalog_plugin(module, alias):
     return None
 
 
-def android_application_plugin(module):
+def android_application_plugin(module, root):
     for gradle in (module / "build.gradle", module / "build.gradle.kts"):
         if gradle.is_file():
             source = re.sub(r"/\*.*?\*/|//[^\n]*", "", gradle.read_text(encoding="utf-8"), flags=re.S)
             found_android = False
             for match in ANDROID_PLUGIN.finditer(source):
                 plugin = ("com.android." + match["kind"] if match["kind"]
-                          else catalog_plugin(module, match["alias"]))
+                          else catalog_plugin(module, match["alias"], root))
                 if plugin and plugin.startswith("com.android."):
                     found_android = True
                     if plugin == "com.android.application" and not match["disabled"]:
@@ -73,10 +74,10 @@ def android_application_plugin(module):
     return None
 
 
-def app_manifest(path, doc):
+def app_manifest(path, doc, root):
     if doc.getroot().tag != "manifest":
         return False
-    application = android_application_plugin(path.parents[2])
+    application = android_application_plugin(path.parents[2], root)
     if application is not None:
         return application
     for tag in ("activity", "activity-alias"):

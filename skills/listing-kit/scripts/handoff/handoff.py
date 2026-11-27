@@ -307,7 +307,7 @@ def console_fields(plan, declared):
                     values.append((directory.name if directory != meta else "", content.decode().strip()))
         for locale, value in values:
             source = f" ({locale})" if locale else ""
-            plan.checklist.append(f"{label}{source}: {value or 'enter privately'} — enter in Play Console > {destination}")
+            plan.checklist.append(f"{label}{source} (public on your store page): {value or 'enter privately'} — enter in Play Console > {destination}")
 
 
 def completed_receipts(plan):

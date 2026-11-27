@@ -58,8 +58,10 @@ fake_png "$app/store-assets/apple/en-US/header-16x9.png" 5244 2950
 mkdir -p "$app/store-assets/apple/fr-FR"
 cp "$app/store-assets/apple/en-US/header-16x9.png" "$app/store-assets/apple/fr-FR/"
 play_shots="$meta/android/en-US/images/phoneScreenshots"
-cp "$play_shots/01_recipes.png" "$play_shots/01_one.png"
-cp "$play_shots/02_recipe-detail.png" "$play_shots/02_two.png"
+mv "$play_shots/01_recipes.png" "$play_shots/01_one.png"
+mv "$play_shots/02_recipe-detail.png" "$play_shots/02_two.png"
+
+rm "$play_shots/03_shopping.png" "$play_shots/04_settings.png"
 
 it "Apple text, graphics and deferrals are validated in a locale with no planned screenshots"
 out="$("$lk" validate "$app" 2>&1)"; assert_eq 0 "$?"
@@ -120,7 +122,7 @@ it "a missing Play metadata directory fails validation for the exact planned pat
 mv "$meta/android" "$credentials/play-metadata"
 out="$("$lk" validate "$app" 2>&1)"; assert_eq 1 "$?"
 assert_contains "$out" 'fastlane/metadata/android/en-US/images/phoneScreenshots/01_one.png: MISSING'
-assert_contains "$out" '! planned Play en-US/phone: 0 of 2 screenshots'
+assert_contains "$out" '✗ planned Play en-US/phone: 0 of 2 screenshots'
 mv "$credentials/play-metadata" "$meta/android"
 
 it "a custom 12.9-inch suffix selects its own deliver group at the shared iPad size"

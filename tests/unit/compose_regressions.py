@@ -51,7 +51,7 @@ class RendererVersion(unittest.TestCase):
                 (compose.report_failures, "print(", 'print("Error:", ', False),
                 (compose.text_of, 'val("caption")', 'val("detail")', True),
                 (compose.flatten_rgb, '"white"', '"black"', True),
-                (compose.Job, "shot_size = (w, h)", "shot_size = (h, w)", True),
+                (compose.Job, "return data, (w, h)", "return data, (h, w)", True),
                 (compose.build, "size=(w, h)", "size=(h, w)", True),
                 (compose.verify_rgb, "return data", 'return b""', True),
                 (imginfo._png_passes, "expected = h * stride", "expected = w * stride", True),

@@ -6,7 +6,7 @@
 <style>
   /* Play feature graphic (1024x500) and Apple header canvases: brand, headline, detail,
      centred, with generous margins so store crops do not cut the text. */
-  body{align-items:var(--graphic-align,center);justify-content:center;gap:var(--graphic-gap,calc(4*var(--u)));padding:calc(8*var(--u)) 10%}
+  body{justify-content:center;gap:calc(4*var(--u));padding:calc(8*var(--u)) 10%}
   .brand{display:flex;justify-content:center;align-items:center;gap:calc(3*var(--u))}
   .brand:empty,.brand:has(> .name:only-child:empty),.name:empty{display:none}
   .brand img.logo{max-height:calc(20*var(--u));max-width:70%}
@@ -14,7 +14,6 @@
   .brand .name{font-size:calc(11*var(--u));font-family:var(--font-headline);font-weight:700}
   .headline{font-size:calc(var(--headline-size,11)*var(--u))}
   .detail{font-size:calc(var(--detail-size,5)*var(--u))}
-.headline,.detail{text-align:var(--graphic-align,center)}
 </style>
 <body>
   <div class="brand">{{brand}}</div>

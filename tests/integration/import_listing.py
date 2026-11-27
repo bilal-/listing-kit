@@ -5,6 +5,8 @@ from contextlib import redirect_stdout
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -14,6 +16,15 @@ from unittest.mock import patch
 import zlib
 
 KIT = Path(sys.argv.pop(1)).resolve()
+
+
+def png(width, height):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(bytes(height * (1 + 3 * width)))) + chunk(b"IEND", b""))
 
 
 class Images(HTMLParser):
@@ -63,13 +74,55 @@ class ImportListing(unittest.TestCase):
         return result.stdout
 
     def test_selectors(self):
-        for flags, wanted in [(("--screen", "legend"), 2), (("--screen", "legend", "--target", "slate"), 1)]:
+        prefix = "fastlane/metadata/android/en-US/images/"
+        phone = prefix + "phoneScreenshots/03_legend.png"
+        tablet = prefix + "tenInchScreenshots/03_legend.png"
+        for flags, wanted in [(("--screen", "legend"), [phone, tablet]),
+                              (("--screen", "legend", "--target", "slate"), [tablet])]:
             with self.subTest(flags=flags):
                 self.cli("compose", "--preview", *flags)
                 page = (self.config / "preview.html").read_text()
-                self.assertEqual(page.count("<iframe "), wanted)
-                self.assertNotIn("featureGraphic.png", page)
-                self.assertEqual(self.cli("compose", "--dry-run", *flags).count("would write "), wanted)
+                self.assertCountEqual(re.findall(r"<figcaption>([^<]+)</figcaption>", page), wanted)
+                self.assertEqual(page.count("<iframe "), len(wanted))
+                out = self.cli("compose", "--dry-run", *flags)
+                self.assertCountEqual(re.findall(r"^would write (.+)$", out, re.M), wanted)
+
+    def test_clean_example_compose(self):
+        example = self.root / "clean-example"
+        shutil.copytree(KIT.parents[1] / "examples/expo-recipe-box", example)
+        # Match the renderer OS recorded by the distributed example on every CI host.
+        sys.path.insert(0, str(KIT / "scripts/compose"))
+        import compose
+        lock = example / ".listing-kit/compose.lock.json"
+        before = lock.read_bytes()
+        renderer_os, = {row["renderer"]["os"] for row in json.loads(before)["outputs"].values()
+                        if row.get("renderer")}
+        log = io.StringIO()
+        with redirect_stdout(log), patch.object(sys, "platform", renderer_os):
+            rc = compose.main([str(example)])
+        self.assertEqual(rc, 0, log.getvalue())
+        self.assertRegex(log.getvalue(), r"(?m)^compose: 0 written, [1-9]\d* unchanged, 0 held, 0 failed$")
+        self.assertNotIn("--restyle", log.getvalue())
+        self.assertEqual(before, lock.read_bytes())
+
+    def test_plan_only_stores(self):
+        shutil.rmtree(self.root / "fastlane")
+        (self.root / "app.json").unlink()
+        self.plan["targets"].append(dict(id="iphone", store="apple", slot="iphone-di-medium",
+                                         size=[1206, 2622], state="active"))
+        self.save()
+        out = self.cli("detect")
+        self.assertIn("stores\tapple play\n", out)
+        self.assertIn("play.metadata\tfastlane/metadata/android", out)
+        self.assertIn("apple.metadata\tfastlane/metadata", out)
+
+    def test_play_screenshots_present_when_zero_planned(self):
+        self.plan["screens"] = []
+        self.save()
+        path = self.meta / "en-US/images/phoneScreenshots/extra.png"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(png(1080, 1920))
+        self.assertIn("✗ planned Play en-US/phone: 1 of 0 screenshots", self.cli("validate", rc=1))
 
     def test_partial_preview_and_dry_run(self):
         for mode in ("--preview", "--dry-run"):
@@ -100,6 +153,8 @@ class ImportListing(unittest.TestCase):
         out = self.cli("validate", rc=1)
         self.assertIn("title: 9", out)
         self.assertEqual(out.count("unversioned"), 1)
+        self.assertRegex(out, r"(?m)^\s*! .*unversioned")
+        self.assertRegex(out, r"[1-9][0-9]* warnings")
         self.assertIn("ignored", out)
         self.assertEqual((self.config / "listing.json").read_bytes(), original)
 
@@ -145,13 +200,70 @@ class ImportListing(unittest.TestCase):
         self.assertEqual(capture["rawPath"], ".listing-kit/raw/handset/en-US/map.png")
         path = self.root / expected
         path.parent.mkdir(parents=True)
-        path.write_bytes(b"archived")
+        data = png(1080, 1920)
+        path.write_bytes(data)
+        self.cli("compose", "--target", "handset", "--screen", "map", "--preview")
         self.assertIn("would write", self.cli("compose", "--target", "handset", "--screen", "map", "--dry-run"))
-        self.assertEqual(path.read_bytes(), b"archived")
+        self.assertEqual(path.read_bytes(), data)
         for invalid in ("../archive/{screen}.png", "/archive/{screen}.png", "archive/{other}.png"):
             self.plan["targets"][0]["rawPattern"] = invalid
             self.save()
             self.assertIn("rawPattern", self.cli("plan", "check", rc=1))
+
+    def test_bad_archived_capture(self):
+        target = self.plan["targets"][0]
+        target["rawPattern"] = "archive/{screen}.png"
+        path = self.root / "archive/map.png"
+        path.parent.mkdir()
+        for style, data in [("raw", b"archived"), ("raw", png(2, 2)), ("framed", png(2, 2)[:-4])]:
+            target["style"] = {"mode": style}
+            self.save()
+            path.write_bytes(data)
+            for flags in [("--preview",), ("--dry-run",), ()]:
+                with self.subTest(style=style, flags=flags, size=len(data)):
+                    out = self.cli("compose", "--target", "handset", "--screen", "map", *flags, rc=1)
+                    self.assertIn("01_map.png", out)
+                    self.assertNotIn("would write", out)
+                    if flags == ("--preview",):
+                        page = (self.config / "preview.html").read_text()
+                        self.assertIn("archive/map.png", page)
+                        self.assertNotIn("<iframe ", page)
+
+    def test_expanded_raw_pattern_internals(self):
+        target, screen = self.plan["targets"][0], self.plan["screens"][0]
+        for field, name in [("target", "git"), ("screen", "listing-kit")]:
+            target["id"], screen["id"] = "handset", "map"
+            (target if field == "target" else screen)["id"] = name
+            target["rawPattern"] = "archive/.{" + field + "}/{index}.png"
+            self.save()
+            with self.subTest(field=field):
+                self.assertIn("rawPattern", self.cli("plan", "check", rc=1))
+
+    def test_archived_status_bars(self):
+        target = self.plan["targets"][0]
+        target.update(store="apple", slot="iphone-di-medium", size=[1206, 2622],
+                      rawPattern="archive/{screen}.png")
+        self.save()
+        path = self.root / "archive/map.png"
+        path.parent.mkdir()
+        path.write_bytes(png(2, 2))
+        (self.root / ".gitignore").write_text(".listing-kit/local.json\n")
+        (self.config / "local.json").write_text("{}")
+        (self.root / "fastlane/metadata/en-US").mkdir()
+        (self.root / "fastlane/metadata/en-US/name.txt").write_text("Map Notes")
+        self.cli("review")
+        page = (self.root / "listing-review.html").read_text()
+        self.assertIn("archive/map.png", Images(page).images)
+        self.assertIn("Inspect raw status bars", page)
+        (self.root / "listing-review.html").unlink()
+        self.cli("hook", "install")
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        path.unlink()  # The hook must read the indexed capture.
+        (path.parent / "lakes.png").write_bytes(png(2, 2))
+        subprocess.run(["bash", ".git/hooks/pre-commit"], cwd=self.root, check=True)
+        staged = subprocess.check_output(["git", "show", ":listing-review.html"], cwd=self.root, text=True)
+        self.assertIn("archive/map.png", Images(staged).images)
+        self.assertNotIn("archive/lakes.png", Images(staged).images)
 
     def test_capture_with_archive(self):
         sys.path.insert(0, str(KIT / "scripts/capture"))
@@ -193,17 +305,27 @@ class ImportListing(unittest.TestCase):
         self.assertIn("gap:var(--graphic-gap", page)
 
     def test_console(self):
-        self.plan["console"] = dict(playCategory="Education", contactEmail=None,
-                                    playPrivacyUrl="https://example.test/privacy")
-        self.save()
-        (self.meta / "contact_website.txt").write_text("https://example.test/help")
-        self.assertIn("01_map.png: MISSING", self.cli("handoff", rc=1))
-        for name in ("INDEX.md", "INDEX.html"):
-            guide = (self.config / "upload" / name).read_text()
-            for value in ("Education", "https://example.test/privacy", "https://example.test/help",
-                          "Contact email", "enter privately", "enter in Play Console"):
-                self.assertIn(value, guide)
-            self.assertNotIn("Run listing-kit publish first", guide)
+        fields = {"playCategory": ("category.txt", "Education"),
+                  "contactEmail": ("contact_email.txt", "publisher@example.test"),
+                  "playPrivacyUrl": ("privacy_url.txt", "https://example.test/privacy"),
+                  "contactWebsite": ("contact_website.txt", "https://example.test/help")}
+        for source in ("plan", "metadata"):
+            with self.subTest(source=source):
+                self.plan["console"] = {key: value for key, (_, value) in fields.items()} if source == "plan" else {}
+                self.save()
+                if source == "metadata":
+                    for filename, value in fields.values():
+                        (self.meta / filename).write_text(value)
+                handoff = self.cli("handoff", rc=1)
+                self.assertIn("01_map.png: MISSING", handoff)
+                validate = self.cli("validate", rc=1) + self.cli("validate", "--verbose", rc=1)
+                for _, value in fields.values():
+                    self.assertNotIn(value, handoff + validate)
+                    for filename in ("INDEX.md", "INDEX.html"):
+                        guide = html.unescape((self.config / "upload" / filename).read_text())
+                        self.assertTrue(any(value in line and "public on your store page" in line
+                                            for line in guide.splitlines()), filename)
+                        self.assertNotIn("Run listing-kit publish first", guide)
 
     def test_receipt(self):
         files = {"metadata/en-US/title.txt": hashlib.sha256(b"Map Notes").hexdigest()}
@@ -235,10 +357,7 @@ class ImportListing(unittest.TestCase):
             path = self.root / row["outputPath"]
             path.parent.mkdir(parents=True, exist_ok=True)
             w, h = row["size"]
-            def chunk(kind, data):
-                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-            path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w,h,8,2,0,0,0))
-                             + chunk(b"IDAT", zlib.compress(bytes(h*(1+3*w)))) + chunk(b"IEND", b""))
+            path.write_bytes(png(w, h))
         (self.root / ".gitignore").write_text(".listing-kit/local.json\n")
         (self.config / "local.json").write_text("{}")
         self.cli("review")

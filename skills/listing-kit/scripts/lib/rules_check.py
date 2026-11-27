@@ -133,11 +133,11 @@ def promoted(rule, w, h):
 
 def play_coverage(locale, expected, counts):
     for slot, wanted in expected.items():
-        if wanted == 0:
+        actual = counts.get(slot, 0)
+        if wanted == actual == 0:
             yield "WARN", f"planned Play {locale}/{slot}: nothing planned yet"
             continue
-        actual = counts.get(slot, 0)
-        level = "PASS" if wanted == actual else "WARN"
+        level = "PASS" if wanted == actual else "FAIL"
         yield level, f"planned Play {locale}/{slot}: {actual} of {wanted} screenshots"
 
 

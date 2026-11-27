@@ -7,14 +7,14 @@
   ],
   "sha256": {
     "scripts/compose/cdp.py": "e66d5003ddbd0622fffeb37b4a31b0437739704ca3f9c6cf36d0193c23040158",
-    "scripts/compose/compose.py:Job": "79e5a2af931cc1a15dcb3dd85189c3b6dc8afadde8e85a6a3bcf4f52931c487a",
-    "scripts/compose/compose.py:build": "aec0ef3f6e0f47afd5976f8ca0e2c8ff72125f8bf6e801da484689e977de4214",
+    "scripts/compose/compose.py:Job": "6e7a739a9e0cdca627ca33209272de2d55d82eb05dccb197ce618232f0e11cba",
+    "scripts/compose/compose.py:build": "0ecd164085a5bbb8bcd0733d3f8a7cc2513974d18e92960dbdd5dcb0559120a8",
     "scripts/compose/compose.py:flatten_rgb": "05e0faefa89a91ef2fcb535f789d798f8dbcfa200d299b48d27e1922f8a95f5d",
     "scripts/compose/compose.py:text_of": "bf7d5c4e2fe6af59a34ffcdc4ca2b0b1cde6d46db180786e86b00522abec459c",
     "scripts/compose/compose.py:verify_rgb": "1f84fb451cea5623292ade78aa44bc0cf07e01b4dbb8151056b8dafe0dbef3e5",
     "scripts/compose/fontcheck.py": "e2d63aa0b51055f8a4753dc35377155e48b35e5574f355447e5e1def2394d2ad",
     "scripts/compose/pixels.py": "f02108aac92f30d3b10ed91914e9c983d84fdce2e043f97e6fd646714c4e2eb3",
-    "scripts/compose/render.py": "cb3a7278ef34bbfae858cf618c0a615944203d745cbee3a8d5a1918c18577087",
+    "scripts/compose/render.py": "94eaab9e1d41eaecdb9d4f96ee331b3c759de4096080cf90528cebfcf02b7f86",
     "scripts/lib/imginfo.py:_inspect": "18657d1d4a06c452db7011209b49e3881938fe93eba54906d17c06e4c9035008",
     "scripts/lib/imginfo.py:_png": "1372eea2932813f003d18a07015d26a1f75ac396c1908461dddcbe3a6f1798eb",
     "scripts/lib/imginfo.py:_png_passes": "c69a0aa04c13805828abf2d151b76785c131cd02b65f430743f1992f3e6af5a8",
@@ -25,9 +25,9 @@
     "templates/base.css": "061e4d49e55852a4c4abc109f908158377bd91182288e616c0b97cb1193dc7f2",
     "templates/caption-bottom.html": "fe058847827db54781462078f5dab3eb58def531dfd4ccd80da8c58af1b88622",
     "templates/caption-top.html": "2759ec6d2a46d6233ecfb282fd6489d72cfd810a99bcac948790336d2509eced",
-    "templates/feature.html": "fd0164d139dd1220a0d34ebb0b4e96a8ff153a513e3d4ef60b58302a16257e5c",
+    "templates/feature.html": "e99a11775659f1456f3a8f8b739cc0f2f0225e0ab4fbbe15edfe81c95d3037bd",
     "templates/full-bleed.html": "01ca7d97caba24132e8f5b026d4b66c12b13a5841d30c2af21d9a245b920fe61",
-    "templates/header.html": "838894612d99660b311eb53d23ff51f386a81e9652308d4233fef6d52e1c8a15",
+    "templates/header.html": "1351d9734b5cb3d67e55d6f21ebcb7a42736033cf73fd089f6296946ae120403",
     "templates/panel.html": "7b05abedbabd7ea886b22f81d470facebac65ff8d8eb3c66312ade13c6d0dc5c"
   }
 }

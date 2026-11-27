@@ -459,7 +459,7 @@ class _Checker:
         if isinstance(value, str):
             sample = re.sub(r"\{(?:target|locale|screen|index)\}", "sample", value)
             if ("{" not in sample and "}" not in sample and sample.endswith(".png")
-                    and all(specs.component(part) and part.lower() != ".git" for part in sample.split("/"))):
+                    and all(specs.component(part) and part.lower() not in (".git", ".listing-kit") for part in sample.split("/"))):
                 return
         self.error(path, "expected an app-relative PNG path using {target}, {locale}, {screen} or {index}")
 
@@ -734,6 +734,10 @@ class _Checker:
                 if raw not in archive_paths:
                     archive = t["rawPattern"].format(target=tid, locale=capture["id"], screen=sid, index=f"{index:02d}")
                     file = _destination(self.app_root, Path(archive))
+                    if any(part.lower() in (".git", ".listing-kit")
+                           for path in (Path(archive), file.relative_to(self.app_root)) for part in path.parts):
+                        self.error(f"{tid}.rawPattern", "archived captures must be outside .git and .listing-kit")
+                        continue
                     owner = archive_owners.setdefault(_fold(file), raw)
                     if owner != raw:
                         self.error(f"{tid}.rawPattern", f"{archive} also maps to {owner}")

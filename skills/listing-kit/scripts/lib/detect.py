@@ -112,7 +112,7 @@ def read_project(root):
                     project["families"].append((evidence, None))
             elif path.name == "AndroidManifest.xml":
                 doc = ElementTree.parse(path)
-                if not app_manifest(path, doc):
+                if not app_manifest(path, doc, root):
                     continue
                 features = [(f.get(ANDROID + "name", ""), f.get(ANDROID + "required", "true") != "false")
                             for f in doc.findall("uses-feature")]
@@ -204,7 +204,7 @@ def resolve(root, rules, ios_sdk=None, errors=None, active_targets=None):
         data = plan.load(root)
         explicit = data.get("platforms", {})
         if active_targets is not None:
-            active_targets.extend(plan.targets(data, "play"))
+            active_targets.extend(plan.targets(data))
     except plan.UnversionedPlan:
         print("listing.json ignored: unversioned plan (missing format). Using project evidence.", file=sys.stderr)
     except FileNotFoundError:
@@ -278,8 +278,11 @@ if __name__ == "__main__":
         trees, explicit = {}, set()
     except ValueError as exc:
         sys.exit(str(exc))
+    active_targets = []
+    facts = resolve(root, specs.load(root), active_targets=active_targets)
     kind, stores = layout.stack(root)
-    stores = [store for store in layout.BOTH if store in stores or store in explicit or
+    declared = {target["store"] for target in active_targets}
+    stores = [store for store in layout.BOTH if store in stores or store in explicit or store in declared or
               (store in trees and layout.holds_listing(root, store, trees[store]["fastlaneDir"]))]
     print("stack", kind, sep="\t")
     print("stores", " ".join(stores), sep="\t")
@@ -289,12 +292,10 @@ if __name__ == "__main__":
             continue
         for key, path in tree.items():
             print(store + "." + key, path, sep="\t")
-    active_targets = []
-    facts = resolve(root, specs.load(root), active_targets=active_targets)
     for name, (value, source) in facts.items():
         print(name, word(value), source, sep="\t")
     for target in active_targets:
-        if target["slot"] == "phone":
+        if target["store"] == "play" and target["slot"] == "phone":
             support, source = facts["supportsAndroidPhone"]
             runtime = "runtime support unverified" if support is None else f"supportsAndroidPhone={word(support)} ({source})"
             print("play.listingCoverage", f"active phone target {target['id']}", plan.LISTING, runtime, sep="\t")

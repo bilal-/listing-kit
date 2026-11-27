@@ -214,7 +214,18 @@ def page_assets(template, locale, style, fonts, text, raw=None, shot_size=None,
               "brand": _brand(logo, icon, app_name, assets) if user or template in ("panel", "feature", "header") else ""}
     if user:
         assets.update(user.assets)
-    assets["/index.html"] = _fill(template, values, user).encode("utf-8")
+    page = _fill(template, values, user)
+    if not user and template in ("feature", "header"):
+        container = "body" if template == "feature" else ".header"
+        rules = []
+        if "align" in style:
+            rules.extend([container + "{align-items:var(--graphic-align)}",
+                          ".headline,.detail{text-align:var(--graphic-align)}"])
+        if "gap" in style:
+            rules.append(container + "{gap:var(--graphic-gap)}")
+        if rules:
+            page = page.replace("</style>", "\n".join(rules) + "\n</style>", 1)
+    assets["/index.html"] = page.encode("utf-8")
     assets["/fonts.css"] = (fonts_css + "\n" + _vars(style, shot_size)).encode("utf-8")
     assets["/base.css"] = os.path.join(TEMPLATES, "base.css")
     if raw:

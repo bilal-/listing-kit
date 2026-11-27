@@ -234,16 +234,24 @@ class Job:
             return "cover"
         return self.style.get("fit") or ("bleed" if (self.style.get("bezel") or {}).get("bleed") else "contain")
 
+    def capture_input(self, *, pin=False):
+        data = self.read_input(self.raw)
+        raw = self.rec["rawPath"]
+        # Older framed captures in the kit's capture directory may be JPEGs.
+        jpeg = self.mode != "raw" and raw.startswith(".listing-kit/raw/") and data.startswith(b"\xff\xd8")
+        inspect = imginfo._jpeg if jpeg else imginfo._png
+        w, h, _, _ = inspect(io.BytesIO(data))
+        if self.mode == "raw" and (w, h) != tuple(self.rec["size"]):
+            raise ValueError("raw mode needs a %dx%d capture in PNG format; %s is %sx%s"
+                             % (*self.rec["size"], raw, w, h))
+        if not w:
+            raise ValueError(f"{raw}: unreadable PNG capture")
+        if pin and self.raw not in self.digests:
+            self.digests[self.raw] = hashlib.sha256(data).hexdigest()
+        return data, (w, h)
+
     def asset_args(self):
-        data = None
-        shot_size = None
-        if self.raw and self.kind == "shot":
-            data = self.read_input(self.raw)
-            inspect = imginfo._jpeg if data.startswith(b"\xff\xd8") else imginfo._png
-            w, h, _, _ = inspect(io.BytesIO(data))
-            if not w:
-                raise render.RenderError("raw capture is not a readable image: %s" % self.rec["rawPath"])
-            shot_size = (w, h)
+        data, shot_size = self.capture_input() if self.raw and self.kind == "shot" else (None, None)
         font_paths = dict.fromkeys(p for paths in self.fonts.values() for p in paths)
         assets = {p: render.Asset(p, self.read_input(p)) for p in font_paths}
         fonts = {role: [assets[p] for p in paths] for role, paths in self.fonts.items()}
@@ -271,12 +279,7 @@ def build(job, renderer):
     deadline = render.cdp.new_deadline()
     w, h = job.rec["size"]
     if job.mode == "raw":
-        data = job.read_input(job.raw)
-        iw, ih, _, _ = imginfo._png(io.BytesIO(data))
-        if (iw, ih) != (w, h):
-            job.problems.append("raw mode needs a %dx%d capture in PNG format; %s is %sx%s" %
-                                (w, h, job.rec["rawPath"], iw, ih))
-            return None
+        data, _ = job.capture_input()
         return verify_rgb(flatten_rgb(data, deadline), w, h, deadline)
     if job.mode == "icon":
         if not job.source:
@@ -389,6 +392,11 @@ def compose_outputs(args, man, state, templates, input_roots):
             rec = job.rec
             job.problems.append(f"no raw capture at {rec.get('rawPath')} (target {rec['targetId']}, "
                                 f"screen {rec['screenId']}, locale {rec.get('localeId', 'unknown')})")
+        elif job.raw and (args.preview or args.dry_run):
+            try:
+                job.capture_input(pin=True)
+            except (OSError, ValueError, zlib.error) as exc:
+                job.problems.append(str(exc))
         job.problems.extend(job.missing_inputs())
         if job.branded and not job.rec.get("appName"):
             job.rec = dict(job.rec, appName=listing_name(root, man, job.rec))
