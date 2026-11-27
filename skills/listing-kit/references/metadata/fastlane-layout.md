@@ -1,147 +1,117 @@
-# Metadata layout (fastlane-compatible)
+# Where the listing lives
 
-listing-kit writes to fastlane's `deliver` (iOS) and `supply` (Android) trees so
-existing publishing tooling works without translation. Keep a single internal
-notion of "the listing" and write **both** layouts from it.
+Resolve these paths from the app root. In a monorepo, each mobile app can have its own listing. Use UTF-8 text, lower-case image extensions and numbered screenshot filenames to keep gallery order.
 
-## Where the tree lives: the APP ROOT, not the repo root
+## Choosing the app and fastlane directories
 
-`fastlane/` (and `.listing-kit/`) live at the **mobile app's root directory** — the
-directory that holds the app manifest the Detect step found (`app.json`/`package.json`
-for RN/Expo, `pubspec.yaml` for Flutter, the `*.xcodeproj`/`*.xcworkspace` for native
-iOS, `build.gradle` for native Android). All paths below are **relative to that app
-root.**
+Run `listing-kit detect <app-root>` before reading or writing a listing. It prints
+app-relative `fastlaneDir`, `metadata`, `screenshots`, and `storeAssets` paths
+for each store. If the root has no listing content or explicit `trees` and detect finds child
+apps, select one of the reported candidates and run detect there. To keep the
+listing at the workspace root, set `trees` in its plan.
 
-- **Single-app repo:** the app root *is* the repo root → `./fastlane/`.
-- **Monorepo:** the app root is a subdirectory → e.g. `apps/mobile/fastlane/`,
-  `packages/app/fastlane/`. Do **not** write to the repo root.
-- **Multiple apps** in one repo: each app gets its own `fastlane/` under its own root;
-  confirm which app(s) to target during Detect/Plan.
+The fastlane directories below are relative to the selected app. A dash means
+the platform is absent or the app still needs to be selected.
 
-`fastlane`'s own `deliver`/`supply` also expect to be run from the app directory, so
-this keeps the output directly usable. (This repo's own example follows the rule:
-`examples/expo-recipe-box/fastlane/` is at the *app* root, not the repo root.)
+| Layout | App directory | Stores or candidates | Apple fastlane directory | Play fastlane directory |
+| --- | --- | --- | --- | --- |
+| expo-managed | . | apple play | fastlane | fastlane |
+| expo-prebuild | . | apple play | fastlane | fastlane |
+| react-native-bare | . | apple play | ios/fastlane | android/fastlane |
+| flutter | . | apple play | fastlane | fastlane |
+| native-ios | . | apple | fastlane | — |
+| native-android | . | play | — | fastlane |
+| monorepo-siblings | workspace root | choose apps/android apps/ios | — | — |
+| monorepo-siblings | apps/ios | apple | fastlane | — |
+| monorepo-siblings | apps/android | play | — | fastlane |
+| monorepo-js | workspace root | choose apps/mobile | — | — |
+| monorepo-js | apps/mobile | apple play | fastlane | fastlane |
+| existing-root-fastlane | . | apple play | fastlane | fastlane |
+| root-listing-build-ios | . | apple play | fastlane | fastlane |
+| android-lanes-only | . | apple play | fastlane | android/fastlane |
+| duplicate-apple | . | choose Apple trees | — | — |
 
-## iOS — `fastlane/metadata/`
-```
-fastlane/metadata/
-  copyright.txt
-  primary_category.txt  secondary_category.txt
-  <locale>/                         # e.g. en-US (or default/ = fallback for all locales)
-    name.txt  subtitle.txt  promotional_text.txt
-    description.txt  keywords.txt
-    marketing_url.txt  support_url.txt  privacy_url.txt
-    release_notes.txt
-fastlane/screenshots/<locale>/      # iPhone / iPad / Watch PNGs
-```
+The selected app's `.listing-kit/listing.json` can specify individual paths in
+`trees`. Explicit paths take precedence, including at a workspace root. For
+each remaining fastlane directory, compare `fastlane` with `ios/fastlane`
+for Apple or `android/fastlane` for Play.
 
-## Apple creative assets
+| Evidence for this store | Directory selected |
+| --- | --- |
+| Listing text or screenshots in one candidate | The directory containing the files |
+| Listing content in both candidates | Stop and set `trees.apple.fastlaneDir` or `trees.play.fastlaneDir` |
+| Neither has content for this store, root has listing content for the other store | `fastlane` |
+| Neither has content, root has a Fastfile | `fastlane` |
+| Neither has content, only the native candidate has a Fastfile | That store's native fastlane directory |
+| Neither has content or a Fastfile | `fastlane` |
 
-`store-assets/apple/<locale>/` contains Header Asset image variants. This is
-listing-kit's source layout for manual App Store Connect upload, separate from
-Fastlane's screenshot tree. The validator and review page include this folder.
+Run project fastlane lanes from the directory containing the selected
+`fastlane/`, such as `ios/` for a split Apple tree. The kit's setup, pull and
+publish commands look for a fastlane Gemfile in the selected fastlane
+directory, its parent and the app root, in that order. They invoke deliver and
+supply from a clean temporary directory with explicit paths.
 
-### Apple asset plan
+| Content | Resolved source path |
+| --- | --- |
+| Apple app-wide fields | `<apple.metadata>/copyright.txt`, `primary_category.txt` and `secondary_category.txt` in the same directory |
+| Apple review contact and notes | Optional `first_name.txt`, `last_name.txt`, `phone_number.txt`, `email_address.txt` and `notes.txt` under `<apple.metadata>/review_information/`. Enter demo credentials in App Store Connect or keep them outside the repo. |
+| Apple localized copy | `<apple.metadata>/<locale>/<field>.txt`, including `name.txt`, `subtitle.txt`, `description.txt`, `keywords.txt` and the URL fields |
+| Apple fastlane screenshots | `<apple.screenshots>/<locale>/`, with a slot subfolder where the rules specify one |
+| Apple headers | `<apple.storeAssets>/<locale>/` |
+| Play localized copy | `<play.metadata>/<locale>/title.txt`, `short_description.txt`, `full_description.txt`, and optional `video.txt` |
+| Play release notes | `<play.metadata>/<locale>/changelogs/<versionCode>.txt` or `default.txt` |
+| Play fastlane screenshots | `<play.metadata>/<locale>/images/<slot folder>/`, for example `phoneScreenshots/` |
+| Play graphics | `icon.png`, `featureGraphic.png` and any `tvBanner` file directly under the locale's `images/` |
+| Console screenshot targets | `<store.storeAssets>/<store code>/screenshots/<slot id>/` |
 
-Persist approved Apple coverage in `.listing-kit/asset-plan.json` at the app root:
+Use the [Apple](../stores/apple-app-store.md) and [Play](../stores/google-play.md) tables for the full field lists, slot folders and routes. Apple localized fields can inherit from `<apple.metadata>/default/`.
 
-```json
-{
-  "apple": {
-    "en-US": {
-      "screenshots": {
-        "iPhone Dynamic Island (medium display)": 5,
-        "iPad 13\"": 5
-      },
-      "headers": ["header-16x9.png", "header-21x9.png"]
-    }
-  }
-}
-```
+## Split fastlane roots
 
-Use the exact display-class labels in `scripts/lib/apple-screenshot-sizes.tsv`.
-Counts are the approved number (1–10) in that class and locale; the validator
-requires a match. Header entries are lower-case PNG/JPEG basenames within that
-locale's creative-assets folder. Either `screenshots` or `headers` may be omitted
-when only the other is planned.
+In the [plan](../plan-file.md), set `trees.apple.fastlaneDir` to `ios/fastlane` and `trees.play.fastlaneDir` to `android/fastlane` for a split project. Each store can override its `metadata` directory. Apple can also override `screenshots`. Set `trees.storeAssets` to change the shared creative root. All explicit paths are app-relative, including metadata overrides. Inspect the resolved paths with `listing-kit plan manifest`.
 
-Optional `deferredScreenshots` maps display-class labels to a nonempty, single-line
-reason (up to 500 characters), for example:
+## What to commit
 
-```json
-{
-  "apple": {
-    "en-US": {
-      "screenshots": {
-        "iPhone Dynamic Island (medium display)": 5
-      },
-      "headers": [
-        "header-16x9.png"
-      ],
-      "deferredScreenshots": {
-        "iPhone Duo": "Xcode 27.1 and a compatible Duo runtime are unavailable."
-      }
-    }
-  }
-}
+Commit the plan, saved flows, public copy, graphics and final screenshots. Keep the source captures and brand inputs available for anyone who needs to reproduce the images. Commit `.listing-kit/compose.lock.json` (input keys, output hashes and renderer details) and `.listing-kit/outputs.json` (the inventory of written paths) with the images. When a planned path disappears, compose moves unchanged owned output into `.listing-kit/held/` under its old relative path. Inspect held files before archiving them. Compose leaves manually changed stale files in place.
+
+Ignore local state in the app's gitignore. Keep the plan and flows trackable.
+
+```gitignore
+.listing-kit/local.json
+.listing-kit/upload/
+.listing-kit/logs/
+.listing-kit/compose.flock
+.listing-kit/*.local
 ```
 
-Keep a deferred class out of `screenshots`; an active/deferred conflict fails
-validation. Deferrals produce warnings and a visible review notice, and hide any
-retained screenshots of that class from the active gallery without deleting them.
-They never waive store-required screenshot classes. Capture and archive only
-active targets; do not recursively include retained deferred screenshots in a
-delivery ZIP. Keep credentials out of the plan. Update the plan when the user changes scope. Without a plan, validation checks
-store minimums and present images but cannot prove that every requested set exists.
+The `*.local` rule above keeps `.listing-kit/secrets.local` out of Git. The user can source it before capture to export a demo login. [Flow variables](../driving/maestro.md#write-a-flow)
 
-Keep numeric screenshot prefixes and a distinct device suffix, e.g.
-`01_home_iphone-medium.png` and `01_home_ipad.png`. Label the exact console slot
-in the review/handoff. If creating a ZIP, include headers and the plan, and check
-its file inventory and contents against the validated source tree.
-Exclude incidental hidden files and folders such as `.DS_Store`, editor backups
-and temporary capture directories. Include the approved plan explicitly rather
-than recursively archiving all hidden files. Reopen the final ZIP and verify the
-actual inventory and bytes after filtering; image validation alone does not
-audit archive metadata.
+Setup saves paths supplied through its key-path options in private `.listing-kit/local.json`. This file can also hold device pins. Keep store key files outside the whole repository. The agent may help set a path but must never request, open or print the credential contents.
 
-## Android — `fastlane/metadata/android/`
-```
-fastlane/metadata/android/
-  <locale>/                         # e.g. en-US
-    title.txt  short_description.txt  full_description.txt
-    changelogs/<versionCode>.txt    # or changelogs/default.txt
-    images/
-      icon.png          featureGraphic.png   # files, not folders (supply ignores folders)
-      phoneScreenshots/ sevenInchScreenshots/ tenInchScreenshots/
-      tvScreenshots/    wearScreenshots/
+If the staged review hook blocks a commit, fix the finding and commit again. Never bypass the scan with `--no-verify`. If the user confirms a flagged key in a device declaration is public, review the staged file. For a reviewed `app.json` at the repository root, record the exception from that directory.
+
+```sh
+git config --local --add listingKit.reviewedDeviceBlob "$(git rev-parse :app.json) app.json"
 ```
 
-The community `universal_metadata` fastlane plugin is **prior art** for this
-mapping — a reference, not a dependency.
+For another declaration, use its repository-relative path in both places. The exception covers only that staged blob at that path. Review it again after an edit.
 
-## File names
-Use **lower-case** extensions (`.png`, `.jpg`, `.jpeg`): fastlane globs for those, so on
-a case-sensitive filesystem (Linux CI) `01_home.PNG` is silently never uploaded. The
-validator fails upper-case extensions. Copy files must be UTF-8. Locale values can
-fall back to `metadata/default/` (deliver) for fields a locale doesn't override.
+## Listing coverage
 
-## Screenshot ordering (important)
-Both `deliver` and `supply` derive on-store display order from the **filename
-sort order**. Encode the curated order (Curate step) as a numeric prefix:
-`01_home.png`, `02_library.png`, `03_reader.png`, … This is what makes "the first
-screenshot matters most" actually hold on the store.
+New listings commit only [listing.json](../plan-file.md) for asset coverage. Each active target contributes one screenshot per applicable screen in each selected store locale. Apple graphics supply the expected header filenames. To postpone an optional Apple display, mark its target `deferred` and give a single-line reason. Review and handoff show that reason. Validation fails when a required display is deferred.
 
-## Secrets boundary — READ THIS
-The committed tree is the source of truth **for non-secrets only**.
+**Older listings.** When `.listing-kit/asset-plan.json` is the only plan, the kit still reads its Apple counts, header filenames and deferral reasons. When both files exist, validation uses `listing.json` and lists any older declarations missing from the new plan.
 
-- **Committed:** copy, keywords, URLs, copyright, screenshots, generated graphics
-  — everything that *is* the public listing.
-- **NEVER committed:** login credentials, API tokens, seed-data secrets, mock
-  auth tokens. These live in a git-ignored `.listing-kit/secrets.local` or
-  environment variables, and are **referenced — not inlined** — by Maestro flows.
-  Add `.listing-kit/secrets.local` (or `*.local`) to the *target* repo's `.gitignore`.
-  Do **not** ignore all of `.listing-kit/`: the flows in `.listing-kit/flows/` are
-  committed so reruns and CI can replay them, and the secret scan checks them.
-- **Assemble asserts the boundary:** before finishing, run
-  `scripts/lib/secret-scan.sh` over the written `fastlane/` tree and **fail the
-  run** if any credential/high-entropy token leaked into a committed file.
+## Store management
+
+Before the first pull, configure the external key path and run `listing-kit fastlane setup --store apple` or `listing-kit fastlane setup --store play`. Setup checks download access. Use the same store selection for pull and publish. Without a plan, Apple needs `--app-identifier` and Play needs `--package-name` on each command. The environment variables `APP_STORE_CONNECT_API_KEY_PATH` and `SUPPLY_JSON_KEY` can supply the key paths. [Worked commands](../../../../docs/GUIDE.md#sync-an-app-you-own) · [Credentials](../../../../docs/CREDENTIALS.md)
+
+`listing-kit pull` updates nonconflicting text, records hashes in `.listing-kit/remote.lock.json` and saves screenshot references under `.listing-kit/remote/<store>/`. When both sides changed a field, the working file stays in place and the downloaded copy goes under that reference directory. Review the two versions before merging.
+
+`listing-kit publish` validates a scratch copy, compares it with the store and prints a summary and proposed command for comparable changes. Fastlane uses deliver for Apple and supply for Play. The preview identifies gallery replacement scope. Apple replacement affects all screenshot sets in an uploaded locale. The adapter leaves console slots and Play listing graphics for hand upload. Publishing does not upload by default. Agents must never pass `--yes` or set `LK_PUBLISH_UNVERIFIED`, the maintainers' live-test switch.
+
+`listing-kit handoff --open` builds a copy in `.listing-kit/upload/` with Apple and Play folders, ordered screenshots, text and graphics. Open `INDEX.html` or read `INDEX.md` for destinations, missing items and omissions. Edit the source listing. Handoff refuses to replace a modified or unrecognized upload folder.
+
+## Standalone tools with split roots
+
+Validate, review, handoff and the staged review hook use the resolved paths for each store. Run the commands from the selected app, or pass its directory.

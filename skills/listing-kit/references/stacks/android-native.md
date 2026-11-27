@@ -32,13 +32,6 @@ Resolve `<applicationId>` from `applicationId` in `build.gradle(.kts)`. A native
 APK is self-contained, so it's fine for capture; build release instead if the app
 shows debug-only UI.
 
-## Sanitize & permissions
-- Status bar (demo mode): `scripts/capture/sanitize-status-bar.sh android`
-- Permissions: `scripts/capture/grant-permissions.sh android <applicationId>` (uses `adb shell pm grant`)
-
 ## Capture
-```sh
-adb exec-out screencap -p > "01_home.png"
-```
-For specific densities/sizes, launch an AVD whose resolution matches the target
-device class (phone / 7" / 10" tablet / Wear) — see `../stores/google-play.md`.
+
+Start the planned AVD, install the app and run `listing-kit capture` with the [saved flows](../driving/maestro.md). Capture matches the emulator profile, sanitizes the status bar and uses adb to capture the display. Choose a matching tablet AVD for a tablet target. A physical device requires explicit selection and permission to run a flow that can clear app data.

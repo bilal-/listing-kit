@@ -1,99 +1,47 @@
 # Contributing to listing-kit
 
-Thanks for being here — contributions are genuinely welcome, from typo fixes to
-whole new stack modules. This project gets better every time someone runs it
-against a real app and tells us what broke.
+Edit the [agent workflow](skills/listing-kit/SKILL.md) for decisions the agent makes with a user. Put build instructions in the stack references. Implement repeatable operations under `skills/listing-kit/scripts/` and expose them through the launcher. Check the public help and update the guide when a command changes.
 
-## Ways to help
+## When a store changes its rules
 
-- **Keep store specs current.** Apple and Google change sizes and limits often. If
-  the table in `skills/listing-kit/references/stores/*.md` is stale, a one-line PR
-  is hugely valuable.
-- **Deepen a stack module.** Add detection signals, build/launch commands, or
-  discovery heuristics for frameworks and edge cases in
-  `skills/listing-kit/references/stacks/*.md`.
-- **Improve Maestro recipes.** Better flow patterns for auth bypass, deep links,
-  and reaching populated states.
-- **Sharpen the scripts.** More robust status-bar/permission handling, secret
-  patterns, or feature-graphic styles.
-- **File issues.** A clear bug report against a real repo (stack, OS, what you
-  expected, what happened) is a contribution.
+The weekly drift watch reports changes and sources it could not check in one issue, **Store rules drift detected**. Inspect the named sources. If extraction broke, fix the parser and its offline fixture before accepting a new digest.
 
-## Project shape
+1. Edit [stores.json](skills/listing-kit/specs/stores.json) and set its verification date to the day you checked the source.
+2. Run `python3 skills/listing-kit/scripts/specs/render.py` to regenerate the tables in the store references.
+3. Run `bash tests/run.sh`. Include coverage for the rule change.
+4. After checking the live sources, run `python3 skills/listing-kit/scripts/specs/drift.py update --fetch`. Review the digest changes alongside the rules and tables before closing the issue.
 
-```
-.claude-plugin/        Claude Code plugin + marketplace manifests (hand-maintained)
-skills/listing-kit/
-  SKILL.md             the orchestration core (the pipeline)
-  references/          pluggable modules: stores/, stacks/, driving/, metadata/, platforms/
-  scripts/             portable bash 3.2+ helpers (capture/, generate/, lib/, package/, validate/)
-  assets/              optional device frames (future)
-docs/                  user guide (GUIDE.md) + architecture (ARCHITECTURE.md)
-AGENTS.md, gemini-extension.json, .kiro/steering/   GENERATED — do not hand-edit (see below)
-```
+## Generated files
 
-**Architecture rule:** the core (`SKILL.md`) never contains stack- or
-store-specific commands. Those live in `references/` modules. Add a new stack or
-store by writing a module, not by editing the core.
+Edit [.claude-plugin/plugin.json](.claude-plugin/plugin.json) for plugin metadata. Run `bash skills/listing-kit/scripts/package/generate-manifests.sh` to update the marketplace manifest, Gemini extension manifest and installed skill VERSION. The README version badge must carry the plugin version in its alt text and URL.
 
-## Local development
+The example app contains the captured Expo listing. Regenerate its screenshots deliberately on matching devices. Keep the status in [examples/README.md](examples/README.md) accurate when the validator changes.
 
-There's no build step — the skill is markdown + shell. To work on it:
+## Screenshot renderer changes
+
+The composer fingerprints each rendered style with the contents of the selected template HTML, the shared `base.css`, and `RENDERER_VERSION` from `compose.py`. An HTML or CSS edit already changes the affected style fingerprints and only needs a re-record.
+
+The guard covers these Python sources.
+
+- The complete `render.py`, `cdp.py`, `pixels.py`, `fontcheck.py` and `template_values.py` modules.
+- In `compose.py`, the `text_of`, `flatten_rgb`, `build` and `verify_rgb` functions and the `Job` class.
+- In `imginfo.py`, the PNG reader and capture dimension functions (`_png_passes`, `_png`, `_inspect` and `image_info`).
+
+If the code changes pixels, bump `RENDERER_VERSION` before recording. If pixels are unchanged, keep the version. Run this command from the repository root to record the reviewed source hashes and current version.
 
 ```sh
-git clone https://github.com/bilal-/listing-kit
-cd listing-kit
-
-# Run the test suite (zero dependencies — just bash + python3):
-bash tests/run.sh
-
-# After editing SKILL.md or plugin.json, regenerate the non-Claude manifests:
-bash skills/listing-kit/scripts/package/generate-manifests.sh
-
-# Syntax-check shell helpers:
-for f in $(find skills/listing-kit/scripts -name '*.sh'); do bash -n "$f"; done
+python3 tests/unit/renderer_version.py --record
 ```
 
-### Tests
-`tests/` is a zero-dependency bash suite (no bats, no installs) run by
-`bash tests/run.sh` and in CI on Linux + macOS. It covers the scripts (via PATH
-stubs, so no real simulators/devices are needed), manifest generation, and repo
-invariants (valid JSON, name consistency, no broken references or doc links,
-manifests in sync with the generator). **Please add a test with any script or
-manifest change**, and make sure the suite is green before opening a PR. New test
-files go in `tests/{unit,integration,structure}/` and end in `.test.sh`.
+Commit the updated `tests/fixtures/renderer-version.json` with the change. Run `LK_REQUIRE_RENDER=1 bash tests/run.sh` to exercise the rendered layouts, including the Arabic system-font fallback.
 
-### Generated files
-`AGENTS.md`, `gemini-extension.json`, and `.kiro/steering/listing-kit.md` are
-**emitted** by `scripts/package/generate-manifests.sh` from
-`.claude-plugin/plugin.json`. Don't edit them by hand — change the source and
-regenerate, so manifests never drift. (CI fails if they're stale.)
+## Expo listing end-to-end test
 
-**Example output** under `examples/*/fastlane/` is generated by running listing-kit
-against the example apps (Phase B) and is regenerated **periodically, not per-PR** —
-it needs simulators and may lag the latest store sizes. Don't block a PR on it.
+Run `LK_REQUIRE_RENDER=1 bash tests/e2e/example.sh` with ImageMagick and a Chromium browser installed. The weekly macOS workflow runs the same script. It copies the Expo listing inputs to a fresh temporary app, composes raw and framed screenshots from its checked-in captures, validates the listing, and checks the review and handoff files.
 
-### Shell conventions
-- `bash` 3.2-compatible (macOS's default: no associative arrays, no `mapfile`), `set -euo pipefail`, clear `Usage:` on bad args.
-- Degrade gracefully: a missing optional tool should fall back (and say so), not
-  crash. See `feature-graphic.sh` (exit 3 → prompt) for the pattern.
-- Never write secrets to disk in a committed path. If you touch the listing tree,
-  keep `secret-scan.sh` honest.
-- Logic that's awkward in bash (image headers, field limits, locale discovery)
-  lives in `scripts/lib/*.py`: Python 3.8+, standard library only, shared by the
-  scripts that need it rather than copied into heredocs.
+## Development and review
 
-## Pull requests
-
-1. Fork and branch from `main` (`feat/...`, `fix/...`, `docs/...`).
-2. Keep PRs focused; explain the *why*, and which stack/store/platform you tested against.
-3. If you changed the skill or plugin metadata, run the generator and commit the result.
-4. Be kind in review — see the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-By contributing, you agree your work is licensed under the project's
-[MIT License](LICENSE).
-
-## Questions
-
-Open a [Discussion or Issue](https://github.com/bilal-/listing-kit/issues).
-Happy to help you land your first PR.
+- Run `bash tests/run.sh`. Put new tests under `tests/unit/`, `tests/integration/` or `tests/structure/` with a `.test.sh` suffix. Use the suite's temporary fixtures for Git operations and stub device or store access.
+- Keep shell helpers compatible with Bash 3.2 and Python helpers compatible with Python 3.8. Reuse the shared checks for paths, plans, store rules and secrets.
+- Keep store credentials outside the repository. Use synthetic values for tests.
+- Open a focused pull request with the reason for the change, affected platforms and test results. See the [code of conduct](CODE_OF_CONDUCT.md) and [license](LICENSE).

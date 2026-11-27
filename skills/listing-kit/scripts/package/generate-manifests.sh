@@ -1,81 +1,40 @@
 #!/usr/bin/env bash
-# Generator: emit per-AI-platform install manifests from the canonical skill so
-# they never drift. EMIT-ONLY (v1) — writes files, does not install anything.
-#
-# Reads .claude-plugin/plugin.json (the source of truth for name/version/desc)
-# and writes, at the repo root:
-#   - gemini-extension.json          (Gemini CLI)
-#   - AGENTS.md                      (Codex / Copilot CLI discovery)
-#   - .kiro/steering/listing-kit.md  (Kiro steering-doc wrapper — best-effort)
-#
-# The Claude Code manifests (.claude-plugin/{plugin,marketplace}.json) are the
-# hand-maintained source and are NOT regenerated here.
-#
-# Usage: generate-manifests.sh [<repo-root>]
+# Regenerate the install metadata from the canonical Claude plugin manifest.
 set -euo pipefail
-
 root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}"
 plugin_json="$root/.claude-plugin/plugin.json"
-
 [ -f "$plugin_json" ] || { echo "Missing $plugin_json" >&2; exit 2; }
-command -v python3 >/dev/null 2>&1 || { echo "Need python3 to read $plugin_json" >&2; exit 2; }
+command -v python3 >/dev/null || { echo "Need python3 to read $plugin_json" >&2; exit 2; }
 
-read_field() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$plugin_json" "$1"; }
+python3 - "$root" <<'PY'
+import json
+from pathlib import Path
+import sys
 
-name="$(read_field name)"
-version="$(read_field version)"
-description="$(read_field description)"
-skill_md="skills/$name/SKILL.md"
+root = Path(sys.argv[1])
+plugin = json.loads((root / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+identity = {key: plugin[key] for key in ("name", "version", "description")}
+name = plugin["name"]
 
-# --- Gemini CLI extension (json.dumps so quotes etc. in the description stay valid) ---
-python3 - "$root/gemini-extension.json" "$name" "$version" "$description" "$skill_md" <<'PY'
-import json, sys
-out, name, version, description, context = sys.argv[1:6]
-with open(out, "w", encoding="utf-8") as f:
-    json.dump({"name": name, "version": version, "description": description,
-               "contextFileName": context}, f, indent=2, ensure_ascii=False)
-    f.write("\n")
+def write(path, content):
+    dest = root / path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content + "\n", encoding="utf-8")
+    print("wrote", path)
+
+def write_json(path, data):
+    write(path, json.dumps(data, indent=2, ensure_ascii=False))
+
+write(Path("skills") / name / "VERSION", plugin["version"])
+write_json("gemini-extension.json", identity)
+entry = dict(identity, category="productivity", source="./",
+             keywords=plugin["keywords"])
+for key in ("author", "homepage", "license"):
+    if key in plugin:
+        entry[key] = plugin[key]
+write_json(".claude-plugin/marketplace.json", {
+    "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+    "name": name, "description": plugin["description"], "owner": plugin["author"],
+    "plugins": [entry],
+})
 PY
-echo "wrote gemini-extension.json"
-
-# --- Codex / Copilot CLI discovery ---
-cat > "$root/AGENTS.md" <<EOF
-# Agents & skills in this repo
-
-## $name (v$version)
-
-$description
-
-**Skill instructions:** [\`$skill_md\`]($skill_md)
-
-Codex installs it as a plugin (\`codex plugin marketplace add bilal-/listing-kit\`,
-then \`codex plugin add listing-kit@listing-kit\`). Under Copilot CLI, load the
-skill file above as context, then follow its pipeline. All work is plain shell-outs; see
-\`skills/$name/references/platforms/tool-mapping.md\` for tool-name
-equivalents on your platform.
-EOF
-echo "wrote AGENTS.md"
-
-# --- Kiro steering doc (best-effort: Kiro has no confirmed plugin installer) ---
-mkdir -p "$root/.kiro/steering"
-cat > "$root/.kiro/steering/$name.md" <<EOF
----
-inclusion: manual
----
-
-# $name (v$version)
-
-$description
-
-This is a Kiro **steering-doc wrapper**. Kiro has no confirmed plugin/skill
-installer, so load the canonical skill below as context and follow its pipeline.
-
-**Skill instructions:** [\`$skill_md\`](../../$skill_md)
-
-All work is plain shell-outs; see
-\`skills/$name/references/platforms/tool-mapping.md\` for tool-name
-equivalents on your platform.
-EOF
-echo "wrote .kiro/steering/$name.md"
-
-echo "Done. (Emit-only: no install performed.)"

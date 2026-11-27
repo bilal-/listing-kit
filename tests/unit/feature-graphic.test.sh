@@ -12,8 +12,9 @@ OUT="$(bash "$SUT" /no/such/icon.png /tmp/out.png 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 
 # Real icon file for the remaining cases.
-ICON="$(mktemp).png"; printf 'icon' > "$ICON"
-OUTPNG="$(mktemp).png"; rm -f "$OUTPNG"
+new_tempdir T
+ICON="$T/icon.png"; printf 'icon' > "$ICON"
+OUTPNG="$T/out.png"
 
 it "exits 3 and prompts a fallback when ImageMagick is absent"
 new_stubdir   # empty stub dir → no magick/convert on PATH (absolute bash so it's still findable)
@@ -35,5 +36,22 @@ new_stubdir; stub magick
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" "#000000" "#ffffff" 2>&1)"; RC=$?
 assert_contains "$(stub_log)" "gradient:#000000-#ffffff"
 
-rm -f "$ICON" "$OUTPNG"
+it "an app-specific feature graphic size reaches ImageMagick"
+mkdir -p "$T/.listing-kit"
+printf '%s' '{"stores":{"play":{"graphics":[{"id":"featureGraphic","size":[1200,600]}]}}}' > "$T/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+OUT="$(cd "$T" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG" 2>&1)"; assert_eq 0 "$?"
+assert_contains "$(stub_log)" "-size 1200x600"
+it "feature graphic follows canvas, bit depth and alpha overrides"
+echo '{"stores":{"play":{"graphics":[{"id":"featureGraphic","size":[1200,600],"bitDepth":16,"alpha":true}]}}}' > "$T/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+(cd "$T" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$OUTPNG") >/dev/null
+assert_contains "$(stub_log)" "-resize 360x360"
+assert_contains "$(stub_log)" "-depth 16"
+assert_contains "$(stub_log)" "PNG64:"
+it "a JPEG-only graphic rule selects the JPEG encoder"
+echo '{"stores":{"play":{"graphics":[{"id":"featureGraphic","formats":["jpeg"]}]}}}' > "$T/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+(cd "$T" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$ICON" "$T/out.jpg") >/dev/null
+assert_contains "$(stub_log)" "JPEG:$T/out.jpg"
 summary

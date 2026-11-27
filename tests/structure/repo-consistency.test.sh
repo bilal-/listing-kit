@@ -16,6 +16,29 @@ assert_eq "listing-kit" "$skill_name" "SKILL.md frontmatter name"
 assert_eq "$skill_name" "$plugin_name" "plugin.json matches skill"
 assert_eq "$skill_name" "$mkt_name" "marketplace matches skill"
 
+it "skill VERSION matches the canonical plugin version"
+assert_eq "$(json_get "$ROOT/.claude-plugin/plugin.json" version)" "$(cat "$SKILL_DIR/VERSION")"
+# ---- the version shown to people matches the manifest ----
+it "README version badge matches plugin.json"
+plugin_version="$(json_get "$ROOT/.claude-plugin/plugin.json" version)"
+# shields.io escapes "-" as "--" and "_" as "__" inside the message.
+shields_version="$(printf '%s' "$plugin_version" | sed -e 's/_/__/g' -e 's/-/--/g')"
+badge="<img alt=\"Version: $plugin_version\" src=\"https://img.shields.io/badge/version-$shields_version-blue\">"
+assert_contains "$(cat "$ROOT/README.md")" "$badge" "one badge element carries the manifest version in both alt and src"
+assert_eq 1 "$(grep -c 'img.shields.io/badge/version-' "$ROOT/README.md")" "exactly one version badge"
+assert_not_contains "$(cat "$ROOT/README.md")" "in%20dev"
+
+it "the newest CHANGELOG release is the manifest version, dated, with entries"
+assert_file "$ROOT/CHANGELOG.md"
+latest="$(awk '/^## / && $0 != "## Unreleased" { print; exit }' "$ROOT/CHANGELOG.md")"
+if printf '%s\n' "$latest" | grep -Eq '^## [^ ]+ \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$' && [ "${latest%% (*}" = "## $plugin_version" ]; then
+  pass "latest release heading: $latest"
+else
+  fail "expected the first release heading to be '## $plugin_version (YYYY-MM-DD)', got '$latest'"
+fi
+bullets="$(awk -v h="$latest" '$0 == h { on = 1; next } on && /^## / { exit } on && /^- / { n++ } END { print n + 0 }' "$ROOT/CHANGELOG.md")"
+if [ "$bullets" -ge 1 ]; then pass "$bullets entries under $latest"; else fail "no entries under $latest"; fi
+
 # ---- SKILL.md frontmatter is well-formed ----
 it "SKILL.md has name + description frontmatter"
 assert_contains "$(head -5 "$SKILL_DIR/SKILL.md")" "name:"
@@ -24,7 +47,7 @@ assert_contains "$(head -5 "$SKILL_DIR/SKILL.md")" "description:"
 # ---- all expected reference docs exist ----
 for d in stores/apple-app-store stores/google-play \
          stacks/ios-native stacks/android-native stacks/flutter stacks/react-native-expo \
-         driving/maestro metadata/fastlane-layout platforms/tool-mapping; do
+         plan-file driving/maestro metadata/fastlane-layout platforms/tool-mapping; do
   it "reference doc exists: $d.md"
   assert_file "$SKILL_DIR/references/$d.md"
 done
@@ -47,10 +70,8 @@ while read -r p; do
 done < <(grep -oE '`(references|scripts)/[^`]+`' "$SKILL_DIR/SKILL.md" | tr -d '`' | sort -u)
 [ "$missing" -eq 0 ] && pass "no broken in-skill references" || fail "SKILL.md references a missing file"
 
-# ---- gemini contextFileName points at a real file ----
-it "gemini-extension.json contextFileName resolves"
-ctx="$(json_get "$ROOT/gemini-extension.json" contextFileName)"
-assert_file "$ROOT/$ctx"
+it "Gemini loads the bundled skill on demand"
+assert_not_contains "$(cat "$ROOT/gemini-extension.json")" "contextFileName"
 
 # ---- relative markdown links resolve ----
 check_links() {
@@ -73,12 +94,10 @@ SK="$(cat "$SKILL_DIR/SKILL.md")"
 assert_contains "$SK" "Never fabricate"
 
 it "SKILL.md states reruns preserve existing fastlane listings"
-assert_contains "$SK" "Preserve existing listings on reruns"
-assert_contains "$SK" "treat it as the baseline"
-assert_contains "$SK" "Do not rewrite a good description"
+assert_contains "$SK" "Ask before rewriting committed content"
+assert_contains "$SK" "Read existing copy, plans, flows and assets first"
 
-it "SKILL.md states git repos install the review refresh hook"
-assert_contains "$SK" 'run `scripts/package/install-review-hook.sh`'
-assert_contains "$SK" 'The hook watches staged changes to `fastlane/**`, `store-assets/**`, `.listing-kit/asset-plan.json`, `.listing-kit/flows/**`, root-level `app.json` and `app.config.*`, and any `*.pbxproj` or `Info.plist` files within the app.'
+it "the agent installs the review hook through the public command"
+assert_contains "$SK" "listing-kit hook install"
 
 summary

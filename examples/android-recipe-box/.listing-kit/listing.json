@@ -1,0 +1,78 @@
+{
+  "format": 2,
+  "app": {
+    "android": "com.example.recipebox.android"
+  },
+  "locales": [
+    "en-US"
+  ],
+  "style": {
+    "mode": "framed",
+    "template": "caption-top",
+    "palette": {
+      "background": [
+        "#FFF7EA"
+      ],
+      "ink": "#25180D"
+    },
+    "fonts": {
+      "default": {
+        "headline": [
+          "bundled:Inter"
+        ],
+        "detail": [
+          "bundled:Inter"
+        ]
+      }
+    }
+  },
+  "targets": [
+    {
+      "id": "play-phone",
+      "store": "play",
+      "slot": "phone",
+      "size": [
+        1080,
+        1920
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "pixel_8",
+        "nativeSize": [
+          1080,
+          2400
+        ]
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "recipes",
+      "flow": ".listing-kit/flows/recipes.yaml",
+      "caption": {
+        "en-US": "Your recipe box"
+      }
+    },
+    {
+      "id": "recipe-detail",
+      "flow": ".listing-kit/flows/recipe-detail.yaml",
+      "caption": {
+        "en-US": "Ingredients at a glance"
+      }
+    },
+    {
+      "id": "shopping",
+      "flow": ".listing-kit/flows/shopping.yaml",
+      "caption": {
+        "en-US": "Your shopping list"
+      }
+    },
+    {
+      "id": "settings",
+      "flow": ".listing-kit/flows/settings.yaml",
+      "caption": {
+        "en-US": "Make it your own"
+      }
+    }
+  ]
+}

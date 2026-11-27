@@ -1,0 +1,95 @@
+# Publishing is off until the store's live test passes. With the fastlane adapter, the job reports:
+# "publishing to <store> is not enabled in this version of listing-kit until it has passed a live test; use the hand-upload folder"
+# Builds without the adapter print "this command is not part of this build of listing-kit".
+.listing-kit-tools:
+  # Before release, pin this image by digest.
+  image: ruby:3.3-bookworm
+  variables:
+    GIT_STRATEGY: clone
+    KIT_REF: '__KIT_REF__'
+    APP_ROOT: '__APP_ROOT__'
+  before_script:
+    - |
+      apt-get update
+      apt-get install -y imagemagick python3
+      kit="$(mktemp -d /tmp/listing-kit.XXXXXX)"
+      git clone --quiet --no-checkout --depth 1 https://github.com/bilal-/listing-kit "$kit"
+      git -C "$kit" fetch --quiet --depth 1 origin "$KIT_REF"
+      git -C "$kit" checkout --quiet --detach FETCH_HEAD
+      if [ ! -x "$kit/skills/listing-kit/bin/listing-kit" ]; then
+        echo "kit ref $KIT_REF has no listing-kit command; use a newer --kit-ref" >&2
+        exit 1
+      fi
+      export PATH="$kit/skills/listing-kit/bin:$PATH"
+
+listing-validate:
+  extends: .listing-kit-tools
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+__LISTING_FILTERS__
+  script:
+    - |
+      rm -f -- "$APP_ROOT/listing-review.html"
+      status=0
+      listing-kit validate "$APP_ROOT" || status=$?
+      listing-kit review "$APP_ROOT"
+      exit "$status"
+  artifacts:
+    when: always
+    paths:
+      - '__APP_PREFIX__listing-review.html'
+
+.listing-kit-publish:
+  extends: .listing-kit-tools
+  stage: deploy
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: manual
+      allow_failure: true
+  script:
+    - |
+      umask 077
+      key_dir="$(mktemp -d /tmp/listing-keys.XXXXXX)"
+      trap 'rm -rf -- "$key_dir"' EXIT
+      case "$STORE" in
+        apple)
+          export APP_STORE_CONNECT_API_KEY_PATH="$key_dir/apple.json"
+          source_file=${APP_STORE_CONNECT_API_KEY_JSON:-}
+          destination="$APP_STORE_CONNECT_API_KEY_PATH"
+          ;;
+        play)
+          export SUPPLY_JSON_KEY="$key_dir/play.json"
+          source_file=${PLAY_SERVICE_ACCOUNT_JSON:-}
+          destination="$SUPPLY_JSON_KEY"
+          ;;
+        *) exit 2 ;;
+      esac
+      if [ ! -f "$source_file" ]; then
+        echo 'store credential must be a GitLab File variable' >&2
+        exit 2
+      fi
+      if ! install -m 600 -- "$source_file" "$destination" 2>/dev/null; then
+        echo 'could not copy store credential' >&2
+        exit 2
+      fi
+      unset APP_STORE_CONNECT_API_KEY_JSON PLAY_SERVICE_ACCOUNT_JSON
+      gem install fastlane -v 2.242.0 --no-document
+      listing-kit publish --store "$STORE" --yes "$APP_ROOT"
+  artifacts:
+    when: always
+    paths:
+      - '__APP_PREFIX__.listing-kit/publish.receipt.json'
+
+listing-publish-apple:
+  environment: store-listing-apple
+  extends: .listing-kit-publish
+  variables:
+    STORE: apple
+
+listing-publish-play:
+  environment: store-listing-play
+  extends: .listing-kit-publish
+  variables:
+    STORE: play

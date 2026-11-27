@@ -8,7 +8,7 @@ RN/Expo app on iOS **and** Android? Driving is shared (see `../driving/maestro.m
 - Expo: `app.json` / `app.config.{js,ts}` with an `expo` key; `expo` dependency
 - `metro.config.js`
 
-## Expo vs. bare RN — branch on this
+## Choose the Expo or bare React Native build
 The build/run path differs materially; detect which you're in:
 
 | | Signal | Run path |
@@ -16,7 +16,7 @@ The build/run path differs materially; detect which you're in:
 | **Expo (managed / prebuild)** | `expo` dependency, `app.json` with `expo` | `npx expo run:ios` / `npx expo run:android`, or `npx expo prebuild` then native build. EAS for cloud builds. |
 | **Bare RN** | `react-native` without Expo managed config | `npx react-native run-ios` / `run-android` (Metro bundler) |
 
-Install JS deps first (`npm ci` / `yarn` / `pnpm i` — match the lockfile present).
+Install the JS dependencies with the package manager that matches the app lockfile.
 
 ## Doctor checks
 - Node + package manager (match lockfile: `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`)
@@ -53,6 +53,28 @@ npx react-native run-ios --mode Release --simulator "iPhone 17 Pro"
 npx react-native run-android --mode release
 ```
 
+### Install one Expo Release build on several devices
+
+Recipe Box uses Expo's bundled native template. From the app root, generate the native projects once. This creates the workspace after CocoaPods finishes.
+
+```sh
+npm ci
+npx expo prebuild --no-install --template ./node_modules/expo/template.tgz
+(cd ios && EXPO_USE_PRECOMPILED_MODULES=0 pod install)
+NODE_ENV=production xcodebuild -workspace ios/RecipeBox.xcworkspace -scheme RecipeBox \
+  -configuration Release -destination "id=$IPHONE_UDID" -derivedDataPath ios/build \
+  CODE_SIGNING_ALLOWED=NO build
+(cd android && NODE_ENV=production ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a)
+```
+
+Set `IPHONE_UDID` to the selected iPhone before building and `ANDROID_HOME` to the installed SDK. The Gradle command targets an arm64 emulator. For each selected Apple UDID, run the following two commands with `DEVICE_UDID` set. Use the online emulator serial for the Android install. Installing directly avoids Expo's post-install URL prompt.
+
+```sh
+xcrun simctl bootstatus "$DEVICE_UDID" -b
+xcrun simctl install "$DEVICE_UDID" ios/build/Build/Products/Release-iphonesimulator/RecipeBox.app
+adb -s "$EMULATOR_SERIAL" install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
 ## Status bar style (Android)
 Recent Expo/RN Android templates draw edge-to-edge with **light** status-bar icons
 by default. On a light-themed screen they're invisible, so the sanitized 9:41 bar
@@ -75,6 +97,4 @@ screen styling alone does not cover views outside the React tree. Verify the
 actual raw capture before attributing a margin to the app or editing its pixels.
 See [Expo SystemUI](https://docs.expo.dev/versions/latest/sdk/system-ui/).
 
-Same as the underlying platform — use the **platform** SDK tooling
-(`xcrun simctl` / `adb`) for status bar, permissions, and capture. See
-`ios-native.md` and `android-native.md`.
+Run `listing-kit capture` with the matching installed build and [saved flows](../driving/maestro.md). Capture handles the status bar and device screenshot.

@@ -4,7 +4,7 @@
 SUT="$SCRIPTS/lib/secret-scan.sh"
 
 # Build a throwaway listing tree per case.
-mktree() { TREE="$(mktemp -d)/fastlane"; mkdir -p "$TREE/en-US"; }
+mktree() { new_tempdir TREE; TREE="$TREE/fastlane"; mkdir -p "$TREE/en-US"; }
 
 it "exits 0 on a clean listing tree"
 mktree
@@ -14,9 +14,9 @@ OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$OUT" "clean"
 
-it "exits 0 (not an error) when the directory does not exist"
+it "returns a scan error for a missing explicitly named directory"
 OUT="$(bash "$SUT" /no/such/dir 2>&1)"; RC=$?
-assert_eq 0 "$RC"
+assert_eq 2 "$RC"
 
 it "fails on an AWS access key id"
 mktree; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$TREE/en-US/keywords.txt"
@@ -41,19 +41,18 @@ assert_eq 1 "$RC"
 it "reports which file leaked"
 assert_contains "$OUT" "subtitle.txt"
 
-it "ignores non-listing file types (e.g. .png)"
+it "scans a text asset with a .png extension"
 mktree; printf 'AKIAIOSFODNN7EXAMPLE\n' > "$TREE/en-US/01_home.png"
 OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
-assert_eq 0 "$RC" "binary/screenshot files are not scanned for copy secrets"
+assert_eq 1 "$RC"
 
 it "a scan error exits 2 instead of reporting clean"
-D="$(mktemp -d)"; echo "harmless copy" > "$D/description.txt"
-new_stubdir
-printf '#!/usr/bin/env bash\nexit 2\n' > "$STUB_BIN/grep"; chmod +x "$STUB_BIN/grep"
-OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$D" 2>&1)"; RC=$?
+new_tempdir D; echo "harmless copy" > "$D/description.txt"
+ln -s loop "$D/loop"
+OUT="$(bash "$SUT" "$D" 2>&1)"; RC=$?
 assert_eq 2 "$RC"
 assert_not_contains "$OUT" "Secret scan clean"
-rm -rf "$D"
+remove_fixture "$D"
 
 # --- current credential formats (each on its own line, no "token:" keyword) ---
 # Fixtures are split into two literals and joined by the shell, so this file never
@@ -88,6 +87,8 @@ done
 for c in \
   "The best task-management-for-every-busy-family app" \
   "Use our desk-organizer-and-planner-for-students-and-teachers" \
+  "clientSecret: process.env.CLIENT_SECRET" \
+  "https://example.test/search?monkeytoken=springlaunch2026" \
   "Track your password strength" \
   "Tokens of appreciation: share recipes" \
   "Password synchronization across devices" \
@@ -108,5 +109,105 @@ printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/asset-pla
 OUT="$(bash "$SUT" "$TREE/asset-plan.json" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
 assert_contains "$OUT" 'POTENTIAL SECRET'
+
+
+mktree
+for name in Fastfile .env setup.rb config.toml; do
+  it "scans listing text in $name"
+  printf '%s%s\n' 'ghp_' '0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/$name"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$name"
+  rm "$TREE/$name"
+done
+
+for name in .p8 cert.p8 cert.p12 cert.pem cert.key cert.jks cert.keystore demo_password.txt account.json; do
+  it "identifies credential file $name"
+  case "$name" in
+    demo_password.txt) echo 'short' > "$TREE/$name" ;;
+    account.json) printf '{"type":\n "service_account"}\n' > "$TREE/$name" ;;
+    *) printf '\0' > "$TREE/$name" ;;
+  esac
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "$name"
+  rm "$TREE/$name"
+done
+
+it "identifies a credential filename even when the file is a symbolic link"
+ln -s unavailable "$TREE/upload.keystore"
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" 'upload.keystore'
+rm "$TREE/upload.keystore"
+
+it "scans unknown bytes, font lookalikes and raw text captures"
+mkdir -p "$TREE/nested/.listing-kit/raw"
+for file in blob font.woff2 notes.svg nested/.listing-kit/raw/log.txt; do
+  printf 'note\0AKIAIOSFODNN7EXAMPLE' > "$TREE/$file"
+  OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+  assert_eq 1 "$RC" "$file is scanned"
+  rm "$TREE/$file"
+done
+
+it "redacts credentials in path components even for real images"
+secret=AKIAIOSFODNN7EXAMPLE
+fake_png "$TREE/$secret.png" 20 20
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_not_contains "$OUT" "$secret"
+rm "$TREE/$secret.png"
+
+it "uses content signatures for genuine media"
+fake_png "$TREE/image" 20 20
+printf '%s' "$secret" >> "$TREE/image"
+OUT="$(bash "$SUT" "$TREE" 2>&1)"; RC=$?
+assert_eq 0 "$RC"
+
+it "skips only untracked local settings in a worktree scan"
+new_tempdir app
+git -C "$app" init -q
+mkdir "$app/.listing-kit"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$app/.listing-kit/local.json"
+bash "$SUT" "$app/.listing-kit" >/dev/null || fail "read untracked private settings"
+echo '{}' > "$app/.listing-kit/local.json"
+git -C "$app" add -f .listing-kit/local.json
+OUT="$(bash "$SUT" "$app/.listing-kit" 2>&1)"; RC=$?
+assert_eq 1 "$RC"
+assert_contains "$OUT" local.json
+
+for copy in 'Password: 12-character minimum' 'Token: ERC20-compatible wallets' 'Password: auto-generated, synced' 'apiKey: Env.GOOGLE_API_KEY,'; do
+  it "permits ordinary copy or reference: $copy"
+  echo "$copy" > "$TREE/en-US/description.txt"
+  bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 0 "$?"
+done
+for key in 'accessToken=' 'authToken:' 'dbPassword=' 'mypassword='; do
+  it "detects credential assignment $key"
+  echo "${key}abc123def456ghi789" > "$TREE/en-US/description.txt"
+  bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 1 "$?"
+done
+it "ignores components above the scan root and treats credential prefixes case-sensitively"
+mkdir -p "$TREE/xoxo-valentines-app/fastlane"
+echo 'GHP_0123456789abcdefghijklmnopqrstuvwxyz' > "$TREE/xoxo-valentines-app/fastlane/name"
+bash "$SUT" "$TREE/xoxo-valentines-app/fastlane" >/dev/null 2>&1; assert_eq 0 "$?"
+
+
+it "finds an assignment inside a longer field value"
+mktree
+echo 'note: accessToken=abc123def456ghi789' > "$TREE/en-US/description.txt"
+bash "$SUT" "$TREE" >/dev/null 2>&1; assert_eq 1 "$?"
+
+it "recognizes PDF, Photoshop and preview media by path and signature"
+new_tempdir media
+python3 - "$media" <<'PYMEDIA'
+from pathlib import Path
+import sys
+for ext, magic in (("pdf", b"%PDF-1.7"), ("psd", b"8BPS\0\1" + b"\0"*6),
+                   ("mp4", b"\0\0\0\x18ftypisom"), ("mov", b"\0\0\0\x18ftypqt  ")):
+    (Path(sys.argv[1]) / ("asset." + ext)).write_bytes(magic + b"\0AKIAIOSFODNN7EXAMPLE")
+PYMEDIA
+bash "$SUT" "$media" >/dev/null 2>&1; assert_eq 0 "$?"
+echo 'AKIAIOSFODNN7EXAMPLE' > "$media/plain.mp4"
+bash "$SUT" "$media" >/dev/null 2>&1; assert_eq 1 "$?"
 
 summary

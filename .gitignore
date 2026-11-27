@@ -1,9 +1,17 @@
 # listing-kit local state — NEVER commit secrets (see skill §9.1 secrets boundary)
 .listing-kit/
-# ...but DO track the Maestro flows shipped with example apps (recipes, not secrets)
-!examples/expo-recipe-box/.listing-kit/
-!examples/expo-recipe-box/.listing-kit/flows/
-!examples/expo-recipe-box/.listing-kit/flows/**
+# Example inputs shipped with the kit
+!examples/*-recipe-box/.listing-kit/
+examples/*-recipe-box/.listing-kit/*
+!examples/*-recipe-box/.listing-kit/flows/
+/examples/expo-recipe-box/listing-review.html
+!examples/expo-recipe-box/.listing-kit/listing.json
+!examples/expo-recipe-box/.listing-kit/compose.lock.json
+!examples/expo-recipe-box/.listing-kit/outputs.json
+!examples/expo-recipe-box/.listing-kit/raw/
+!examples/ios-recipe-box/.listing-kit/listing.json
+!examples/android-recipe-box/.listing-kit/listing.json
+!examples/flutter-recipe-box/.listing-kit/listing.json
 *.local
 secrets.local
 
@@ -16,8 +24,12 @@ Thumbs.db
 
 # Build/scratch output that may appear when running against a repo
 *.log
+__pycache__/
 .maestro/
+__pycache__/
 
 
 # brand kit: downloaded font cache
 brand/tools/.cache/
+
+__pycache__/

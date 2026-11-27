@@ -1,146 +1,43 @@
-# listing-kit architecture
+# How the kit works
 
-How listing-kit is put together and why. For using it, see the [guide](GUIDE.md);
-for the instructions an agent follows, see
-[`skills/listing-kit/SKILL.md`](../skills/listing-kit/SKILL.md).
+An agent selects screens and writes copy with the user. The [launcher](../skills/listing-kit/bin/listing-kit) dispatches the repeatable work to Bash and Python. Each app has its own plan, listing files and review page.
 
-## The idea
+## Rules and detection
 
-listing-kit is not a screenshot tool. Its output is a complete, version-controlled
-listing (copy, keywords, URLs, screenshots, graphics) stored in the app's repo, in
-the layout fastlane's `deliver` and `supply` already read. Keeping it in the repo
-means store copy is reviewed like code, screenshots can be regenerated instead of
-hand-curated, and publishing tools get clean input with no translation.
+[stores.json](../skills/listing-kit/specs/stores.json) defines store fields, limits, screenshot slots, accepted sizes, graphics, upload routes and conditional requirements. The rules loader merges an app's `.listing-kit/specs.override.json` before checking the result. Record the source URL for a local difference. The [Apple](../skills/listing-kit/references/stores/apple-app-store.md) and [Play](../skills/listing-kit/references/stores/google-play.md) reference tables are rendered from the bundled file.
 
-Publishing itself is out of scope. Anything that can run `fastlane deliver` /
-`supply` can publish what listing-kit writes.
+`listing-kit detect` reads app-owned native declarations and static Expo settings and reports yes, no or unknown with evidence. It also prints the Apple and Play paths used for metadata, screenshots and graphics. A valid plan's explicit `platforms` flags take precedence. For validation, the iPhone and iPad environment overrides can supply facts, and the build SDK can resolve a dated rule's exception. Ask about an unknown capability.
 
-## Layout
+## Plan and capture
 
-```
-skills/listing-kit/
-  SKILL.md               the orchestration core: the pipeline and its decision rules
-  references/            modules the core loads when it reaches a step
-    stores/              per-store rules (sizes, limits, required assets)
-    stacks/              per-stack detect / build / launch / capture
-    driving/maestro.md   the shared drive layer
-    metadata/            the fastlane tree, file names, secrets boundary
-    platforms/           tool-name equivalents across AI agents
-  scripts/               deterministic helpers the agent runs
-    capture/  generate/  validate/  package/  lib/
-tests/                   zero-dependency bash suite (unit, structure, integration)
-examples/                apps to run the skill against, with their committed output
-```
+[Format 2](../skills/listing-kit/references/plan-file.md) describes the app, ordered screens, locale mappings, target slots and style. `listing-kit plan check` checks relationships, sizes, counts and destination collisions. `listing-kit plan manifest` expands active combinations into capture jobs and output records. The records carry resolved trees, raw and final paths, localized copy and the route to each store slot.
 
-## Core and modules
+`listing-kit capture` selects devices for the manifest's jobs and checks that the app is installed. Maestro receives the app ID, device locale, target ID and screen ID. The flow handles navigation, permissions and orientation. Capture sanitizes the status bar, reads the native display with simctl or adb, checks the frame and replaces the raw PNG after normalization. A framed shot can keep its native size. Raw mode requires the exact upload size.
 
-`SKILL.md` holds the pipeline and the judgment calls (what to ask, when to stop,
-what never to invent). It never contains stack- or store-specific commands; those
-live in `references/`. Adding a stack or a store means writing a module, not
-editing the core. The core loads a module only when it reaches the step that
-needs it, which keeps the agent's context small.
+## Composition and ownership
 
-## The pipeline
+`listing-kit compose` uses the resolved style. Framed phone shots normally use caption-top. Plans can also place the caption below the device with caption-bottom or over the capture with full-bleed. Play tablet and Chromebook slots supply band as their template default. The plan can also request a panel, headers, a feature graphic or an icon derived from local artwork. Raw output bypasses the browser.
 
-```
-detect → doctor → discover → plan → configure → run → drive → capture → assemble → validate
-```
+For template output, the renderer starts a Chromium-family browser over a debugging pipe. It intercepts page requests and serves the template and allowed assets from memory. Requests outside the allow-list fail the render. ImageMagick produces the final RGB screenshot. Preview writes a self-contained HTML page.
 
-Two ordering choices matter:
+App templates resolve under `.listing-kit/templates/`. The loader opens regular files through directory descriptors with symlink following disabled, checks declarative HTML and CSS references, and builds an in-memory asset map. The style key includes the source HTML, sidecar CSS and each referenced asset digest. Bundled layouts retain their existing fingerprints.
 
-- **Discover and Curate come before any build.** Screens are found from static
-  signals (routes, nav graphs, storyboards) and the user picks, orders, names, and
-  describes the desired state of each one before the expensive build starts.
-- **Validate runs last**, against the tree Assemble actually wrote, so generated
-  metadata and graphics are checked too.
+Both layout sources use the same disposable browser profile and made-up HTTPS origin. CDP intercepts requests, including requests from attached targets. It serves allow-listed bytes and fails other requests. The response CSP includes `script-src 'none'` and disables frames, workers, objects and connections. The kit measures text and pixels through the debugging pipe. App templates cannot supply a page script, event handler, navigation or external URL. For an app template, preview runs the same checked render and embeds only its PNG in the gallery. [Template interface](../skills/listing-kit/references/templates.md)
 
-Heavy tools are installed only when a step needs them: Maestro and its JDK at
-Drive, ImageMagick from Capture onward. Doctor reports what's missing and what
-each gap degrades to.
+The composer compares content and style keys, tracks renderer details and checks the existing output hash. The [ownership code](../skills/listing-kit/scripts/compose/ownership.py) serializes writes, records pending replacements and recovers them on rerun. A style-only redraw needs explicit approval. An unowned or edited destination is a conflict unless the user authorizes adoption. Unchanged stale files move to the held directory. See the [lock, inventory and tree layout](../skills/listing-kit/references/metadata/fastlane-layout.md).
 
-## Driving with Maestro
+## Validation, review and handoff
 
-Maestro is the one UI driver that works across native iOS, native Android,
-Flutter, and React Native / Expo, on both simulators and emulators, through the
-accessibility hierarchy. Standardizing on it shrinks each stack module to "build,
-install, launch", and turns driving into one shared capability instead of four.
+`listing-kit validate` scans listing inputs for secrets, checks copy and images and prints failures and warnings. `listing-kit review` builds a static page from the listing and the validation report. The Git hook checks inputs from the index, blocks credentials and updates the page for staged listing changes. It watches staged changes in the resolved store directories and `.listing-kit/`, plus root Expo config and app-owned Xcode project and Info.plist files. Staging private local settings or an incomplete secret scan blocks the commit. If page generation fails after a clean scan, the hook warns. Use `listing-kit hook status` to check the registration after updating the kit.
 
-Each flow is saved to `.listing-kit/flows/` and committed: it's the rerunnable
-recipe that makes reruns and CI possible. Flows start from a clean launch, tap
-accessibility labels, and assert real content, so an empty or wrong screen fails
-instead of being captured. (On iOS, custom-scheme deep links raise a system alert
-Maestro can't dismiss reliably, so labels are preferred.) Screens Maestro can't
-reach (canvas UIs, missing semantics, unscriptable auth) fall back to manual
-assist.
+`listing-kit handoff` reads the resolved Apple and Play listing trees and builds a disposable folder with console destinations. It records file hashes to protect local edits during a rebuild. The folder includes its own ignore file.
 
-Screenshots are taken with `simctl` / `adb`, not Maestro, for full-resolution
-output with the sanitized status bar intact, then flattened to 24-bit RGB because
-both stores reject the raw RGBA captures.
+## Fastlane and CI
 
-## Scripts: where determinism lives
+`listing-kit fastlane setup` checks read access. When given a key-path option it saves the external credential path in ignored local settings. `listing-kit pull` downloads into scratch space, merges text against a hash baseline and keeps remote screenshots for comparison. `listing-kit publish` prepares a filtered validation tree, reads the live listing, reports differences and shows the proposed command when there are changes to send. Both upload gates are off by default pending live tests.
 
-The agent handles judgment; anything that must be exact is a script with tests.
+`listing-kit ci init` generates GitHub or GitLab jobs for listing validation, a review artifact and a store-specific manual publish job. Pin the kit ref used by the runner. [CI configuration](CI.md)
 
-| Area | Scripts |
-|---|---|
-| Capture | `sanitize-status-bar.sh`, `grant-permissions.sh`, `normalize-screenshot.sh` |
-| Generate | `feature-graphic.sh` |
-| Validate | `validate-listing.sh` (the store-rule gate), `visual-diff.sh` (informational) |
-| Package | `build-review.sh`, `install-review-hook.sh`, `generate-manifests.sh` |
+## Drift watch
 
-Shared logic lives once in `scripts/lib/`:
-
-- `imginfo.py` reads PNG/JPEG headers (size, depth, alpha) with no ImageMagick.
-- `apple-screenshot-sizes.tsv` maps App Store sizes to display classes.
-- `fields.py` defines every copy field's limit, unit, and required flag.
-- `listing.py` discovers locales and images within the fastlane tree.
-- `apple_assets.py` adds header and upload-plan locales for Apple, and validates
-  headers and planned upload sets.
-- `imagemagick.sh` finds ImageMagick 7 or 6.
-- `secret-scan.sh` enforces the secrets boundary.
-
-The validator and review page share `fields.py` for copy rules,
-`apple_assets.apple_locales` for Apple locale discovery, and `listing.py` for Play
-locales and image discovery. This keeps the validation results and preview aligned.
-
-Scripts are bash 3.2+ (macOS's default) plus Python 3.8+ standard library. Each
-documents its exit codes in its header. Generally `0` is success, `1` means a check
-or operation failed, `2` means bad usage or an unusable setup, and `3` means an
-optional tool is missing and the caller should fall back.
-
-## Secrets boundary
-
-The committed tree is the source of truth for non-secrets only. Login
-credentials, API tokens, and seed-data secrets live in a git-ignored
-`.listing-kit/secrets.local` or environment variables, and flows reference them
-rather than inlining them. `validate-listing.sh` runs `secret-scan.sh` on `fastlane/`,
-`store-assets/`, `.listing-kit/flows/`, and the public `.listing-kit/asset-plan.json`
-file. It checks known credential formats and generic `key = value` assignments;
-Assemble and Validate fail on a hit. Private `.listing-kit/secrets.local` files
-remain outside these scans.
-
-## Store rules drift
-
-Apple and Google change sizes and limits often. The numbers in
-`references/stores/*.md` (and the size table) are a dated snapshot. The skill
-tells agents to re-verify against live store docs when a build targets the
-stores, and the validator's checks are kept in sync with the references.
-
-## Cross-agent portability
-
-Everything is markdown plus shell-outs to `xcrun simctl`, `adb`, `flutter`, the
-Expo / RN CLI, `maestro`, ImageMagick, and Python, so any agent that can run a
-shell can run the skill. There is one canonical `SKILL.md`; the Claude Code plugin
-manifests are maintained by hand, and `generate-manifests.sh` emits
-`gemini-extension.json`, `AGENTS.md`, and a Kiro steering doc from `plugin.json`.
-A test fails CI if the committed copies drift from the generator.
-
-## Review page and commit hook
-
-`build-review.sh` writes a static `listing-review.html` (copy with copy buttons,
-screenshots grouped by device class, the validator's output) for reviewing the
-listing and pasting copy into the store consoles. `install-review-hook.sh` adds a
-pre-commit hook that rebuilds the page from the staged tree whenever
-[staged listing inputs](../skills/listing-kit/SKILL.md#commit-time-review-refresh)
-change, without altering how an existing hook behaves. One path filter selects
-both the changes that trigger a refresh and the files copied into its snapshot.
+The [weekly workflow](../.github/workflows/drift.yml) compares selected facts from store pages and fastlane sources with committed digests. It opens or updates one maintainer issue when facts change or a source cannot be checked. A maintainer reviews the differences, updates the rules, regenerates the tables and accepts new digests. Offline tests use saved pages. [Rule change procedure](../CONTRIBUTING.md)

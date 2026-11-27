@@ -1,0 +1,4 @@
+name: layout
+dependencies:
+  flutter:
+    sdk: flutter

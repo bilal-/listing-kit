@@ -1,0 +1,204 @@
+{
+  "format": 2,
+  "app": {
+    "ios": "sh.bilal.shellbell",
+    "android": "sh.bilal.shellbell",
+    "demoEntry": ".listing-kit/entry.ts"
+  },
+  "locales": [
+    "en-US"
+  ],
+  "style": {
+    "mode": "framed",
+    "template": "caption-top",
+    "palette": {
+      "background": [
+        "#F6BC4A",
+        "#E79B19"
+      ],
+      "ink": "#17191D",
+      "detail": "#493416"
+    },
+    "bezel": {
+      "color": "#17191D",
+      "bleed": false
+    },
+    "fonts": {
+      "default": {
+        "headline": [
+          "assets/fonts/Brand-Bold.ttf",
+          "bundled:Inter"
+        ],
+        "detail": [
+          "assets/fonts/Brand-Regular.ttf",
+          "bundled:Inter"
+        ]
+      }
+    },
+    "logo": "brand/logo.png"
+  },
+  "targets": [
+    {
+      "id": "iphone-medium",
+      "store": "apple",
+      "slot": "iphone-di-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "suffix": "iphone-medium",
+      "state": "active",
+      "upload": "fastlane",
+      "capture": {
+        "deviceType": "iPhone 17",
+        "display": "internal"
+      }
+    },
+    {
+      "id": "duo-outer",
+      "store": "apple",
+      "slot": "iphone-duo-outer",
+      "size": [
+        1398,
+        2034
+      ],
+      "state": "deferred",
+      "reason": "No Duo runtime installed."
+    },
+    {
+      "id": "play-phone",
+      "store": "play",
+      "slot": "phone",
+      "size": [
+        1080,
+        1920
+      ],
+      "state": "active",
+      "capture": {
+        "deviceType": "pixel_9"
+      }
+    },
+    {
+      "id": "play-tablet",
+      "store": "play",
+      "slot": "ten-inch",
+      "size": [
+        1920,
+        1080
+      ],
+      "state": "active",
+      "style": {
+        "template": "band",
+        "fit": "contain"
+      },
+      "capture": {
+        "deviceType": "pixel_tablet",
+        "orientation": "landscape"
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "agents",
+      "flow": ".listing-kit/flows/01_agents.yaml",
+      "flows": {
+        "play-tablet": ".listing-kit/flows/01_agents_tablet.yaml"
+      },
+      "route": "/c/[fp]",
+      "state": "Agents view, one agent waiting, two working.",
+      "caption": {
+        "en-US": "Every agent, one list"
+      },
+      "draft": false,
+      "detail": {
+        "en-US": "Claude Code, Codex, Antigravity, Gemini"
+      },
+      "altText": {
+        "en-US": "..."
+      }
+    },
+    {
+      "id": "duo-layout",
+      "flow": ".listing-kit/flows/duo-layout.yaml",
+      "caption": {
+        "en-US": "..."
+      },
+      "only": [
+        "duo-outer"
+      ]
+    },
+    {
+      "id": "terminal",
+      "flow": ".listing-kit/flows/terminal.yaml",
+      "caption": {
+        "en-US": "The real terminal, live"
+      }
+    },
+    {
+      "id": "closing",
+      "except": [
+        "play-tablet"
+      ],
+      "panel": {
+        "headline": {
+          "en-US": "..."
+        },
+        "rows": [
+          {
+            "label": {
+              "en-US": "Agents"
+            },
+            "text": {
+              "en-US": "..."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "graphics": {
+    "apple": {
+      "header-16x9": {
+        "headline": {
+          "en-US": "..."
+        },
+        "detail": {
+          "en-US": "..."
+        },
+        "altText": {
+          "en-US": "..."
+        },
+        "template": "header"
+      },
+      "header-21x9": {
+        "headline": {
+          "en-US": "..."
+        },
+        "template": "header"
+      }
+    },
+    "play": {
+      "featureGraphic": {
+        "template": "feature",
+        "headline": {
+          "en-US": "..."
+        },
+        "detail": {
+          "en-US": "..."
+        },
+        "altText": {
+          "en-US": "..."
+        }
+      },
+      "icon": {
+        "from": "assets/icon.png"
+      }
+    }
+  },
+  "console": {
+    "playCategory": "Tools",
+    "contactEmail": null,
+    "playPrivacyUrl": null
+  },
+  "notes": {}
+}

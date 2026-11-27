@@ -43,19 +43,7 @@ The helper checks iOS simulator SDK 27.1+, the Duo device type and an available
 compatible iOS runtime. A newer Xcode version alone is not enough. Exit 0 means
 those capabilities exist, not that the app launches or adapts correctly.
 
-If unavailable, omit Duo from the proposed active capture plan by default and
-record its reason in `deferredScreenshots` (see the
-[asset-plan format](../metadata/fastlane-layout.md#apple-asset-plan)). Continue
-medium iPhone, iPad and Android targets whose own tooling is available, plus
-headers and copy. Do not download Xcode/runtimes or switch the machine's default
-Xcode unless requested. A missing Xcode does not prevent reviewing existing assets.
-
-For an existing approved active Duo target, propose the concrete deferral while
-continuing independent work. Keep that target active and its missing-set failure
-until the scope change is accepted (or the user has already authorized skipping
-unavailable optional targets); never silently claim the full plan is done.
-Deferral cannot waive a current store requirement. When tooling becomes available,
-remove the deferral and add the approved count back to `screenshots` before capture.
+If Duo is unavailable, propose a deferred target and record the reason in the [listing plan](../plan-file.md). Ask before changing an approved active target. Continue with devices that are available. When the tooling is ready, confirm the target and mark it active. A deferral does not waive a store requirement.
 
 ## Discover signals (static, before building)
 - SwiftUI: `View` structs, `NavigationStack`/`NavigationLink` destinations, `TabView` items
@@ -67,7 +55,7 @@ remove the deferral and add the approved count back to `screenshots` before capt
 ```sh
 # Pick a simulator matching the required device class (see ../stores/apple-app-store.md).
 # Dynamic Island medium is currently required; list installed types with `xcrun simctl list devicetypes`.
-xcrun simctl boot "iPhone 17 Pro"        # 1206×2622
+xcrun simctl boot "iPhone 17 Pro"        # verify the native size against the Apple screenshot table
 xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -derivedDataPath build build
@@ -76,26 +64,11 @@ xcrun simctl launch booted <bundle-id>
 ```
 Resolve `<bundle-id>` from `PRODUCT_BUNDLE_IDENTIFIER` (build settings) or the built `Info.plist`.
 
-## Sanitize & permissions
-- Status bar: `scripts/capture/sanitize-status-bar.sh ios booted`
-- Permissions: `scripts/capture/grant-permissions.sh ios <bundle-id> booted` (camera/ATT can't be pre-granted — handle in-flow)
-
 ## Capture
-```sh
-xcrun simctl io booted screenshot --type=png "01_home.png"
-```
-Full-resolution, status-bar override intact. Preferred over Maestro's `takeScreenshot`.
-For delivery, prefer `scripts/capture/capture-ios.sh` with the explicit device,
-display and planned native dimensions. It normalizes to RGB, strips metadata and
-replaces the destination only after rejecting wrong-size and solid/blank frames.
-This does not replace visual review or assertions that the intended screen loaded.
 
-For devices with multiple displays, enumerate them first:
+Run `listing-kit capture` after installing the app and saving the [Maestro flows](../driving/maestro.md). Set permissions on launch or handle the dialog in the flow. Capture sets the status bar and checks the dimensions and pixel variation before writing a raw image.
 
-```sh
-xcrun simctl io "$DEVICE_UDID" enumerate
-bash scripts/capture/capture-ios.sh "$DEVICE_UDID" "$DISPLAY_NAME" 1398x2034 output.png
-```
+For a device with multiple displays, run `xcrun simctl io "$DEVICE_UDID" enumerate`. Set the target's `capture.display` and `capture.nativeSize` for the intended orientation.
 
 Select the screen showing the app, using the enumerated screen ID/name. Do not
 assume screen 2 is the inner display; it may be TV output. On Duo, change the pose

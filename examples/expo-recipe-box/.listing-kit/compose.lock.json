@@ -1,0 +1,347 @@
+{
+ "format": 1,
+ "outputs": {
+  ".listing-kit/preview.html": {
+   "content": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725",
+   "sha256": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725",
+   "style": "deb78ab5c8d850cbcfec571ed2fd89e65165ca55195ba618478472584e226725"
+  },
+  "fastlane/metadata/android/en-US/images/featureGraphic.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.1666,
+    "worstContrast": 7.842419720894137
+   },
+   "content": "07c6eaf1bd75c4dd823a14f3d9038c6390cf2f3d7d60d3e975e1a64ff3e977ae",
+   "hasBrandName": true,
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "917b537e34426672cdd6bf6db2529ae357c0a1664124c44dae50381af90b8aa6",
+   "size": [
+    1024,
+    500
+   ],
+   "style": "84787b01d6374fbbb757547c3b12bbc63e9dd6b8b5151428fb0aa113ee657b1d"
+  },
+  "fastlane/metadata/android/en-US/images/icon.png": {
+   "checks": null,
+   "content": "ca72e06b4e4a3b25752f9af1df30be28634ea5d9f4e0e85da596592792496811",
+   "renderer": null,
+   "sha256": "f34c89778c96f209d7701c4206c677aed1002a3d838c8d596af408021e60e430",
+   "size": [
+    512,
+    512
+   ],
+   "style": "99d838bbb92c2bfd67d424d1e93de725a49575eb5299a72b07ecd69022e717d6"
+  },
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/01_recipes.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0393,
+    "worstContrast": 8.613687675974399
+   },
+   "content": "4f611693cb276742330abef3ee180534ba2eb23de8869d722c3ca705978d506e",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "07f0f39839dc9d5987175df3b76eb81f139aae2e976f7b56fa5a5301198d9ea6",
+   "size": [
+    1080,
+    1920
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/02_recipe-detail.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0455,
+    "worstContrast": 8.613687675974399
+   },
+   "content": "7d9ac4a0ff321e0be85c5ab4c173ae0159d4da1d895c2d41c3a2b11aae15f373",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "84c39296d2e48c2fd84f1a9fdcc1808c9d29086ec48a4215b4cefa49efe2d93b",
+   "size": [
+    1080,
+    1920
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/03_shopping.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0381,
+    "worstContrast": 8.613687675974399
+   },
+   "content": "44794e9d6c48357c48860b783a15699e46659c0eb23e6a484b6666f010056133",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "9ac6e1b081df0eebe221a65506b4caceaedee6c6578173e9b4508a7ef999b718",
+   "size": [
+    1080,
+    1920
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/04_settings.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0434,
+    "worstContrast": 8.613687675974399
+   },
+   "content": "0acf9a68b6a51f7eabc0b0bd3523c69a2ae560f7b938ab1f9d8ffb8500e621bf",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "41c898f5aedb4de239c7f6355c9fee2e5ffc67e5761f50a703a81519837a297e",
+   "size": [
+    1080,
+    1920
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/01_recipes_ipad13.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0524,
+    "worstContrast": 8.554990224924925
+   },
+   "content": "7efb2481e16354ed813728902910b550970f77bd85dfe99a2bbf3fb48166b45e",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "c99cb673fd5de3669494bc55aa95493107223ac5898bc3176d1bfdbd93017425",
+   "size": [
+    2064,
+    2752
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/01_recipes_iphone-large.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0321,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "55e982fd979850fb144b12fc168e2f15189f32b3eb939647d8dd245933d02645",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "c75ef39dcae669b08761a4a7222d2f3f7c9d7438a04d063efd599b6198a38203",
+   "size": [
+    1320,
+    2868
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/01_recipes_iphone-medium.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0321,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "4dbaf45e41c6429eda19a6ec5ae6e34829f8fc8939253c8a9a8a87a69c88e5b8",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "7dd0b4c6c657758b83efed7fd12b17a4c85631e3ea65e9c69eb96d1161746d2f",
+   "size": [
+    1206,
+    2622
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/02_recipe-detail_ipad13.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0607,
+    "worstContrast": 8.554990224924925
+   },
+   "content": "de6d3ada28b66141b0bbf9302fad2df2789c76dfa9fe564ab33c8c60fb893bb9",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "b8c9e91b339581d3fa22ca3d2345a4379e3a85578790543e8ad1fa166388b4d9",
+   "size": [
+    2064,
+    2752
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/02_recipe-detail_iphone-large.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0373,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "ad73c3dd3cb6fac6253384a638d5dc036ce2c66a9f194addc420abe44f6224ce",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "15bdc7322ee960cb8f0443655f0bca03a729b0ba88cbb6236fd1d4a2602beac7",
+   "size": [
+    1320,
+    2868
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/02_recipe-detail_iphone-medium.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0372,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "bed7e663e1adffbc68f55e0d45c42a7774655bda39903307d8021d49dc372890",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "e656fe516f272630dea4434925b34c3332d95c6218e0edad907fc70f1f38790e",
+   "size": [
+    1206,
+    2622
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/03_shopping_ipad13.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0508,
+    "worstContrast": 8.554990224924925
+   },
+   "content": "4198019e196d38de62ba594cf6643bc1b6bf6ab9bd05ff1f498f27ee7d844a25",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "bc7e5e1a803f27ca9ba94477a647b692f6cd31645076790a2eaa3ea7350181e7",
+   "size": [
+    2064,
+    2752
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/03_shopping_iphone-large.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0312,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "2462f223d023f993486095bc9501062c038ca4985d78f6ba1a9e6630d74afc70",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "daa31bae5be59621db17f65ca62bf0b456d925a8de081d5c72a4438be42fc986",
+   "size": [
+    1320,
+    2868
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/03_shopping_iphone-medium.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0312,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "b9712021e19e3e087dd98787577b2eb50fb94cac722f0b12eb98981ef27b8a8c",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "27a23a1e631c867a5346a5c1e52569b1082e767186c8e95f992f74973113138b",
+   "size": [
+    1206,
+    2622
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/04_settings_ipad13.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0578,
+    "worstContrast": 8.554990224924925
+   },
+   "content": "d63e383548ac0ab65552664e4fa3821b3c51baa7bd2e912e9e22365996bfb67c",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "56992028c7fa529dadd436e8fcff5b89799b1f2c751a5acd93ae454d8a4b1e39",
+   "size": [
+    2064,
+    2752
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/04_settings_iphone-large.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0355,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "7c64a2987875314ed9d7f462176821043a5d0d2a5cfb8850e2b67836619db993",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "30d1d6c9a777d932c72bbbed090d58ebbffcf6451d8d98dc835ada8b7f7f33f4",
+   "size": [
+    1320,
+    2868
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "fastlane/screenshots/en-US/04_settings_iphone-medium.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.0355,
+    "worstContrast": 8.672706044085354
+   },
+   "content": "3835c9c1b9a860f36e34db8fcbb5f0c4499c00156c588370d6a437cb20fcecca",
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "710de74c75b0c6e7d5f016d5f33cc0f33547e1e6412c63c2810c4055cdd5dd35",
+   "size": [
+    1206,
+    2622
+   ],
+   "style": "26652cc3184693c657ac0b9f781a1281d1210daa2ee05e30e57b62740c374a74"
+  },
+  "store-assets/apple/en-US/header-16x9.png": {
+   "checks": {
+    "bleedCut": 0,
+    "textShare": 0.1751,
+    "worstContrast": 7.842419720894137
+   },
+   "content": "c61e9aa7ef05e479df76486c2f78bcc066fc212a4ed2c685ddbe17e7a3dad3a8",
+   "hasBrandName": true,
+   "renderer": {
+    "browser": "158",
+    "os": "darwin"
+   },
+   "sha256": "f7094899019897e30e3a117a51e7f5b0a820ed31dc8568b0ecd760ec1ec2edab",
+   "size": [
+    5244,
+    2950
+   ],
+   "style": "adf44c2f23e70d9fe3928ee32bcd1c1acdf616dc197fa22ae3a67aa53008befa"
+  }
+ }
+}

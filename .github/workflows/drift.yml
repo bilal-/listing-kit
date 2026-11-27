@@ -1,0 +1,46 @@
+name: Store rules drift watch
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: store-rules-drift-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare upstream facts
+        id: check
+        run: |
+          rc=0
+          python3 -I skills/listing-kit/scripts/specs/drift.py check --fetch > "$RUNNER_TEMP/drift.txt" 2>&1 || rc=$?
+          token="$(openssl rand -hex 32)"
+          printf '::stop-commands::%s\n' "$token"
+          cat "$RUNNER_TEMP/drift.txt"
+          printf '::%s::\n' "$token"
+          echo "status=$rc" >> "$GITHUB_OUTPUT"
+          case "$rc" in 0|1|2) ;; *) exit "$rc" ;; esac
+      - name: Report changes or source problems
+        if: steps.check.outputs.status != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title='Store rules drift detected'
+          issue="$(gh issue list --state open --author app/github-actions --search "\"$title\" in:title" --json number,title \
+            --jq 'map(select(.title == "Store rules drift detected")) | min_by(.number).number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue edit "$issue" --body-file "$RUNNER_TEMP/drift.txt"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/drift.txt"
+          fi

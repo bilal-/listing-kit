@@ -1,0 +1,9 @@
+// !$*UTF8*$!
+{ objects = {
+App /* App */ = {isa = PBXNativeTarget; buildConfigurationList = LApp; productType = "com.apple.product-type.application";};
+LApp = {isa = XCConfigurationList; buildConfigurations = (CApp /* Release */,);};
+CApp = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; TARGETED_DEVICE_FAMILY = 1;}; name = Release;};
+Tests /* Tests */ = {isa = PBXNativeTarget; buildConfigurationList = LTests; productType = "com.apple.product-type.bundle.unit-test";};
+LTests = {isa = XCConfigurationList; buildConfigurations = (CTests /* Release */,);};
+CTests = {isa = XCBuildConfiguration; buildSettings = {TARGETED_DEVICE_FAMILY = "1,2"; SDKROOT = watchos;}; name = Release;};
+}; }

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/fonts.css">
+<style>
+  body{padding:calc(8*var(--u)) calc(9*var(--u));align-items:stretch;justify-content:center;gap:calc(7*var(--u))}
+  .brand{display:flex;justify-content:center;align-items:center;gap:calc(3*var(--u))}
+  .brand:empty,.brand:has(> .name:only-child:empty),.name:empty{display:none}
+  .brand img.logo{max-width:62%;max-height:calc(14*var(--u))}
+  .brand img.icon{width:calc(16*var(--u));height:calc(16*var(--u));border-radius:calc(3.6*var(--u))}
+  .brand .name{font-size:calc(7*var(--u));font-family:var(--font-headline);font-weight:700}
+  .headline{font-size:calc(var(--headline-size,7.5)*var(--u))}
+  .rows{display:flex;flex-direction:column;gap:calc(4.4*var(--u));margin:0;padding:0}
+  .rows dt{font-family:var(--font-headline);font-weight:700;font-size:calc(2.8*var(--u));letter-spacing:.06em;text-transform:uppercase;color:var(--detail)}
+  .rows dd{font-family:var(--font-detail);font-size:calc(3.8*var(--u));margin:calc(.8*var(--u)) 0 0;line-height:1.25}
+</style>
+<body>
+  <div class="brand">{{brand}}</div>
+  <h1 class="headline" data-check="text">{{headline}}</h1>
+  <dl class="rows">{{rows}}</dl>
+</body>
+</html>

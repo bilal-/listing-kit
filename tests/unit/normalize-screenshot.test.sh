@@ -6,7 +6,7 @@ IMGINFO="$SCRIPTS/lib/imginfo.py"
 
 png() { fake_png "$1" "$2" "$3" 8 "${4:-6}"; }   # <path> <w> <h> [colortype=6]
 
-TMP="$(mktemp -d)"
+new_tempdir TMP
 
 it "exits 2 with no args"
 OUT="$(bash "$SUT" 2>&1)"; RC=$?
@@ -52,12 +52,16 @@ PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/in.png" "$TMP/out.png" --play >/dev/nul
 assert_not_contains "$(stub_log)" "-crop"
 
 # End-to-end with real ImageMagick, when the machine has it.
-if command -v magick >/dev/null 2>&1; then
+. "$SCRIPTS/lib/imagemagick.sh"
+if im_resolve convert; then
   it "real ImageMagick: RGBA 1080x2400 becomes RGB 1080x1920"
-  magick -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
+  "${IM[@]}" -size 1080x2400 xc:'rgba(255,0,0,0.5)' "PNG32:$TMP/rgba.png"
   bash "$SUT" "$TMP/rgba.png" "$TMP/real.png" --play >/dev/null 2>&1
   INFO="$(python3 "$IMGINFO" "$TMP/real.png" | cut -f1-4)"
   assert_eq "$(printf '1080\t1920\t8\t2')" "$INFO"
+else
+  it "real screenshot normalization"
+  skip "no ImageMagick"
 fi
 
 it "--play on a non-image fails instead of skipping the crop"
@@ -68,4 +72,12 @@ assert_eq 1 "$RC"
 assert_contains "$OUT" "Not a PNG/JPEG"
 assert_eq "" "$(stub_log)" "ImageMagick never ran"
 
+it "Play normalization uses the active promotion ratios"
+mkdir -p "$TMP/.listing-kit"
+echo '{"stores":{"play":{"screenshots":{"slots":[{"id":"phone","alpha":true,"bitDepth":16,"formats":["png"],"promotion":{"ratios":["3:4"]}}]}}}}' > "$TMP/.listing-kit/specs.override.json"
+new_stubdir; stub magick
+(cd "$TMP" && PATH="$STUB_BIN:$PATH" bash "$SUT" "$TMP/tall.png" "$TMP/out.png" --play) >/dev/null
+assert_contains "$(stub_log)" "-crop 1080x1440+0+0"
+assert_contains "$(stub_log)" "PNG64:"
+assert_contains "$(stub_log)" "-alpha on"
 summary

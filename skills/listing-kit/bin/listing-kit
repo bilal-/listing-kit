@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+unset CDPATH
+set -e
+source_path=${BASH_SOURCE[0]}
+while [ -L "$source_path" ]; do
+  parent="$(cd -P -- "$(dirname -- "$source_path")" && pwd)"
+  source_path="$(readlink "$source_path")"
+  case "$source_path" in /*) ;; *) source_path="$parent/$source_path" ;; esac
+done
+kit="$(cd -P -- "$(dirname -- "$source_path")/.." && pwd)"
+scripts="$kit/scripts"
+
+usage() {
+  cat <<'HELP'
+Usage: listing-kit <command> [arguments]
+  validate [args]                         Check listing copy and assets
+  review [args]                           Build listing-review.html
+  handoff [app-root] [--open]             Build the hand-upload folder
+  open [app-root]                         Build and open the hand-upload folder
+  capture [args]                          Capture planned screenshots
+  plan check|manifest|outputs [args]      Inspect the listing plan
+  detect [app-root]                       Report detected app capabilities
+  hook install|status [app-root]          Install or check the review hook
+  template new <name>                 Create an app-owned screenshot template
+  compose [args]                          Render planned store assets
+  fastlane setup|pull|publish [args]      Configure or sync a store listing
+  pull [args]                             Alias for fastlane pull
+  publish [args]                          Alias for fastlane publish (preview while gated)
+  doctor [app-root]                       Check tools, listing plan and hook
+  version                                 Print kit version and store rules date
+  ci init --provider github|gitlab --kit-ref REF [args] Generate listing CI jobs
+  link [--dir DIR] [--force|--remove]     Install or remove the launcher
+  help                                    Show this usage
+HELP
+}
+
+command_usage() { printf 'Usage: listing-kit %s\n' "$1"; exit 0; }
+invalid() { usage >&2; exit 2; }
+optional() {
+  [ -f "$scripts/$1" ] || { echo 'this command is not part of this build of listing-kit' >&2; exit 3; }
+}
+# Preserve argument order. Only supply "." when a Python entry point requires
+# a positional root and none was supplied. Leave option errors to its parser.
+needs_root() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --target|--screen|--device|--for) [ "$#" -gt 1 ] || return 1; shift ;;
+      --) [ "$#" = 1 ]; return ;;
+      -h|--help) return 1 ;;
+      -*) ;;
+      *) return 1 ;;
+    esac
+    shift
+  done
+  return 0
+}
+
+cmd="${1:-help}"
+if [ "$#" -gt 0 ]; then shift; fi
+case "$cmd" in
+  help|-h|--help) usage ;;
+  validate) exec bash "$scripts/validate/validate-listing.sh" "$@" ;;
+  review) exec bash "$scripts/package/build-review.sh" "$@" ;;
+  handoff)
+    if needs_root "$@"; then set -- "$@" .; fi
+    exec python3 "$scripts/handoff/handoff.py" "$@" ;;
+  open) [ "$#" -le 1 ] || invalid; exec python3 "$scripts/handoff/handoff.py" "${1:-.}" --open ;;
+  capture)
+    if needs_root "$@"; then set -- "$@" .; fi
+    exec python3 "$scripts/capture/capture.py" "$@" ;;
+  plan)
+    case "${1:-}" in
+      -h|--help) command_usage 'plan check|manifest|outputs [args]' ;;
+      check|manifest|outputs) ;;
+      *) invalid ;;
+    esac
+    if needs_root "${@:2}"; then set -- "$@" .; fi
+    exec python3 "$scripts/lib/plan.py" "$@" ;;
+  detect) [ "$#" -le 1 ] || invalid; exec python3 "$scripts/lib/detect.py" "${1:-.}" ;;
+  hook)
+    operation="${1:-}"; [ "$#" -gt 0 ] && shift
+    case "$operation" in
+      -h|--help) command_usage 'hook install|status [app-root]' ;;
+      install) exec bash "$scripts/package/install-review-hook.sh" "$@" ;;
+      status) exec bash "$scripts/package/install-review-hook.sh" --status "$@" ;;
+      *) invalid ;;
+    esac ;;
+  template)
+    case "${1:-}" in
+      -h|--help) command_usage 'template new <name>' ;;
+      new) shift; exec python3 "$scripts/lib/user_templates.py" "$@" ;;
+      *) invalid ;;
+    esac ;;
+  compose)
+    optional compose/compose.py
+    if needs_root "$@"; then set -- "$@" .; fi
+    exec python3 "$scripts/compose/compose.py" "$@" ;;
+  fastlane|pull|publish)
+    if [ "$cmd" != fastlane ]; then set -- "$cmd" "$@"; fi
+    case "${1:-}" in
+      -h|--help) command_usage 'fastlane setup|pull|publish [args]' ;;
+      setup|pull|publish) ;;
+      *) invalid ;;
+    esac
+    optional fastlane/lk_fastlane.py
+    exec python3 -IB "$scripts/fastlane/lk_fastlane.py" "$@" ;;
+  doctor) [ "$#" -le 1 ] || invalid; exec bash "$scripts/doctor/doctor.sh" "${1:-.}" ;;
+  version)
+    case "${1:-}" in -h|--help) command_usage 'version' ;; esac
+    date="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["verified"])' "$kit/specs/stores.json")"
+    printf 'listing-kit %s (store rules verified %s)\n' "$(cat "$kit/VERSION")" "$date" ;;
+  link) exec python3 -I -B "$scripts/package/link.py" "$@" ;;
+  ci)
+    case "${1:-}" in -h|--help) command_usage 'ci init --provider github|gitlab --kit-ref REF [args]' ;; esac
+    [ "${1:-}" = init ] || invalid; shift; exec python3 -I -B "$scripts/package/ci_init.py" "$@" ;;
+  *) invalid ;;
+esac

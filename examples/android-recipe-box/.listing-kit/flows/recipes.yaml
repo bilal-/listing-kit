@@ -1,0 +1,10 @@
+appId: com.example.recipebox.android
+---
+- launchApp:
+    clearState: true
+    arguments:
+      recipeBoxState: demo
+- assertVisible:
+    id: recipe_lemon_herb_pasta
+- assertVisible:
+    id: recipe_veggie_stir_fry
