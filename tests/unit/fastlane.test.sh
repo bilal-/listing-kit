@@ -28,8 +28,10 @@ with open(os.environ["STUB_LOG"], "a") as log:
     # The approval token must never be an argument; it travels in the environment.
     assert os.environ.get("LK_APPLE_WRITE_TOKEN", "") not in args or not os.environ.get("LK_APPLE_WRITE_TOKEN")
     print(json.dumps(args), file=log)
-if args[:1] == ["supply"] and (base / "supply-error").exists():
-    sys.stderr.buffer.write((base / "supply-error").read_bytes())
+failure = base / (args[0] + "-error") if args[0] in ("supply", "deliver") else None
+if failure and failure.exists():
+    assert os.environ["VERBOSE"] == "1"
+    sys.stderr.buffer.write(failure.read_bytes())
     sys.exit(17)
 if "FL_LOG_MODE" in os.environ:
     import signal, time
@@ -96,7 +98,7 @@ if apple_writer:
 if args == ["--version"]:
     if (base / "bad-version").exists():
         sys.exit(1)
-    print("fastlane 2.242.0")
+    print(os.environ.get("FL_VERSION_OUTPUT", "fastlane 2.242.0"))
 elif args[1] in ("init", "download_metadata", "download_screenshots"):
     if (base / "deny").exists():
         print("forbidden", opt("api_key_path").read_text())
@@ -136,7 +138,7 @@ else:
         sys.exit(64)
     if (base / "auto-review").exists() and "--changes_not_sent_for_review" in args:
         assert args[args.index("--rescue_changes_not_sent_for_review") + 1] == "false"
-        print("SECRET-stub The query parameter changesNotSentForReview must not be set")
+        print((base / "auto-review").read_text())
         sys.exit(1)
     if apple_writer and (base / "missing-locale").exists():
         print("[!] private-response-marker", "missing locale fr-FR", "0 fields written", sep="\n")
@@ -461,7 +463,6 @@ assert_eq "$rc" 1
 assert_contains "$out" "missing locale fr-FR"
 assert_contains "$out" "0 fields written"
 assert_not_contains "$out" "private-response-marker"
-assert_not_contains "$out" "listing-kit: fastlane said:"
 assert_contains "$out" "Would run ruby "
 rm "$fixture/missing-locale"
 mv "$fixture/project-gemfile" "$app/Gemfile"
@@ -599,7 +600,7 @@ assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['pla
 it "Play refuses automatic review until explicitly approved"
 export LK_PUBLISH_UNVERIFIED=play:example.play
 echo 'Consent test title' > "$title"
-touch "$fixture/auto-review"
+printf '%s\n' 'SECRET-stub The query parameter changesNotSentForReview must not be set' > "$fixture/auto-review"
 run_lk publish "${p[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "this app sends changes for review automatically; rerun with --send-for-review to accept that"

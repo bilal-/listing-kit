@@ -60,63 +60,68 @@ class MissingFastlane(Exception):
 class FastlaneExit(ValueError):
     """A launched fastlane command returned a non-zero exit status."""
 
-    def __init__(self, category, detail=None):
-        self.detail = detail
-        super().__init__(category + ("\nlisting-kit: fastlane said: " + detail if detail else ""))
+
+UNKNOWN_FAILURE = ("fastlane failed with an error listing-kit does not recognise; "
+                   "rerun locally with the same command to see fastlane's own output")
+TRACK_FAILURE = "Use the Play Console track name with --track <track>."
+VERSION_FAILURE = "Select the intended Play release with --version-code <code>."
+REVIEW_FAILURE = ("this app sends changes for review automatically; "
+                  "rerun with --send-for-review to accept that")
+
+# fastlane 2.242.0. Supply's server-supplied messages enter at client.rb:123,130,138.
+# A verbose body can match any signature. Only return strings from this table.
+SUPPLY_FAILURES = (
+    # supply/lib/supply/uploader.rb:98 and supply/lib/supply/client.rb:520
+    ((b"unable to find the requested track", b"track not found"), TRACK_FAILURE),
+    # supply/lib/supply/uploader.rb:126,99,269
+    ((b"more than one release found in this track", b"could not find release for version code",
+      b"cannot find changelog because no version code given"), VERSION_FAILURE),
+    ((b"package not found",), "Google Play could not find the app. Check --package-name."),
+    ((b"edit expired", b"edit has expired", b"edit has been deleted", b"edit has been invalidated",
+      b"conflicting edit"), "The Play edit is no longer current. Rerun the command."),
+    ((b"only releases with status draft may be created on draft app",),
+     "Google Play requires a draft release for this app. Set the release status to draft in Play Console."),
+    # supply/spec/client_spec.rb:279-284 exercises a forbidden response.
+    ((b"caller does not have permission", b"forbidden", b"unauthorized", b"401", b"403"),
+     "Google Play denied access. Check the service account's Play Console permissions."),
+)
+DELIVER_FAILURES = (
+    # deliver/lib/deliver/download_screenshots.rb:25 and upload_metadata.rb:445,559
+    ((b"could not find an edit version on app store connect", b"cannot find edit app store version",
+      b"could not find an editable version"),
+     "Apple has no editable version. Prepare an editable version in App Store Connect."),
+    # spaceship/lib/spaceship/connect_api/api_client.rb:180-188,243-244,346-347
+    ((b"unauthorized", b"authentication credentials are missing or invalid",
+      b"token has expired, issued-at-time is in the future, or has been revoked", b"401"),
+     "App Store Connect rejected the API key. Check the key ID, issuer ID and private key."),
+)
 
 
-ANSI_CSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
-USER_ERROR = re.compile(rb"^(?:\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]: )?\[!\] ")
-EMAIL = re.compile(r'(?:"(?:[^"\\]|\\.)*"|(?<!\S)\S*)@\S+')
-BEARER = re.compile(r"\bbearer[ \t]+[A-Za-z0-9._~+/-]+=*", re.I)
-TOKEN_RUN = re.compile(r"[A-Za-z0-9_+/-]+(?:\.[A-Za-z0-9_+/-]+)*=*")
-REDACTED = "[redacted]"
+def fastlane_failure(command, app, status, output, hold_for_review):
+    output = output.lower()
+    # Keep the existing categories, including the track and version-code remedies.
+    hints = ("unauthorized", "forbidden", "not found", "invalid credentials",
+             "permission denied", "authentication failed")
+    reason = next((hint for hint in hints if hint.encode("ascii") in output), "action failed")
 
+    def matches(signature):
+        if signature.isdigit():
+            # A status is a separate token. An edit ID can contain the same digits.
+            return re.search(rb"\b" + signature + rb"\b", output) is not None
+        return signature in output
 
-def last_user_error(output):
-    # Only LF starts a new log line. A marker inside a response or after a CR is data.
-    for line in reversed(output.split(b"\n")):
-        if b"[!]" not in line:
-            continue
-        line = ANSI_CSI.sub(b"", line.rstrip(b"\r"))
-        marker = USER_ERROR.match(line)
-        if marker:
-            message = line[marker.end():].decode("utf-8", errors="replace")
-            if all(c.isprintable() or c == "\t" for c in message):
-                return " ".join(message.split())
-            break  # Unprintable final error. Never fall back to an earlier line.
-    return ""
-
-
-def mask_tokens(message):
-    message = BEARER.sub(REDACTED, EMAIL.sub(REDACTED, message))
-    return TOKEN_RUN.sub(lambda m: REDACTED if len(m[0]) >= 20 else m[0], message)
-
-
-def safe_detail(message):
-    if not message:
-        return None
-    # The detector can match just a key name or PEM header. Its value may occupy
-    # the rest of the line, so mask the entire message on any hit.
-    if secret_scan.secret_text(message.encode()):
-        message = REDACTED
-    detail = ("[!] " + mask_tokens(message))[:300]
-    if secret_scan.secret_text(detail.encode()) or mask_tokens(detail) != detail:
-        return None
-    return detail
-
-
-def play_failure(message):
-    # supply/lib/supply/uploader.rb at 2.242.0, lines 98-99, 126 and 269.
-    if (message.startswith("Unable to find the requested track - '")
-            or re.fullmatch(r"Google Api Error: .+ - Track not found(?:[.:].*)?", message, re.I)):
-        return "track not found", "--track <track>"
-    if (message == ("More than one release found in this track. "
-                    "Please specify with the :version_code option to select a release.")
-            or message.startswith("Could not find release for version code '")
-            or message == "Cannot find changelog because no version code given - please specify :version_code"):
-        return "version code required or unknown", "--version-code <code>"
-    return None
+    failures = {"supply": SUPPLY_FAILURES, "deliver": DELIVER_FAILURES}.get(command, ())
+    message = next((message for signatures, message in failures if any(map(matches, signatures))), UNKNOWN_FAILURE)
+    remedy = ""
+    if hold_for_review and b"changesnotsentforreview must not be set" in output:
+        # supply/lib/supply/client.rb:231. Only suggest opting in on a held publish.
+        message = REVIEW_FAILURE
+    elif message == TRACK_FAILURE:
+        reason, remedy = "track not found", "; rerun with --track <track>"
+    elif message == VERSION_FAILURE:
+        reason, remedy = "version code required or unknown", "; rerun with --version-code <code>"
+    category = "%s %s for %s (exit %d)%s" % (command, reason, app, status, remedy)
+    return FastlaneExit(category + "\nlisting-kit: " + message)
 
 
 class ChildTimeout(Exception):
@@ -432,21 +437,8 @@ class Store:
                 else:
                     reason += "; written count unknown"
                 raise FastlaneExit(reason)
-            message = last_user_error(result.stdout)
-            detail = safe_detail(message)
-            if (args[:2] == ["supply", "run"] and not self.validate_only and not self.send_for_review
-                    and b"changesnotsentforreview must not be set" in result.stdout.lower()):
-                raise FastlaneExit("this app sends changes for review automatically; "
-                                    "rerun with --send-for-review to accept that", detail)
-            fix = play_failure(message) if args[0] == "supply" else None
-            hints = (b"unauthorized", b"forbidden", b"not found", b"invalid credentials",
-                     b"permission denied", b"authentication failed")
-            output = result.stdout.lower()
-            reason = fix[0] if fix else next((h.decode() for h in hints if h in output), "action failed")
-            category = "%s %s for %s (exit %d)" % (args[0], reason, self.app, result.returncode)
-            if fix:
-                category += "; rerun with " + fix[1]
-            raise FastlaneExit(category, detail)
+            hold_for_review = args[:2] == ["supply", "run"] and not (self.validate_only or self.send_for_review)
+            raise fastlane_failure(args[0], self.app, result.returncode, result.stdout, hold_for_review)
 
         return result.stdout
 
@@ -457,9 +449,12 @@ def report_version(store, cwd):
         output = store.run(["--version"], cwd)
     except (MissingFastlane, ChildTimeout, ValueError, OSError):
         return
-    match = re.search(rb"\bfastlane\s+(\d+(?:\.\d+)+)", output, re.I)
-    if match:
-        print("fastlane", match.group(1).decode())
+    # Report only versions verified by the kit, using kit-owned literals.
+    lines = output.splitlines()
+    for banner in ("fastlane 2.242.0", "fastlane 2.240.1"):
+        if banner.encode("ascii") in lines:
+            print(banner)
+            return
 
 
 def effective_plan(root, warn=False):
@@ -1421,7 +1416,7 @@ def reconcile(store, history, scratch, resolve, operation_id):
     try:
         remote = download(store, scratch, pin_apple=True)
     except (ChildTimeout, MissingFastlane, ValueError, OSError) as exc:
-        stream = sys.stderr if isinstance(exc, FastlaneExit) and exc.detail else sys.stdout
+        stream = sys.stderr if isinstance(exc, FastlaneExit) else sys.stdout
         print(store.name, "readback unavailable:", exc, file=stream)
         remote = None
     live = remote_galleries(store, remote) if remote else {}

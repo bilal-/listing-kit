@@ -61,7 +61,7 @@ The download runs inside a private `listing-kit-fastlane-*` folder in the system
 
 ### Spaceship API logs
 
-Listing-kit sets `VERBOSE=1` for every fastlane child, including version checks. In fastlane 2.242.0 and 2.240.1 this routes the Spaceship logger to the child’s captured stdout and prevents creation of its API log file. From the captured stream, the kit prints only the parsed version or a known error category. It reports cleanup counts separately. It also sets the child’s umask to `077` and points `TMPDIR` at its mode-`0700` scratch directory.
+Listing-kit sets `VERBOSE=1` for every fastlane child, including version checks. In fastlane 2.242.0 and 2.240.1 this routes the Spaceship logger to the child’s captured stdout and prevents creation of its API log file. The kit reports a recognised version or failure using its own fixed text. It reports cleanup counts separately. It also sets the child’s umask to `077` and points `TMPDIR` at its mode-`0700` scratch directory.
 
 | Verified in the released gems | fastlane 2.242.0 | fastlane 2.240.1 |
 | --- | --- | --- |
