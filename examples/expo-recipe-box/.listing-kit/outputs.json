@@ -1,0 +1,25 @@
+{
+ "files": [
+  ".listing-kit/preview.html",
+  "fastlane/metadata/android/en-US/images/featureGraphic.png",
+  "fastlane/metadata/android/en-US/images/icon.png",
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/01_recipes.png",
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/02_recipe-detail.png",
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/03_shopping.png",
+  "fastlane/metadata/android/en-US/images/phoneScreenshots/04_settings.png",
+  "fastlane/screenshots/en-US/01_recipes_ipad13.png",
+  "fastlane/screenshots/en-US/01_recipes_iphone-large.png",
+  "fastlane/screenshots/en-US/01_recipes_iphone-medium.png",
+  "fastlane/screenshots/en-US/02_recipe-detail_ipad13.png",
+  "fastlane/screenshots/en-US/02_recipe-detail_iphone-large.png",
+  "fastlane/screenshots/en-US/02_recipe-detail_iphone-medium.png",
+  "fastlane/screenshots/en-US/03_shopping_ipad13.png",
+  "fastlane/screenshots/en-US/03_shopping_iphone-large.png",
+  "fastlane/screenshots/en-US/03_shopping_iphone-medium.png",
+  "fastlane/screenshots/en-US/04_settings_ipad13.png",
+  "fastlane/screenshots/en-US/04_settings_iphone-large.png",
+  "fastlane/screenshots/en-US/04_settings_iphone-medium.png",
+  "store-assets/apple/en-US/header-16x9.png"
+ ],
+ "format": 1
+}

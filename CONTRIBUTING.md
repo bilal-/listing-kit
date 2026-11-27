@@ -15,7 +15,7 @@ The weekly drift watch reports changes and sources it could not check in one iss
 
 Edit [.claude-plugin/plugin.json](.claude-plugin/plugin.json) for plugin metadata. Run `bash skills/listing-kit/scripts/package/generate-manifests.sh` to update the marketplace manifest, Gemini extension manifest and installed skill VERSION. The README version badge must carry the plugin version in its alt text and URL.
 
-The example app contains historical listing output. Regenerate its screenshots deliberately on matching devices. Keep the status in [examples/README.md](examples/README.md) accurate when the validator changes.
+The example app contains the captured Expo listing. Regenerate its screenshots deliberately on matching devices. Keep the status in [examples/README.md](examples/README.md) accurate when the validator changes.
 
 ## Screenshot renderer changes
 

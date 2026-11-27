@@ -25,6 +25,7 @@ data = dict(format=2, app="example.app", locales=[dict(id="en", apple="en-US", p
 Path(sys.argv[1]).write_text(json.dumps(data))
 PY
 shots="$app/fastlane/screenshots/en-US"
+rm "$shots/"*_iphone-medium.png
 fake_png "$shots/one.png" 1206 2622
 cp "$shots/one.png" "$shots/two.png"
 cp "$shots/one.png" "$shots/three.png"

@@ -36,9 +36,7 @@ root = Path(sys.argv[1])
 example = Path("examples/expo-recipe-box")
 locale = "en-US"
 metadata = Path("fastlane/metadata")
-apple = Path("fastlane/screenshots") / locale
 android = metadata / "android" / locale
-play = android / "images/phoneScreenshots"
 
 
 def copy_input(source, dest=None):
@@ -60,25 +58,23 @@ for name in ("icon.png", "featureGraphic.png"):
     copy_input(android / "images" / name)
 
 screens = []
-for index, screen in enumerate(("recipes", "recipe-detail", "shopping", "settings"), 1):
-    name = f"{index:02d}_{screen}.png"
-    for target, source in (("iphone", apple / name), ("ipad", apple / ("ipad13_" + name)), ("phone", play / name)):
-        raw = Path(".listing-kit/raw") / target / locale / (screen + ".png")
-        copy_input(source, raw)
+for screen in ("recipes", "recipe-detail", "shopping", "settings"):
+    for target, source in (("iphone", "iphone-medium"), ("ipad", "ipad"), ("phone", "play-phone")):
+        raw = Path(".listing-kit/raw")
+        copy_input(raw / source / locale / (screen + ".png"), raw / target / locale / (screen + ".png"))
     flow = Path(".listing-kit/flows") / (screen + ".yaml")
     copy_input(flow)
     screens.append({"id": screen, "flow": str(flow),
                     "caption": {locale: screen.replace("-", " ").title()}})
 
-# Historical iPhone captures use the large display. Frame them on the medium canvas.
+# Exercise framed phone outputs and a native-size raw iPad upload.
 plan = {
-    "format": 2, "app": "sh.bilal.recipebox", "locales": [locale], "style": {"mode": "raw"},
+    "format": 2, "app": "sh.bilal.recipebox", "locales": [locale], "style": {
+        "mode": "framed", "template": "caption-bottom", "palette": {"background": ["#fff7ea"], "ink": "#221811"},
+        "fonts": {"default": {"headline": ["bundled:Inter"], "detail": ["bundled:Inter"]}}},
     "targets": [
-        {"id": "iphone", "store": "apple", "slot": "iphone-di-medium", "size": [1206, 2622], "state": "active",
-         "style": {"mode": "framed", "template": "caption-bottom",
-                   "palette": {"background": ["#fff7ea"], "ink": "#221811"},
-                   "fonts": {"default": {"headline": ["bundled:Inter"], "detail": ["bundled:Inter"]}}}},
-        {"id": "ipad", "store": "apple", "slot": "ipad-13", "size": [2064, 2752], "suffix": "ipad", "state": "active"},
+        {"id": "iphone", "store": "apple", "slot": "iphone-di-medium", "size": [1206, 2622], "state": "active"},
+        {"id": "ipad", "store": "apple", "slot": "ipad-13", "size": [2064, 2752], "suffix": "ipad", "state": "active", "style": {"mode": "raw"}},
         {"id": "phone", "store": "play", "slot": "phone", "size": [1080, 1920], "state": "active"},
     ],
     "screens": screens,

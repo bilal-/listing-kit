@@ -2,12 +2,8 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/build-review.sh"
-# FIXTURE, not the example as shipped: a copy plus a synthetic medium-size iPhone
-# screenshot, so these tests have a valid tree to mutate. The example as committed is
-# checked without any addition in tests/structure/examples.test.sh.
 new_tempdir APP
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
-fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
 
 it "exits 2 when there is no fastlane tree"
 new_tempdir T
@@ -30,7 +26,7 @@ assert_contains "$PAGE" 'onclick="cp(this)"'          # copy button
 
 it "renders char counts, screenshots, and graphics"
 assert_contains "$PAGE" '23/30'                        # name: "Recipe Box: Cook & Shop"
-assert_contains "$PAGE" 'fastlane/screenshots/en-US/'  # relative screenshot link (iOS)
+assert_contains "$PAGE" 'fastlane/screenshots/en-US/01_recipes_iphone-medium.png'  # relative screenshot link (iOS)
 assert_contains "$PAGE" 'phoneScreenshots'             # android screenshot link
 assert_contains "$PAGE" 'iPhone Dynamic Island (large display)' # device-class grouping
 assert_contains "$PAGE" 'iPad 13&quot;' # class labels are HTML-escaped

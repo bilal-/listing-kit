@@ -2,12 +2,8 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/validate/validate-listing.sh"
-# FIXTURE, not the example as shipped: a copy plus a synthetic medium-size iPhone
-# screenshot, so these tests have a valid tree to mutate. The example as committed is
-# checked without any addition in tests/structure/examples.test.sh.
 new_tempdir APP
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
-fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
 
 it "a current-size fixture passes validation (both stores, exit 0)"
 OUT="$(bash "$SUT" "$APP" 2>&1)"; RC=$?
@@ -77,7 +73,7 @@ remove_fixture "$T"
 
 it "fails when iPad screenshots are missing but the app supports iPad"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
-rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
+rm -f "$T"/fastlane/screenshots/en-US/*_ipad13.png
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 when iPad set missing"
 assert_contains "$OUT" 'no iPad 13" screenshots'
@@ -124,7 +120,7 @@ remove_fixture "$T"
 # --- #1: iPad requirement is detected for NATIVE iOS (pbxproj), not just Expo ---
 it "fails on a native-iOS universal app (TARGETED_DEVICE_FAMILY=2) with no iPad screenshots"
 new_tempdir T; cp -R "$APP/fastlane" "$T/"            # NOTE: no app.json → not the Expo path
-rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
+rm -f "$T"/fastlane/screenshots/en-US/*_ipad13.png
 cp -R "$ROOT/tests/fixtures/platforms/flutter/ios/Runner.xcodeproj" "$T/"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC" "exit 1 — native iPad support detected, iPad shots required"
@@ -138,7 +134,7 @@ play_only()  { new_tempdir T; cp -R "$APP/fastlane" "$T/"; remove_fixture "$T"/f
 PHONE=fastlane/metadata/android/en-US/images/phoneScreenshots
 
 it "a Face ID large set alone cannot fill the medium upload slot"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_iphone-*.png
 png "$T/fastlane/screenshots/en-US/01_home.png" 1284 2778
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
@@ -146,7 +142,7 @@ assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots"
 remove_fixture "$T"
 
 it "a Face ID medium set does not fill the Dynamic Island medium slot"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_iphone-*.png
 png "$T/fastlane/screenshots/en-US/01_home.png" 1170 2532
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
@@ -154,7 +150,7 @@ assert_contains "$OUT" "no iPhone Dynamic Island (medium display) screenshots"
 remove_fixture "$T"
 
 it "an 11\" iPad set does not satisfy the 13\" iPad requirement"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_ipad13.png
 png "$T/fastlane/screenshots/en-US/ipad11_01.png" 1668 2420
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
@@ -290,7 +286,7 @@ assert_contains "$OUT" "privacy_url: not a single http(s) URL"
 remove_fixture "$T"
 
 it "JPEG screenshots count toward the iPhone set"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_iphone-*.png
 fake_jpeg "$T/fastlane/screenshots/en-US/01_home.jpeg" 1179 2556
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
@@ -299,7 +295,7 @@ remove_fixture "$T"
 
 # --- iPad detection beyond app.json ---
 it "detects supportsTablet in a dynamic app.config.ts"
-apple_only; rm "$T/app.json" "$T"/fastlane/screenshots/en-US/ipad13_*.png
+apple_only; rm "$T/app.json" "$T"/fastlane/screenshots/en-US/*_ipad13.png
 printf 'export default { ios: { supportsTablet: true } };\n' > "$T/app.config.ts"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
@@ -307,17 +303,17 @@ assert_contains "$OUT" 'no iPad 13" screenshots'
 remove_fixture "$T"
 
 it "LK_SUPPORTS_IPAD=0 overrides detection"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/ipad13_*.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_ipad13.png
 OUT="$(LK_SUPPORTS_IPAD=0 bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_not_contains "$OUT" "iPad"
 remove_fixture "$T"
 
 it "an upper-case extension fails (fastlane won't upload it on Linux)"
-apple_only; mv "$T/fastlane/screenshots/en-US/01_recipes.png" "$T/fastlane/screenshots/en-US/01_recipes.PNG"
+apple_only; mv "$T/fastlane/screenshots/en-US/01_recipes_iphone-large.png" "$T/fastlane/screenshots/en-US/01_recipes_iphone-large.PNG"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "01_recipes.PNG: rename with a lower-case extension"
+assert_contains "$OUT" "01_recipes_iphone-large.PNG: rename with a lower-case extension"
 remove_fixture "$T"
 
 it "an unrecognized App Store screenshot size fails"
@@ -376,7 +372,7 @@ assert_contains "$OUT" "icon must be a PNG"
 remove_fixture "$T"
 
 it "LK_SUPPORTS_IPHONE=0 allows an iPad-only listing"
-apple_only; rm -f "$T"/fastlane/screenshots/en-US/0*.png "$T"/fastlane/screenshots/en-US/medium_01.png
+apple_only; rm -f "$T"/fastlane/screenshots/en-US/*_iphone-*.png
 OUT="$(LK_SUPPORTS_IPHONE=0 bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 remove_fixture "$T"
@@ -393,10 +389,10 @@ assert_not_contains "$OUT" "promotion eligibility" "four 1080x1920 shots qualify
 remove_fixture "$T"
 
 it "a truncated PNG (header but no image data) fails"
-apple_only; head -c 33 "$T/fastlane/screenshots/en-US/01_recipes.png" > "$T/x" && mv "$T/x" "$T/fastlane/screenshots/en-US/01_recipes.png"
+apple_only; head -c 33 "$T/fastlane/screenshots/en-US/01_recipes_iphone-large.png" > "$T/x" && mv "$T/x" "$T/fastlane/screenshots/en-US/01_recipes_iphone-large.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "01_recipes.png: 0x0 is not an App Store screenshot size"
+assert_contains "$OUT" "01_recipes_iphone-large.png: 0x0 is not an App Store screenshot size"
 remove_fixture "$T"
 
 it "a 41-byte truncated PNG (IHDR + IDAT chunk header) fails"
@@ -404,10 +400,10 @@ apple_only
 python3 -c 'import struct,sys,zlib
 ihdr=struct.pack(">IIBBBBB",1206,2622,8,2,0,0,0)
 open(sys.argv[1],"wb").write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"+ihdr+struct.pack(">I",zlib.crc32(b"IHDR"+ihdr))+b"\x00\x00\x00\x01IDAT")
-' "$T/fastlane/screenshots/en-US/medium_01.png"
+' "$T/fastlane/screenshots/en-US/01_recipes_iphone-medium.png"
 OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 1 "$RC"
-assert_contains "$OUT" "medium_01.png: 0x0 is not an App Store screenshot size"
+assert_contains "$OUT" "01_recipes_iphone-medium.png: 0x0 is not an App Store screenshot size"
 rm -rf "$T"
 
 it "a JPEG without SOS or EOI fails validation"
@@ -555,7 +551,7 @@ WARN_LINES="$(printf '%s\n' "$OUT" | grep -c 'structurally only' || true)"
 assert_eq 1 "$WARN_LINES" "prints exactly ONE structural-only warning across all images"
 
 # PATH stub reporting bad decode for each asset category
-for bad_target in "medium_01.png" "phoneScreenshots/01_recipes.png" "featureGraphic.png" "icon.png" "tvBanner.png"; do
+for bad_target in "01_recipes_iphone-medium.png" "phoneScreenshots/01_recipes.png" "featureGraphic.png" "icon.png" "tvBanner.png"; do
   new_stubdir
   cat > "$STUB_BIN/magick" <<EOF
 #!/usr/bin/env bash
@@ -677,7 +673,7 @@ LIMIT
 chmod +x "$STUB_BIN/magick"
 OUT="$(PATH="$STUB_BIN:$PATH" bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC" "policy warnings allow a structurally valid listing"
-for asset in header.png medium_01.png icon.png featureGraphic.png 01_recipes.png; do
+for asset in header.png 01_recipes_iphone-medium.png icon.png featureGraphic.png 01_recipes.png; do
   warnings="$(printf '%s\n' "$OUT" | grep ' ! ' || true)"
   assert_contains "$warnings" "$asset: could not decode: Image width exceeds user limit"
 done

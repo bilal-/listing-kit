@@ -4,6 +4,11 @@
 !examples/*-recipe-box/.listing-kit/
 examples/*-recipe-box/.listing-kit/*
 !examples/*-recipe-box/.listing-kit/flows/
+/examples/expo-recipe-box/listing-review.html
+!examples/expo-recipe-box/.listing-kit/listing.json
+!examples/expo-recipe-box/.listing-kit/compose.lock.json
+!examples/expo-recipe-box/.listing-kit/outputs.json
+!examples/expo-recipe-box/.listing-kit/raw/
 !examples/ios-recipe-box/.listing-kit/listing.json
 !examples/android-recipe-box/.listing-kit/listing.json
 !examples/flutter-recipe-box/.listing-kit/listing.json

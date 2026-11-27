@@ -2,7 +2,6 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 new_tempdir T
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$T/"
-fake_png "$T/fastlane/screenshots/en-US/medium.png" 1206 2622
 run(){ bash "$SCRIPTS/validate/validate-listing.sh" "$T" "$@" 2>&1; }
 it "dated Duo requirements respect the warning window, start date and SDK exception"
 OUT="$(run --as-of 2027-01-01 --ios-sdk 27.1)"; assert_eq 0 "$?"

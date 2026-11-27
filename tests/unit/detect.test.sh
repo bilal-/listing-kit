@@ -80,6 +80,7 @@ assert_contains "$(run)" $'supportsAndroidPhone\tyes'
 it "an unknown primary family with files still names the fix when its required slot is missing"
 new_tempdir T
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+rm "$T"/fastlane/screenshots/en-US/*_iphone-medium.png
 OUT="$(bash "$SCRIPTS/validate/validate-listing.sh" "$T")"
 assert_contains "$OUT" "LK_SUPPORTS_IPHONE"
 assert_not_contains "$OUT" "LK_SUPPORTS_IPAD"
