@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['2.242.0', latest]
+        version: ['2.240.1', '2.242.0', latest]
     continue-on-error: ${{ matrix.version == 'latest' }}
     steps:
       - uses: actions/checkout@v7

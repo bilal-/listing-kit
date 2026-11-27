@@ -12,6 +12,7 @@ import lk_fastlane as lk
 
 def cases(root):
     options = {}
+    commands = {}
     rules = lk.specs.load()
     example = ROOT / "examples/expo-recipe-box/fastlane"
     apple = {}
@@ -36,8 +37,12 @@ def cases(root):
             lk.download(target, root / store)
         for key in ("metadata/en-US/name.txt", "screenshots/en-US/01.png", "metadata/en-US/changelogs/7.txt"):
             calls.append(lk.upload_args(target, {key: Path(key)}, root))
+        if store == "play":
+            target.validate_only = True
+            calls.append(lk.upload_args(target, {"metadata/en-US/title.txt": Path("title.txt")}, root))
+        commands[action] = sorted({args[1] for args in calls})
         options[action] = sorted({arg[2:] for args in calls for arg in args if arg.startswith("--")})
-    return dict(options=options, apple=apple)
+    return dict(options=options, apple=apple, commands=commands)
 
 
 if __name__ == "__main__":

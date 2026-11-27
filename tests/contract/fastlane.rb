@@ -2,6 +2,7 @@
 require "json"
 require "open3"
 require "pathname"
+require "tmpdir"
 require "fastlane"
 require "deliver"
 require "deliver/loader"
@@ -11,6 +12,20 @@ require "supply/uploader"
 cases, result = Open3.capture2("python3", "-IB", File.join(__dir__, "fastlane_cases.py"))
 abort "Could not build listing-kit contract inputs" unless result.success?
 cases = JSON.parse(cases)
+expected_commands = { "deliver" => %w[download_metadata download_screenshots run], "supply" => %w[init run] }
+abort "Missing explicit fastlane subcommand" unless cases.fetch("commands") == expected_commands
+Dir.mktmpdir("listing-kit-command-contract") do |scratch|
+  env = { "FASTLANE_SKIP_UPDATE_CHECK" => "1", "FASTLANE_OPT_OUT_USAGE" => "1",
+          "GIT_CEILING_DIRECTORIES" => File.dirname(scratch) }
+  expected_commands.each do |tool, commands|
+    commands.each do |command|
+      # Exercise the installed dispatcher away from the checkout and its configuration.
+      help, status = Open3.capture2e(env, "fastlane", tool, command, "--help", chdir: scratch)
+      abort "Unavailable fastlane command #{tool} #{command}" unless status.success? && help.include?("--metadata_path")
+    end
+  end
+end
+
 { "deliver" => Deliver::Options, "supply" => Supply::Options }.each do |action, options|
   missing = cases.fetch("options").fetch(action) - options.available_options.map { |opt| opt.key.to_s }
   abort "#{action} no longer accepts #{missing.join(', ')}" unless missing.empty?

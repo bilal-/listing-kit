@@ -84,9 +84,20 @@ else:
     if (base / "hang-upload").exists() or (base / "interrupt-upload").exists():
         receipt = base / "repo/mobile/.listing-kit/publish.receipt.json"
         shutil.copyfile(receipt, base / "receipt-at-launch")
+    if (base / "interrupt-before").exists():
+        import signal, time
+        os.kill(os.getppid(), signal.SIGINT)
+        time.sleep(5)
     stall("hang-upload")
+    if args[1] != "run":
+        sys.exit(64)
     if (base / ("fail-" + store)).exists():
         sys.exit(1)
+    if "--validate_only" in args:
+        assert store == "play"
+        assert "SUPPLY_VALIDATE_ONLY" not in os.environ
+        (base / "validated").write_text(json.dumps(args))
+        sys.exit(0)
     dest = base / "remote" / store
     for kind in ("metadata", "screenshots"):
         if "--" + kind + "_path" in args:
@@ -380,6 +391,7 @@ assert_contains "$out" "uploads are enabled for this run by LK_PUBLISH_UNVERIFIE
 assert_eq "$(cat "$fixture/sent")" "apple $name"
 assert_file "$app/.listing-kit/publish.approved.json"
 assert_file "$app/.listing-kit/publish.receipt.json"
+python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" apple && pass || fail "Apple text-only command"
 assert_contains "$(cat "$STUB_LOG")" '"--skip_screenshots"'
 assert_not_contains "$(cat "$STUB_LOG")" '"--overwrite_screenshots"'
 cmp -s "$rs/en-US/01_recipes_iphone-large.png" "$rs/en-US/02_recipe-detail_iphone-large.png" && pass || fail "console edit lost"
@@ -415,16 +427,74 @@ run_lk pull "${p[@]}"
 assert_eq "$rc" 0
 mkdir "$play_gallery"
 cp "$fixture/remote-gallery/02_recipe-detail.png" "$play_gallery/console.png"
-echo 'New title' > "$meta/android/en-US/title.txt"
+title="$meta/android/en-US/title.txt"
+play_store_title="$remote/play/metadata/en-US/title.txt"
+pulled_title="$(cat "$play_store_title")"
+printf '%s\r\n\n' "$pulled_title" > "$title"
+: > "$STUB_LOG"
+run_lk publish "${p[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "no comparable changes"
+assert_not_contains "$(cat "$STUB_LOG")" '"--skip_upload_apk"'
+new_title="123456789012345678901234567890"
+printf '%s\r\n' "$new_title" > "$title"
+cp "$title" "$fixture/local-play-title"
+printf 'Console edit' > "$play_store_title"
+it "Play validates exactly the approved edit without opening the publish gate"
+unset LK_PUBLISH_UNVERIFIED
+cp "$app/.listing-kit/remote.lock.json" "$fixture/before-validation.lock"
+run_lk publish "${p[@]}" --resolve play applied --validate-only --yes
+assert_eq "$rc" 2
+run_lk publish "${p[@]}" --validate-only
+assert_eq "$rc" 1
+assert_contains "$out" "requires --yes"
+run_lk publish "${both[@]}" --validate-only
+assert_eq "$rc" 2
+assert_contains "$out" "Apple has no validate-only mode"
+run_lk publish "${a[@]}" --validate-only --yes
+assert_ne "$rc" 0
+assert_contains "$out" "Apple has no validate-only mode"
+for mode in gated override; do
+  if [ "$mode" = override ]; then export LK_PUBLISH_UNVERIFIED=play:example.play; fi
+  SUPPLY_VALIDATE_ONLY=false run_lk publish "${p[@]}" --validate-only --yes
+  assert_eq "$rc" 0
+  assert_contains "$out" "validated, not applied"
+  assert_eq "$(cat "$play_store_title")" "Console edit"
+done
+unset LK_PUBLISH_UNVERIFIED
+assert_file "$fixture/validated"
+assert_contains "$out" "play send"
+assert_contains "$out" "+$new_title"
+cmp -s "$fixture/before-validation.lock" "$app/.listing-kit/remote.lock.json" && pass || fail "validation advanced the baseline"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['status']")" "validated"
+run_lk publish "${p[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "publishing to play is not enabled"
+export LK_PUBLISH_UNVERIFIED=play:example.play
 touch "$fixture/fail-play"
+run_lk publish "${p[@]}" --validate-only --yes
+assert_eq "$rc" 1
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['status']")" validation-incomplete
 run_lk publish "${p[@]}" --yes
 assert_eq "$rc" 1
 assert_eq "$(cat "$fixture/sent")" "apple $name"
 rm "$fixture/fail-play"
-python3 "$ROOT/tests/unit/fastlane_controls.py" resolve-play "$lk" "$app" && pass || fail "resolve failed upload"
+it "a fresh unchanged baseline closes a failed Play upload and retries"
 run_lk publish "${p[@]}" --yes
 assert_eq "$rc" 0
 assert_eq "$(cat "$fixture/sent")" "$(printf 'apple %s\nplay en-US/title.txt' "$name")"
+assert_contains "$out" "baseline unchanged"
+assert_contains "$out" "--- last pull/metadata/en-US/title.txt"
+assert_contains "$out" "-$pulled_title"
+assert_contains "$out" "+$new_title"
+assert_contains "$out" "--- fresh download/metadata/en-US/title.txt"
+assert_contains "$out" "-Console edit"
+digest="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$new_title")"
+assert_contains "$out" "play send $digest metadata/en-US/title.txt"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['files']['metadata/en-US/title.txt']")" "$digest"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-2]['status']")" "not-applied"
+cmp -s "$title" "$fixture/local-play-title" && pass || fail "local Play bytes changed"
+python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" play && pass || fail "Play text-only command"
 for flag in skip_upload_apk skip_upload_aab skip_upload_images skip_upload_changelogs skip_upload_screenshots; do
   assert_contains "$(cat "$STUB_LOG")" "\"--$flag\""
 done
@@ -538,7 +608,12 @@ assert_eq "$rc" 1
 assert_contains "$out" "gallery may now be empty"
 assert_contains "$out" "App Store Connect"
 rm "$fixture/fail-apple"
-python3 "$ROOT/tests/unit/fastlane_controls.py" resolve "$lk" "$app" && pass || fail "resolve failed overwrite"
+# A different download cannot close a failed overwrite automatically.
+echo "Console name" > "$ra/$name"
+run_lk publish "${a[@]}" --resolve apple not-applied --yes
+assert_eq "$rc" 0
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['apple']['operations'][-1]['status']")" "not-applied"
+cp "$meta/$name" "$ra/$name"
 
 it "A4 a timed-out download kills the entire child group"
 touch "$fixture/hang-download"
@@ -550,11 +625,30 @@ rm "$fixture/hang-download"
 it "A4 a timed-out upload requires a fresh review even with --yes"
 touch "$fixture/hang-upload"
 LK_FASTLANE_TIMEOUT=2 run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_contains "$out" "still waiting"
+assert_contains "$(cat "$fixture/receipt-at-launch")" '"status": "pending"'
+rm "$fixture/hang-upload" "$fixture/orphan"
+it "a text-only upload still times out"
+echo 'Timeout title' > "$meta/$name"
+touch "$fixture/hang-upload"
+LK_FASTLANE_TIMEOUT=2 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "outcome unknown"
-assert_contains "$(cat "$fixture/receipt-at-launch")" '"status": "pending"'
-assert_contains "$(cat "$fixture/receipt-at-launch")" '"manifestHash"'
 rm "$fixture/hang-upload"
+run_lk publish "${a[@]}" --resolve apple applied --yes
+assert_eq "$rc" 0
+# The operator checked the live version; a stale readback cannot re-send its text.
+: > "$fixture/sent"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 0
+assert_eq "$(cat "$fixture/sent")" ""
+cp "$ra/$name" "$meta/$name"
+cp "$shots/en-US/02_recipe-detail_iphone-large.png" "$shots/en-US/01_recipes_iphone-large.png"
+touch "$fixture/interrupt-before"
+run_lk publish "${a[@]}" --yes
+assert_eq "$rc" 130
+rm "$fixture/interrupt-before"
 echo '{"apple":{"en-US":{"screenshots":{"iPhone Dynamic Island (medium display)":6}}}}' > "$app/.listing-kit/asset-plan.json"
 : > "$fixture/sent"
 : > "$STUB_LOG"
@@ -567,7 +661,7 @@ assert_eq "$(cat "$fixture/sent")" ""
 assert_ne "$(test -e "$fixture/orphan" && echo yes)" yes
 rm "$app/.listing-kit/asset-plan.json"
 
-it "ambiguous uploads still require interactive resolution on subsequent retries"
+it "ambiguous uploads still require explicit resolution on subsequent retries"
 run_lk publish "${a[@]}" --yes
 assert_eq "$rc" 1
 assert_contains "$out" "--resolve apple"
@@ -588,21 +682,28 @@ run_lk publish "${a[@]}" --yes
 assert_ne "$rc" 0
 assert_contains "$out" "--resolve apple"
 assert_eq "$(cat "$fixture/sent")" ""
-python3 "$ROOT/tests/unit/fastlane_controls.py" resolve "$lk" "$app" && pass || fail "interactive resolution with unavailable readback"
+run_lk publish "${a[@]}" --resolve apple not-applied --yes
+assert_eq "$rc" 0
 rm "$fixture/deny"
 
-it "interrupted upload stays pending and successful readback advances its baseline"
-touch "$fixture/interrupt-upload"
-run_lk publish "${a[@]}" --yes
+it "applied resolution accepts a re-encoded gallery and prevents repeat overwrites"
+touch "$fixture/interrupt-upload" "$fixture/reencode"
+run_lk publish "${a[@]}" --screenshots apple:en-US --yes
 assert_eq "$rc" 130
 assert_not_contains "$out" "Traceback"
 assert_contains "$(cat "$fixture/receipt-at-launch")" '"status": "pending"'
 rm "$fixture/interrupt-upload"
 assert_eq "$(grep -c '^apple en-US/.*png$' "$fixture/sent")" 8
 : > "$fixture/sent"
-run_lk publish "${a[@]}" --yes
+run_lk publish "${a[@]}" --screenshots apple:en-US --yes
+assert_eq "$rc" 1
+assert_contains "$out" "upload outcome unknown"
+run_lk publish "${a[@]}" --resolve apple applied --yes
 assert_eq "$rc" 0
-assert_contains "$out" "matches the approved manifest"
+assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['apple']['operations'][-1]['status']")" done
+run_lk publish "${a[@]}" --screenshots apple:en-US --yes
+assert_eq "$rc" 0
+rm "$fixture/reencode"
 assert_eq "$(cat "$fixture/sent")" ""
 sleep 2
 assert_ne "$(test -e "$fixture/interrupted-orphan" && echo yes)" yes
