@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read a listing plan. Its format is unstable until listing-kit 1.0.
+"""Read the listing plan.
 
 Usage: plan.py {check [--for capture|publish]|manifest|outputs} <app-root>
 """
@@ -32,6 +32,15 @@ BUNDLED_FONTS = ["Inter"]
 LISTING = Path(".listing-kit/listing.json")
 RECORD = LISTING.with_name("outputs.json")
 LOCALE = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})*")
+
+
+def _format_error(data):
+    version = data.get("format") if isinstance(data, dict) else None
+    if type(version) is int and version != FORMAT:
+        if version > FORMAT:
+            return f"newer plan format {version}; this kit supports format {FORMAT}; update listing-kit"
+        return f"expected plan format {FORMAT}"
+    return None
 
 
 def targets(data, store=None, state="active"):
@@ -822,16 +831,17 @@ class _Checker:
         return sorted(stale)
 
     def plan(self, data):
+        message = _format_error(data)
+        if message:
+            self.error("format", message)
+            return
         if isinstance(data, dict) and isinstance(data.get("style"), dict):
             self.mode = data["style"].get("mode", "raw")
-        if self.obj(data, "",
-                    dict(format=int, app=self.app, locales=self.locales_field, trees=self.trees,
-                    platforms=self.platforms, approved=dict(metadata=bool, screens=bool), style=self.style,
-                    targets=[self.target], screens=[self.screen], graphics=dict(apple=self.store_graphics, play=self.store_graphics),
-                    console=self.console, notes=dict), ("format", "app", "locales", "targets", "screens")):
-            if type(data.get("format")) is int and data["format"] != FORMAT:
-                self.error("format", "newer plan format; update listing-kit" if data["format"] > FORMAT
-                           else f"expected plan format {FORMAT}")
+        self.obj(data, "",
+                 dict(format=int, app=self.app, locales=self.locales_field, trees=self.trees,
+                 platforms=self.platforms, approved=dict(metadata=bool, screens=bool), style=self.style,
+                 targets=[self.target], screens=[self.screen], graphics=dict(apple=self.store_graphics, play=self.store_graphics),
+                 console=self.console, notes=dict), ("format", "app", "locales", "targets", "screens"))
         if any(level == "ERROR" for level, _, _ in self.problems):
             return
         self.active_targets(data)
@@ -1013,6 +1023,9 @@ def listing_trees(app_root):
         raise PlanError([("ERROR", str(LISTING), str(exc))]) from exc
     if not isinstance(data, dict):
         raise PlanError([("ERROR", str(LISTING), "expected an object")])
+    message = _format_error(data)
+    if message:
+        raise PlanError([("ERROR", "format", message)])
     if "trees" in data:
         checker = _Checker({}, root, None)
         checker.visit(data["trees"], "trees", checker.trees)

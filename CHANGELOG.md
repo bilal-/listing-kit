@@ -19,6 +19,7 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Plan and capture
 
+- Plan format 2 is stable. Newer plans report the required and supported formats and ask you to update listing-kit.
 - Format 2 records targets, ordered screens, locales, flow overrides and split fastlane roots. Plan commands check it and print capture jobs and output paths.
 - Capture selects simulators or emulators, runs Maestro flows and saves checked raw PNGs. It supports manual navigation, device pins, job selection and a dry run.
 

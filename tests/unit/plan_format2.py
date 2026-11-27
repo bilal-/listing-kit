@@ -35,6 +35,25 @@ class FormatTwo(unittest.TestCase):
     def manifest(self):
         return plan.manifest(self.data, self.rules, self.app)
 
+    def test_stable_plan_format(self):
+        self.assertEqual(self.check(), [])
+        self.assertEqual(self.manifest()["outputs"][0]["screenId"], "one")
+        self.data["futureField"] = True
+        self.assertTrue(any(level == "ERROR" and "unknown key" in message
+                            for level, _, message in self.check()))
+        self.data = {"format": 3, "futureField": True}
+        problems = self.check()
+        self.assertEqual(len(problems), 1)
+        level, path, message = problems[0]
+        self.assertEqual((level, path), ("ERROR", "format"))
+        self.assertRegex(message, r"plan format 3.*supports format 2.*update listing-kit")
+        with self.assertRaises(plan.PlanError):
+            self.manifest()
+        (self.app / plan.LISTING).write_text(json.dumps(self.data))
+        with self.assertRaises(plan.PlanError) as caught:
+            plan.listing_trees(self.app)
+        self.assertEqual(caught.exception.problems, problems)
+
     def test_requirement_replacement_and_null_deletion(self):
         update = dict(id="iphone-duo-outer", required={"rule": "always"}, capture=None)
         (self.app / specs.OVERRIDE).write_text(json.dumps(
