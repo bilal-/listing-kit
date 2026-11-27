@@ -21,6 +21,7 @@ RECORD_COMMAND = "python3 tests/unit/renderer_version.py --record"
 def snapshot():
     sources = [COMPOSE / name for name in ("render.py", "cdp.py", "pixels.py", "fontcheck.py")]
     sources.append(KIT / "scripts/lib/template_values.py")
+    sources.append(KIT / "scripts/lib/user_templates.py")
     templates = KIT / "templates"
     sources.extend(sorted(templates.glob("*.html")))
     sources.append(templates / "base.css")

@@ -1,6 +1,7 @@
 """Read JSON files and check in-memory inputs with the same numeric and nesting limits."""
 import json
 import math
+import re
 
 
 def _members(pairs):
@@ -62,3 +63,30 @@ def diagnostic(value):
     """Escape row delimiters and nonprinting characters in a TSV field."""
     return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
                    for c in value)
+
+
+def field_line(source, path):
+    """Locate a dotted field with array indices in an already validated JSON document."""
+    decoder = json.JSONDecoder()
+    pos = 0
+
+    def skip_space(i):
+        while i < len(source) and source[i].isspace():
+            i += 1
+        return i
+
+    for name, index in re.findall(r"(?:^|\.)([^.\[]+)|\[(\d+)\]", path):
+        pos = skip_space(pos) + 1
+        if index:
+            for _ in range(int(index)):
+                _, pos = decoder.raw_decode(source, skip_space(pos))
+                pos = skip_space(pos) + 1
+        else:
+            while True:
+                key, pos = decoder.raw_decode(source, skip_space(pos))
+                pos = skip_space(pos) + 1
+                if key == name:
+                    break
+                _, pos = decoder.raw_decode(source, skip_space(pos))
+                pos = skip_space(pos) + 1
+    return source.count("\n", 0, skip_space(pos)) + 1

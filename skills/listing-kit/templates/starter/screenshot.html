@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<!-- Select user:TEMPLATE_NAME in the framed plan’s style.template. -->
+<!-- The kit supplies shared layout rules, the plan palette and both font roles. -->
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/fonts.css">
+<style>
+body { padding: 5vmin; gap: 2vmin }
+.headline { font-size: 7vmin }
+.detail { font-size: 4vmin }
+.capture { flex: 1; min-height: 0; width: 100%; object-fit: contain }
+</style>
+<body data-fit="{{fit}}">
+<!-- Mark text and the capture so compose can check fit, contrast and cropping. -->
+<h1 class="headline" data-check="text">{{caption}}</h1>
+<p class="detail" data-check="text">{{detail}}</p>
+<img class="capture" data-check="device" src="/raw.png" alt="">
+</body>
+</html>

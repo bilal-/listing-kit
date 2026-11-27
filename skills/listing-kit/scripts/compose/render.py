@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Render one marketing image from a bundled template. Standard library only.
+"""Render one marketing image from a bundled or checked app template. Standard library only.
 
 This is the layer between the plan and the browser: it takes plain values (text,
 colours, font files, a raw capture, a size), fills a template, renders it through
 cdp.Renderer with every request served from an allow-list, and reports the checks
 that need a browser (fit, contrast). It knows nothing about listing.json.
 """
+from dataclasses import dataclass, field
 import html
 import os
 import re
@@ -40,6 +41,19 @@ def needed_ratio(px, bold, canvas_width):
     return 3.0 if scaled >= LARGE_PX or (bold and scaled >= LARGE_BOLD_PX) else 4.5
 
 
+@dataclass(frozen=True)
+class Asset:
+    path: str
+    data: bytes = field(repr=False)
+
+    def __fspath__(self):
+        return self.path
+
+
+def asset_data(asset):
+    return asset.data if isinstance(asset, Asset) else asset
+
+
 def _fonts_css(fonts):
     """fonts: {"headline": [paths], "detail": [paths]} -> (css, assets). Each role is one
     family built from the files in order, so a later file supplies missing characters."""
@@ -53,7 +67,7 @@ def _fonts_css(fonts):
             if ext not in (".ttf", ".otf"):
                 raise RenderError("font must be .ttf or .otf: %s" % path)
             url = "/fonts/%s-%d%s" % (role, i, ext)
-            assets[url] = path
+            assets[url] = asset_data(path)
             # One family per file, listed in order in font-family below.
             css.append('@font-face{font-family:"%s %d";src:url(%s)}' % (family, i, url))
         stack = ",".join('"%s %d"' % (family, i) for i in range(len(paths)))
@@ -84,16 +98,42 @@ def _vars(style, shot=None):
     return ":root{%s}" % ";".join("%s:%s" % kv for kv in sorted(v.items()))
 
 
-PROBE = r"""(() => {
+PROBE = r"""(userLayout => {
   const out = {overflow: [], text: [], device: null};
   const W = innerWidth, H = innerHeight;
+  const pixel = document.createElement("canvas");
+  pixel.width = pixel.height = 1;
+  const ctx = pixel.getContext("2d", {willReadFrequently: true, colorSpace: "srgb"});
+  function srgb(color) {
+    // Paint the opaque colour in sRGB so premultiplication cannot round away
+    // low-alpha channels. Chromium serializes alpha after a slash or rgba comma.
+    let alpha = 1;
+    const separator = color.startsWith("rgba(") ? color.lastIndexOf(",") : color.lastIndexOf("/");
+    if (separator >= 0) {
+      const value = color.slice(separator + 1, -1).trim();
+      alpha = value === "none" ? 0 : parseFloat(value) / (value.endsWith("%") ? 100 : 1);
+      color = color.slice(0, separator) + ")";
+    }
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3), alpha];
+  }
   for (const el of document.querySelectorAll('[data-check="text"]')) {
     const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-    const over = Math.max(el.scrollWidth - Math.ceil(r.width), -r.left, r.right - W, r.bottom - H, -r.top, 0);
+    let clipped = 0;
+    if (userLayout && el.textContent.trim()) {
+      if (cs.overflowY !== "visible") clipped = el.scrollHeight - el.clientHeight;
+      for (let node=el.parentElement; node; node=node.parentElement) {
+        const box = node.getBoundingClientRect(), css = getComputedStyle(node);
+        if (css.overflowX !== "visible") clipped = Math.max(clipped, box.left-r.left, r.right-box.right);
+        if (css.overflowY !== "visible") clipped = Math.max(clipped, box.top-r.top, r.bottom-box.bottom);
+      }
+    }
+    const over = Math.max(clipped, el.scrollWidth - Math.ceil(r.width), -r.left, r.right - W, r.bottom - H, -r.top, 0);
     if (over > 1) out.overflow.push({text: el.textContent.slice(0, 60), by: Math.round(over)});
     const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
-    const rgba = cs.color.match(/[\d.]+/g).map(Number);
-    let opacity = rgba.length === 4 ? rgba.pop() : 1;
+    const rgba = srgb(cs.color);
+    let opacity = rgba.pop();
     for (let node=el; node; node=node.parentElement) opacity *= Number(getComputedStyle(node).opacity);
     rgba.push(opacity);
     out.text.push({family:cs.fontFamily, value:el.innerText, rect:[r.left,r.top,r.right,r.bottom], rgba, px: parseFloat(cs.fontSize), bold: parseInt(cs.fontWeight) >= 600, colour: cs.color,
@@ -120,13 +160,16 @@ PROBE = r"""(() => {
     out.device={objectFit:fit, crop:w*h ? Math.max(0,1-visible/(w*h)) : 1,
                 cutBottom:Math.max(0,y+h-bottom)/h};
   }
-  return out; })()"""
+  return out; })"""
 
 
-def _fill(template, values):
-    template_values.template_name(template)
-    with open(os.path.join(TEMPLATES, template + ".html"), encoding="utf-8") as f:
-        page = f.read()
+def _fill(template, values, user=None):
+    if user is None:
+        template_values.template_name(template)
+        with open(os.path.join(TEMPLATES, template + ".html"), encoding="utf-8") as f:
+            page = f.read()
+    else:
+        return user.fill(values)
 
     def sub(m):
         key = m.group(1)
@@ -144,7 +187,7 @@ def _brand(logo, icon, name, assets):
             raise RenderError("unsupported brand image: %s" % path)
         role = "logo" if logo else "icon"
         url = "/" + role + ext
-        assets[url] = path
+        assets[url] = asset_data(path)
         image = '<img class="%s" src="%s" alt="">' % (role, url)
         if logo:
             return image
@@ -154,15 +197,16 @@ def _brand(logo, icon, name, assets):
 
 
 def page_assets(template, locale, style, fonts, text, raw=None, shot_size=None,
-                logo=None, icon=None, app_name=None, fit="contain"):
-    template_values.template_name(template)
+                logo=None, icon=None, app_name=None, fit="contain", user=None):
     fonts_css, assets = _fonts_css(fonts)
     esc = lambda s: html.escape(s or "")  # noqa: E731
     values = {"lang": html.escape(locale), "dir": text_dir(locale), "fit": fit if fit in ("contain", "bleed", "cover") else "contain",
               "caption": esc(text.get("caption")), "detail": esc(text.get("detail")), "headline": esc(text.get("headline")),
               "rows": "".join('<div><dt data-check="text">%s</dt><dd data-check="text">%s</dd></div>'  % (esc(a), esc(b)) for a, b in text.get("rows", [])),
-              "brand": _brand(logo, icon, app_name, assets) if template in ("panel", "feature", "header") else ""}
-    assets["/index.html"] = _fill(template, values).encode("utf-8")
+              "brand": _brand(logo, icon, app_name, assets) if user or template in ("panel", "feature", "header") else ""}
+    if user:
+        assets.update(user.assets)
+    assets["/index.html"] = _fill(template, values, user).encode("utf-8")
     assets["/fonts.css"] = (fonts_css + "\n" + _vars(style, shot_size)).encode("utf-8")
     assets["/base.css"] = os.path.join(TEMPLATES, "base.css")
     if raw:
@@ -171,13 +215,14 @@ def page_assets(template, locale, style, fonts, text, raw=None, shot_size=None,
 
 
 def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_size=None,
-           logo=None, icon=None, app_name=None, fit="contain", deadline=None):
+           logo=None, icon=None, app_name=None, fit="contain", deadline=None, user=None):
     if deadline is None:
         deadline = cdp.new_deadline()
     width, height = size
-    assets = page_assets(template, locale, style, fonts, text, raw, shot_size, logo, icon, app_name, fit)
+    assets = page_assets(template, locale, style, fonts, text, raw, shot_size, logo, icon, app_name, fit, user)
     problems = []
-    png, info = renderer.render(assets, width, height, probe=PROBE, background=True, deadline=deadline)
+    probe = PROBE + ("(true)" if user else "(false)")
+    png, info = renderer.render(assets, width, height, probe=probe, background=True, deadline=deadline)
     strings = {"headline": [], "detail": []}
     for box in info["text"]:
         family = box["family"].split(",")[0].strip(' "')
@@ -186,7 +231,7 @@ def render(renderer, template, size, locale, style, fonts, text, raw=None, shot_
             raise RenderError("undeclared font family %s for %s" % (family, box["sample"]))
         strings[role].append(box["value"])
     for role, values in strings.items():
-        gone = fontcheck.missing("\n".join(values), fonts[role])
+        gone = fontcheck.missing("\n".join(values), [asset_data(font) for font in fonts[role]])
         if gone:
             problems.append("no %s font has: %s" % (role, ", ".join(fontcheck.describe(c) for c in gone)))
     refused = [u for u in renderer.refused if not u.endswith("/favicon.ico")]

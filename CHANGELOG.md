@@ -5,6 +5,10 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ## Unreleased
 
+### Composition
+
+- Apps can keep marketing templates, styles and assets in `.listing-kit/templates/`. Create a starter with `listing-kit template new <name>`. Plan checks include source locations, preview embeds the rendered PNG, and template edits use the existing restyle approval.
+
 ### Rules and validation
 
 - Validation checks optional App Review contact details and Play video URLs. Validation and the Git review hook reject demo credential files, including empty ones. The hand-upload index lists the App Review fields and each store’s rating questionnaire.
