@@ -17,19 +17,26 @@ jobs:
             mode: render
           - os: macos-latest
             mode: render
-          - os: ubuntu-latest
+          # Ubuntu 24.04 still packages ImageMagick 6, which this job tests against.
+          - os: ubuntu-24.04
             mode: browserless
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Show bash version
         run: bash --version | head -1
       - name: Install ImageMagick 6 for decoder compatibility tests
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           if ! command -v convert-im6.q16 >/dev/null 2>&1 || ! command -v identify-im6.q16 >/dev/null 2>&1; then
             sudo apt-get update && sudo apt-get install -y imagemagick-6.q16
           fi
           echo 'LK_TEST_IM6=1' >> "$GITHUB_ENV"
+      - name: Install ImageMagick
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y imagemagick
+          fi
       - name: Install ImageMagick
         if: runner.os == 'macOS'
         run: brew install imagemagick
