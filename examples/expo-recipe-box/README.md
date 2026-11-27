@@ -12,4 +12,4 @@ listing-kit validate
 listing-kit review
 ```
 
-The [plan](.listing-kit/listing.json) defines the captions, sizes and device types. The [walkthrough](../../docs/GUIDE.md) covers installation, device selection, capture and handoff.
+The [plan](.listing-kit/listing.json) defines the captions, sizes and device types. The [walkthrough](../../docs/GUIDE.md) covers installation, device selection, capture and handoff. See the [first-run notes](../../docs/FIRST-RUN-NOTES.md) for the iPad window setting and native Android size.
