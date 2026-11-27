@@ -746,6 +746,15 @@
      }
     },
     {
+     "stem": "apple_tv_privacy_policy",
+     "label": "Apple TV privacy policy",
+     "scope": "locale",
+     "unit": "chars",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
      "stem": "release_notes",
      "label": "What's new",
      "scope": "locale",
@@ -777,11 +786,47 @@
      }
     },
     {
+     "stem": "primary_first_sub_category",
+     "label": "Primary category (first subcategory)",
+     "scope": "app",
+     "unit": "single-line text",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "primary_second_sub_category",
+     "label": "Primary category (second subcategory)",
+     "scope": "app",
+     "unit": "single-line text",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
      "stem": "secondary_category",
      "label": "Secondary category",
      "scope": "app",
      "unit": "enum",
      "values": "appleCategories",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "secondary_first_sub_category",
+     "label": "Secondary category (first subcategory)",
+     "scope": "app",
+     "unit": "single-line text",
+     "required": {
+      "rule": "never"
+     }
+    },
+    {
+     "stem": "secondary_second_sub_category",
+     "label": "Secondary category (second subcategory)",
+     "scope": "app",
+     "unit": "single-line text",
      "required": {
       "rule": "never"
      }

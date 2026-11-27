@@ -46,6 +46,7 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Fastlane commands
 
+- Apple pull recognizes the optional localized Apple TV privacy policy, secondary category and four subcategory files in deliver downloads.
 - Setup checks read access using external credential paths. Pull merges downloaded text against a baseline and saves remote screenshot references.
 - Publish validates a scratch copy, compares listings and previews the proposed command and gallery replacements. Uploads are disabled for both stores pending live tests.
 

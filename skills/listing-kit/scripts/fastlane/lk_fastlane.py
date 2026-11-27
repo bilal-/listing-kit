@@ -2,18 +2,22 @@
 """Manage a single app's listing through fastlane deliver and supply."""
 import argparse
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import fcntl
+import fnmatch
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import pwd
 import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -71,6 +75,57 @@ def run_child(command, *, upload=False, check=False, **options):
         if check:
             result.check_returncode()
         return result
+
+
+def spaceship_logs(scratch, external_dirs):
+    """Inspect file metadata only. Shared directories are scanned at the top level."""
+    def directories():
+        for folder, _, files in os.walk(scratch, onerror=raise_walk_error):
+            yield Path(folder), files
+        for folder in external_dirs:
+            try:
+                yield folder, os.listdir(folder)
+            except FileNotFoundError:
+                continue
+
+    for folder, names in directories():
+        for name in fnmatch.filter(names, "spaceship*.log"):
+            path = folder / name
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid():
+                yield path, (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+@contextmanager
+def clean_spaceship_logs(scratch):
+    external_dirs = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
+    if os.environ.get("HOME"):
+        external_dirs.add(Path(os.environ["HOME"]).resolve())
+    try:
+        external_dirs.add(Path(pwd.getpwuid(os.getuid()).pw_dir).resolve())
+    except KeyError:
+        pass  # An unmapped container UID may have only an environment-provided home.
+    before = dict(spaceship_logs(scratch, external_dirs))
+    try:
+        yield
+    finally:
+        removed = 0
+        failed = 0
+        for path, stamp in spaceship_logs(scratch, external_dirs):
+            if before.get(path) != stamp:
+                try:
+                    path.unlink()
+                    removed += 1
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    failed += 1
+        print("Spaceship API logs removed:", removed)
+        if failed:
+            raise RuntimeError("Could not remove %d Spaceship API log(s)" % failed)
 
 
 def now():
@@ -154,6 +209,7 @@ class Store:
     code: str
     key: Path = None
     screenshots: tuple = ()
+    scratch: Path = field(init=False)
 
     @property
     def selector(self):
@@ -186,15 +242,16 @@ class Store:
         env = {k: v for k, v in os.environ.items() if not k.startswith(
             ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE"))}
         # UNVERIFIED in S3: fastlane update-check and telemetry environment switches.
-        env.update(FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
+        env.update(TMPDIR=str(self.scratch), FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
         if gemfile:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
-        try:
-            result = run_child(prefix + args, upload=upload, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        except FileNotFoundError:
-            raise MissingFastlane(INSTALL)
+        with clean_spaceship_logs(self.scratch):
+            try:
+                result = run_child(prefix + args, upload=upload, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            except FileNotFoundError:
+                raise MissingFastlane(INSTALL)
         if result.returncode == 127:
             raise MissingFastlane(INSTALL)
         if result.returncode:
@@ -221,7 +278,13 @@ def report_version(store, cwd):
 def selected(args, root, rules):
     data = manifest = {}
     if (root / plan.LISTING).exists():
-        data = plan.load(root)
+        try:
+            data = plan.load(root)
+        except plan.UnversionedPlan:
+            if args.command == "publish":
+                raise
+            print("listing.json ignored: unversioned plan (missing format). Using project evidence.", file=sys.stderr)
+    if data:
         manifest = plan.manifest(data, rules, root)
         trees = manifest["trees"]
         ids = manifest["app"]
@@ -1085,6 +1148,7 @@ def main(argv):
             scratch = Path(tmp.name)
             views = {}
             for store in stores:
+                store.scratch = scratch
                 report_version(store, scratch)
                 if args.command == "setup":
                     field, env, description = CREDENTIAL[store.name]

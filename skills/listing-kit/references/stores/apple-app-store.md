@@ -56,10 +56,15 @@ Run `listing-kit detect` to inspect native device families and static Expo setti
 | Support URL | support_url | locale | url | Required |
 | Marketing URL | marketing_url | locale | url | Optional |
 | Privacy policy URL | privacy_url | locale | url | Required |
+| Apple TV privacy policy | apple_tv_privacy_policy | locale | chars | Optional |
 | What's new | release_notes | locale | 4000 chars | Required if this listing is for an update, not the first version |
 | Copyright | copyright | app | chars | Required |
 | Primary category | primary_category | app | enum | Required |
+| Primary category (first subcategory) | primary_first_sub_category | app | single-line text | Optional |
+| Primary category (second subcategory) | primary_second_sub_category | app | single-line text | Optional |
 | Secondary category | secondary_category | app | enum | Optional |
+| Secondary category (first subcategory) | secondary_first_sub_category | app | single-line text | Optional |
+| Secondary category (second subcategory) | secondary_second_sub_category | app | single-line text | Optional |
 | Review contact first name | first_name | review_information | chars | Optional |
 | Review contact last name | last_name | review_information | chars | Optional |
 | Review contact phone number | phone_number | review_information | phone | Optional |

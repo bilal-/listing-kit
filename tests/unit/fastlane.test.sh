@@ -26,6 +26,28 @@ base = Path(os.environ["FL_FIXTURE"])
 args = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a") as log:
     print(json.dumps(args), file=log)
+if "FL_LOG_MODE" in os.environ:
+    import signal, time
+    tmp = Path(os.environ["TMPDIR"])
+    parent = Path(os.environ["FL_PARENT_TMP"])
+    home = Path.home()
+    record = parent / "invocations"
+    paths = [tmp / "spaceship-private.log", parent / "spaceship-temp.log", home / "spaceship-home.log"]
+    nested = Path.cwd() / "nested"
+    nested.mkdir(exist_ok=True)
+    paths.append(nested / "spaceship-nested.log")
+    with record.open("a") as stream:
+        print(json.dumps([str(tmp), tmp.stat().st_mode & 0o777, any(p.exists() for p in paths)]), file=stream)
+    for path in paths:
+        path.write_text("private-response-marker")
+    if args != ["--version"]:
+        (home / "spaceship-modified.log").write_text("after!")
+        if os.environ["FL_LOG_MODE"] == "error":
+            sys.exit(17)
+        if os.environ["FL_LOG_MODE"] == "term":
+            os.kill(os.getppid(), signal.SIGTERM)
+            time.sleep(10)
+
 def stall(marker):
     if (base / marker).exists():
         import subprocess
@@ -130,6 +152,9 @@ rm "$example/screenshots/en-US/"*_iphone-medium.png
 cp -R "$example/metadata/." "$ra/"
 rm -rf "$ra/android"
 cp -R "$example/screenshots/." "$rs/"
+it "live pull regressions with stub fastlane"
+python3 "$HELPER_DIR/unit/fastlane_live.py" "$lk" && pass || fail "live pull regressions"
+
 it "setup refuses an in-repository credential (even above app root)"
 cp "$fixture/apple.json" "$fixture/repo/k.json"
 run_lk fastlane setup "${a[@]}" "$setup_key" "$fixture/repo/k.json"

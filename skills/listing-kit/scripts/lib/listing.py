@@ -21,10 +21,6 @@ from imginfo import is_image
 
 # Recognized deliver app-level metadata files directly under fastlane/metadata/.
 DELIVER_APP_FILES = {
-    "primary_first_sub_category.txt",
-    "primary_second_sub_category.txt",
-    "secondary_first_sub_category.txt",
-    "secondary_second_sub_category.txt",
     "app_store_rating_config.json",
     "age_rating_declaration.json",
     "apple_tv_privacy_policy.txt",
@@ -68,7 +64,7 @@ def check_metadata_links(root, trees):
 
 def localized_files(rules):
     return {f["stem"] + ".txt" for f in specs.fields(rules, "apple", "locale")} | {
-        "apple_tv_privacy_policy.txt", "privacy_choices_url.txt",
+        "privacy_choices_url.txt",
     }
 
 
