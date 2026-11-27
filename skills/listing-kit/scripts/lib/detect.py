@@ -270,21 +270,23 @@ if __name__ == "__main__":
     parser.add_argument("app_root", nargs="?", type=Path, default=Path("."))
     root = parser.parse_args().app_root.resolve()
     try:
-        trees = plan.listing_trees(root, ignore_unversioned=True)
+        trees, explicit = plan.listing_layout(root, ignore_unversioned=True)
     except plan.PlanError as exc:
         if any(field == "format" for _, field, _ in exc.problems):
             sys.exit(str(exc))
         print(exc, file=sys.stderr)
-        trees = {}
+        trees, explicit = {}, set()
     except ValueError as exc:
         sys.exit(str(exc))
     kind, stores = layout.stack(root)
-    stores = [store for store in layout.BOTH if store in stores or
+    stores = [store for store in layout.BOTH if store in stores or store in explicit or
               (store in trees and layout.holds_listing(root, store, trees[store]["fastlaneDir"]))]
     print("stack", kind, sep="\t")
     print("stores", " ".join(stores), sep="\t")
     print("appRoot", root, sep="\t")
     for store, tree in trees.items():
+        if store not in stores:
+            continue
         for key, path in tree.items():
             print(store + "." + key, path, sep="\t")
     active_targets = []

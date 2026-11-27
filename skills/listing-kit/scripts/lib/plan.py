@@ -771,9 +771,30 @@ class _Checker:
                                **{"from": self.resolved(graphic.get("from"))},
                                **self.render_fields(graphic, f"graphics.{store}.{name}", loc, style, rule))
 
+    def flat_play_artwork(self, data, metadata):
+        """Report store-ready graphics placed directly in a supply metadata root."""
+        for rule in self.rules["stores"]["play"]["graphics"]:
+            if rule["upload"] != "fastlane":
+                continue
+            filename = rule["file"] + ".png"
+            flat = metadata / filename
+            graphic = data.get("graphics", {}).get("play", {}).get(rule["id"], {})
+            source = self.resolved(graphic.get("from"))
+            if source and Path(source).parent == metadata:
+                flat = Path(source)
+            if not (self.app_root / flat).is_file():
+                continue
+            for locale in _target_locales(self.locales.values(), {"store": "play"}):
+                destination = metadata / locale["play"] / "images" / filename
+                if not (self.app_root / destination).is_file():
+                    action = "copy" if source and Path(source) == flat else "move"
+                    self.warn("trees.play.metadata", f"Flat artwork: {action} {flat} to {destination} for upload.")
+
     def destinations(self, data):
         trees = _trees(data, self.app_root)
         rows = list(self.output_records(data, trees))
+        if "metadata" in data.get("trees", {}).get("play", {}):
+            self.flat_play_artwork(data, trees["play"]["metadata"])
         planned = [(j["rawPath"], j["targetId"] + "/" + j["screenId"]) for j in self.captures.values()]
         for r in rows:
             owner = r["targetId"] + "/" + r["screenId"] if r["targetId"] else f"graphics.{r['store']}.{r['slotId']}"
@@ -1056,8 +1077,8 @@ def load(app_root):
     return _read(app_root)[0]
 
 
-def listing_trees(app_root, *, ignore_unversioned=False):
-    """Resolve app-relative input directories for a planned or manual listing."""
+def listing_layout(app_root, *, ignore_unversioned=False):
+    """Return resolved store directories and the stores explicitly configured by trees."""
     root = Path(app_root).resolve()
     try:
         data = read_listing(root)
@@ -1078,7 +1099,12 @@ def listing_trees(app_root, *, ignore_unversioned=False):
         checker.visit(data["trees"], "trees", checker.trees)
         if checker.problems or checker.tree_errors:
             raise PlanError(checker.problems + checker.tree_errors)
-    return _trees(data, root)
+    return _trees(data, root), set(data.get("trees", {})).intersection(layout.BOTH)
+
+
+def listing_trees(app_root, *, ignore_unversioned=False):
+    trees, _ = listing_layout(app_root, ignore_unversioned=ignore_unversioned)
+    return trees
 
 
 def has_listing_directory(root, trees):

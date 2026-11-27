@@ -116,10 +116,12 @@ assert_contains "$out" '--skip_upload_screenshots'
 assert_not_contains "$out" 'Credential-like content'
 rm "$manifest"
 
-it "a missing Play metadata directory reports the planned shortfall as a warning"
-remove_fixture "$meta/android"
-out="$("$lk" validate "$app" 2>&1)"; assert_eq 0 "$?"
+it "a missing Play metadata directory fails validation for the exact planned paths"
+mv "$meta/android" "$credentials/play-metadata"
+out="$("$lk" validate "$app" 2>&1)"; assert_eq 1 "$?"
+assert_contains "$out" 'fastlane/metadata/android/en-US/images/phoneScreenshots/01_one.png: MISSING'
 assert_contains "$out" '! planned Play en-US/phone: 0 of 2 screenshots'
+mv "$credentials/play-metadata" "$meta/android"
 
 it "a custom 12.9-inch suffix selects its own deliver group at the shared iPad size"
 python3 - "$plan" <<'PY'

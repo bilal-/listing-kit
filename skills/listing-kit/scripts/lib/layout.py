@@ -45,7 +45,8 @@ def stack(root):
         return "react-native-bare", tuple(s for s, folder in zip(BOTH, (ios, android)) if folder.is_dir()) or BOTH
     if any(p.is_dir() for ext in ("*.xcodeproj", "*.xcworkspace") for p in root.glob(ext)):
         return "native-ios", APPLE
-    if any((root / "app" / filename).is_file() for filename in ("build.gradle", "build.gradle.kts")):
+    if (android_application_plugin(root)
+            or any((root / "app" / filename).is_file() for filename in ("build.gradle", "build.gradle.kts"))):
         return "native-android", PLAY
     return "unknown", ()
 
@@ -58,6 +59,8 @@ def native_app(folder):
                     return True
             except (ValueError, KeyError, TypeError, AttributeError, ExpatError, plistlib.InvalidFileException):
                 continue
+    if android_application_plugin(folder):
+        return True
     for module in (folder / "app", folder / "android/app"):
         manifest = module / "src/main/AndroidManifest.xml"
         if manifest.is_file():
@@ -105,8 +108,18 @@ def project(root):
                            for store, native in NATIVE.items() for base in (SHARED, native)):
         candidates = sorted(p.relative_to(root).as_posix() for p in folders if app_candidate(p))
         if candidates:
-            raise ValueError(f"Mobile app candidates: {', '.join(candidates)}. Choose one and run inside "
-                             "its app folder, or set trees in the root .listing-kit/listing.json.")
+            message = f"Mobile app candidates: {', '.join(candidates)}."
+            native = {}
+            for candidate in candidates:
+                kind, stores = stack(root / candidate)
+                if kind in ("native-ios", "native-android"):
+                    native.setdefault(stores[0], {"fastlaneDir": candidate + "/fastlane"})
+            if all(store in native for store in BOTH):
+                example = json.dumps({"trees": native})
+                raise ValueError(f"{message} For a two-store listing, use one root .listing-kit/listing.json "
+                                 f"with explicit trees, for example {example}")
+            raise ValueError(f"{message} For a single app, run inside its folder. "
+                             "For a shared listing, set trees in the root .listing-kit/listing.json.")
     return stack(root)
 
 

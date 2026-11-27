@@ -1,0 +1,12 @@
+{
+  "format": 2,
+  "app": "org.example.mobile",
+  "trees": {
+    "apple": {"fastlaneDir": "apps/tablet/fastlane"},
+    "play": {"fastlaneDir": "apps/handset/fastlane", "metadata": "artwork"}
+  },
+  "locales": ["en-US"],
+  "targets": [],
+  "screens": [],
+  "graphics": {"play": {"icon": {"from": "artwork/icon.png"}}}
+}

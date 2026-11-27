@@ -15,6 +15,23 @@ import rules_check
 import specs
 
 
+def has_listing_files(apple, play, rules, play_locales):
+    if (listing.has_apple_app_metadata(apple["metadata"], rules)
+            or listing.apple_locales(apple, rules, files_only=True)
+            or any(apple_assets.header_files(apple, loc) for loc in apple_assets.header_locales(apple))):
+        return True
+    for tree in (apple, play):
+        if any(listing.images(folder) for folder in tree["storeAssets"].glob("*/screenshots/*")):
+            return True
+    for locale in play_locales:
+        if (any((locale / (field["stem"] + ".txt")).is_file() for field in specs.fields(rules, "play", "locale"))
+                or any(path.is_file() for path in (locale / "changelogs").glob("*.txt"))
+                or listing.images(locale / "images")
+                or any(listing.images(folder) for folder in (locale / "images").glob("*") if folder.is_dir())):
+            return True
+    return False
+
+
 def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
     rules = specs.load(root)
     verified, age, stale = specs.staleness(rules, as_of)
@@ -47,6 +64,9 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
         else:
             legacy_error = str(exc)
         coverage = {"apple": {}}
+    for path in coverage.get("plannedOutputs", ()):
+        if not (Path(root) / path).is_file():
+            yield "FAIL", f"planned output {path}: MISSING"
     targets = coverage["apple"]
     modern = modern or "play" in coverage
     req.apply_inferred(coverage.get("inferred", {}))
@@ -117,7 +137,7 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
         if code not in existing:
             yield from rules_check.play_shots(root, code, rules, req, play_tree,
                                               entry.get("screenshots", {}), coverage_only=True)
-    if not apple and not play:
+    if not (apple or play) or not has_listing_files(apple_tree, play_tree, rules, play_locales):
         yield "FAIL", f"no App Store or Google Play listing was found under {display} — nothing to validate"
     if verbose:
         yield from req.evidence()

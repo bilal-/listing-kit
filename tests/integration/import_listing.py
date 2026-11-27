@@ -197,7 +197,7 @@ class ImportListing(unittest.TestCase):
                                     playPrivacyUrl="https://example.test/privacy")
         self.save()
         (self.meta / "contact_website.txt").write_text("https://example.test/help")
-        self.cli("handoff")
+        self.assertIn("01_map.png: MISSING", self.cli("handoff", rc=1))
         for name in ("INDEX.md", "INDEX.html"):
             guide = (self.config / "upload" / name).read_text()
             for value in ("Education", "https://example.test/privacy", "https://example.test/help",
@@ -218,7 +218,7 @@ class ImportListing(unittest.TestCase):
         pending = dict(done, files=pending_files, manifestHash=pending_hash, operation="two", status="pending")
         receipt = dict(format=2, stores=dict(play=dict(identity=identity, operations=[done, pending])))
         (self.config / "publish.receipt.json").write_text(json.dumps(receipt))
-        self.cli("handoff")
+        self.assertIn("01_map.png: MISSING", self.cli("handoff", rc=1))
         index = (self.config / "upload/INDEX.md").read_text()
         self.assertIn("metadata/en-US/title.txt", index)
         self.assertIn("internal", index)

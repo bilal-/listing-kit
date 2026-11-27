@@ -7,6 +7,9 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Existing listings
 
+- Detect finds Android application modules directly in workspace app folders, shows both native siblings with a root plan example, and prints paths for configured or detected stores.
+- Plan check shows where flat Play artwork belongs under the configured metadata directory. Validate and review name missing planned output files. Empty listings fail validation, and handoff reports failure for empty packages or missing planned uploads while keeping partial-package indexes.
+
 - Doctor identifies unversioned plans and reports the installed hook status. Detect and validate can inspect the existing listing while the maintainer ports the plan. Detect also reports declared Play phone coverage separately from device capability evidence.
 - Compose filters previews and dry runs by target and screen. Preview labels missing captures alongside available artwork. Targets can read archived PNGs through `rawPattern`, and bundled feature and header graphics support start alignment and per-graphic spacing.
 - Review and handoff preserve localized image descriptions. The manual upload guide includes Play console fields and completed receipt entries. Validation explains that other repository tools may still use the old Apple coverage file.

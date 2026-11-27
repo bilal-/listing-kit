@@ -112,7 +112,8 @@ def run(script, root, args):
         resolved = plan.listing_trees(root, ignore_unversioned=True)
         print("listing.json ignored: unversioned plan (missing format). Checking the listing tree.", flush=True)
     trees = listing_roots(root, resolved)
-    if Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved):
+    if (Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved)
+            and (unversioned or not (root / plan.LISTING).is_file())):
         print(f"No listing directories under: {root} (run Assemble first).", file=sys.stderr)
         return 2
     ignored, unsafe, demo_files = exclusions(root, trees)

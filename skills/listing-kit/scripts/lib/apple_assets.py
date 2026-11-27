@@ -66,6 +66,7 @@ def planned_coverage(root, data, rules, outputs, publish_store=None, text_locale
                     or any(images(folder) for folder in (header_dir(tree, loc) / "screenshots").glob("*")))
     result = listing_plan.coverage(data, rules, outputs, publish_store, disk_apple=disk, text_locales=text_locales)
     if not publish_store:
+        result["plannedOutputs"] = [row["outputPath"] for row in outputs]
         result["descriptions"] = {row["outputPath"]: row["text"]["altText"]["value"]
                                   for row in outputs if "altText" in row["text"]}
         result["console"] = data.get("console", {})

@@ -341,8 +341,12 @@ def build(root):
         planned_assets = "play" in coverage and (coverage["apple"] or coverage["play"])
         if not plan.items and not plan.checklist and not (planned_assets and plan.missing):
             raise ValueError("nothing to hand over from %s" % root)
+        packaged = {src.relative_to(root).as_posix() for src, _, _, _ in plan.items if src is not None}
+        missing = [f"planned output {path}: MISSING from package"
+                   for path in coverage.get("plannedOutputs", ()) if path not in packaged]
+        plan.missing.extend(missing)
         output.install(destination, plan)
-    return str(destination), len(plan.items)
+    return str(destination), len(plan.items), missing
 
 
 def open_index(path):
@@ -371,7 +375,7 @@ def main(argv):
         parser.print_usage(sys.stderr)
         return 2
     try:
-        path, count = build(args.root)
+        path, count, missing = build(args.root)
     except (OSError, ValueError, RuntimeError, specs.SpecsError) as error:
         print("handoff: %s" % error, file=sys.stderr)
         return 1
@@ -379,7 +383,11 @@ def main(argv):
     print("Upload instructions: %s (%d listing files)." % (index, count))
     if args.open and not open_index(index):
         print("Could not open the instructions. Open the INDEX.html file above.")
-    return 0
+    for message in missing:
+        print(f"handoff: {message}", file=sys.stderr)
+    if not count:
+        print("handoff: nothing was packaged", file=sys.stderr)
+    return int(bool(missing) or not count)
 
 
 if __name__ == "__main__":

@@ -26,9 +26,13 @@ Path(sys.argv[1]).write_text(json.dumps(data))
 PY
 shots="$app/fastlane/screenshots/en-US"
 rm "$shots/"*_iphone-medium.png
-fake_png "$shots/one.png" 1206 2622
-cp "$shots/one.png" "$shots/two.png"
-cp "$shots/one.png" "$shots/three.png"
+fake_png "$shots/01_screen0_iphone-medium.png" 1206 2622
+cp "$shots/01_screen0_iphone-medium.png" "$shots/02_screen1_iphone-medium.png"
+cp "$shots/01_screen0_iphone-medium.png" "$shots/03_screen2_iphone-medium.png"
+play_shots="$app/fastlane/metadata/android/en-US/images/phoneScreenshots"
+mv "$play_shots/01_recipes.png" "$play_shots/01_screen1.png"
+mv "$play_shots/02_recipe-detail.png" "$play_shots/02_screen2.png"
+mv "$play_shots/03_shopping.png" "$play_shots/03_screen3.png"
 medium='iPhone Dynamic Island (medium display)'
 duo='iPhone Duo (outer display)'
 result="$("$lk" validate "$app" 2>&1)"; rc=$?
@@ -44,7 +48,7 @@ assert_not_contains "$result" "planned en-US/$duo:"
 index="$(cat "$app/.listing-kit/upload/INDEX.md")"
 assert_contains "$index" "en-US/$medium: 3 of 4 screenshots"
 assert_contains "$index" "en-US/header-16x9.png: MISSING"
-cp "$shots/one.png" "$shots/four.png"
+cp "$shots/01_screen0_iphone-medium.png" "$shots/04_screen3_iphone-medium.png"
 fake_png "$app/store-assets/apple/en-US/header-16x9.png" 5244 2950
 it "Play per-type coverage mismatches warn without failing validation"
 result="$("$lk" validate "$app" 2>&1)"; rc=$?
@@ -117,9 +121,10 @@ p.write_text(json.dumps(d))
 PY
 manual="$app/store-assets/play/de-DE/screenshots/phone"
 mkdir -p "$manual"
-cp "$app"/fastlane/metadata/android/en-US/images/phoneScreenshots/01_*.png "$manual/first.png"
+cp "$play_shots/01_screen1.png" "$manual/first.png"
 result="$("$lk" validate "$app" 2>&1)"; rc=$?
-assert_eq 0 "$rc"
+assert_eq 1 "$rc"
+assert_contains "$result" "store-assets/play/de-DE/screenshots/phone/01_screen1.png: MISSING"
 assert_contains "$result" "! planned Play de-DE/phone: 1 of 3 screenshots"
 
 mkdir -p "$app/store-assets/play/it-IT/screenshots/phone"
@@ -208,6 +213,9 @@ cat > "$play_only/.listing-kit/listing.json" <<'JSON'
 {"id":"iphone","store":"apple","slot":"iphone-di-medium","size":[1206,2622],"state":"deferred","reason":"iOS later"}],
 "screens":[{"id":"one","flow":".listing-kit/flows/open.yaml"},{"id":"two","flow":".listing-kit/flows/open.yaml"}]}
 JSON
+folder="$play_only/fastlane/metadata/android/en-US/images/phoneScreenshots"
+mv "$folder/01_screen1.png" "$folder/01_one.png"
+mv "$folder/02_screen2.png" "$folder/02_two.png"
 result="$("$lk" validate "$play_only" 2>&1)"; rc=$?
 assert_eq 0 "$rc"
 assert_not_contains "$result" "== Apple App Store =="
@@ -217,7 +225,7 @@ assert_not_contains "$(cat "$play_only/.listing-kit/upload/INDEX.md")" "iOS late
 it "a handoff with no packaged files still lists the planned shortfalls"
 remove_fixture "$play_only/fastlane"
 "$lk" handoff "$play_only" >/dev/null 2>&1; rc=$?
-assert_eq 0 "$rc"
+assert_eq 1 "$rc"
 assert_contains "$(cat "$play_only/.listing-kit/upload/INDEX.md")" "en-US/phone: 0 of 2 screenshots"
 
 it "deferring an iPad does not mask unknown tablet support"
