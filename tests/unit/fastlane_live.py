@@ -1,6 +1,7 @@
 """Exercise live-download shapes and process cleanup against fastlane.test.sh's stub."""
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -32,6 +33,110 @@ class LivePull(unittest.TestCase):
         result = subprocess.run([KIT / "bin/listing-kit", *args], cwd=self.app, env=self.env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
         return result.returncode, result.stdout
+
+    def check_diagnostic(self, command, output, reason, message, remedy="", publish=False):
+        play = command == "supply"
+        store, flag = ("play", "--package-name") if play else ("apple", "--app-identifier")
+        app = "example." + store
+        args = ["publish" if publish else "pull", "--store", store, flag, app]
+        if publish:
+            args.append("--yes")
+        else:
+            (self.base / (command + "-error")).write_text(output)
+        result = subprocess.run([KIT / "bin/listing-kit", *args], cwd=self.app, env=self.env,
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        category = f"listing-kit: {command} {reason} for {app} (exit {1 if publish else 17}){remedy}"
+        expected = [category, "listing-kit: " + message]
+        errors = [line for line in result.stderr.splitlines() if line != "Spaceship API logs removed: 0"]
+        self.assertEqual(errors, expected)
+        # Any copied run of six or more characters contains a six-character window.
+        allowed = "\n".join(expected + ["Spaceship API logs removed: 0"])
+        for start in range(len(output) - 5):
+            window = output[start:start + 6]
+            if window not in allowed:
+                self.assertNotIn(window, result.stderr)
+        self.assertNotIn("[!]", result.stdout)
+        self.assertNotIn("willow", result.stdout)
+        self.assertNotIn("7391", result.stdout)
+
+    def test_store_failure_diagnostics(self):
+        track = "Use the Play Console track name with --track <track>."
+        version = "Select the intended Play release with --version-code <code>."
+        expired = "The Play edit is no longer current. Rerun the command."
+        permission = "Google Play denied access. Check the service account's Play Console permissions."
+        editable = "Apple has no editable version. Prepare an editable version in App Store Connect."
+        key = "App Store Connect rejected the API key. Check the key ID, issuer ID and private key."
+        unknown = ("fastlane failed with an error listing-kit does not recognise; "
+                   "rerun locally with the same command to see fastlane's own output")
+        missing = "track not found"
+        code = "version code required or unknown"
+        google = "Google Api Error: Invalid request - "
+        cases = [
+            ("supply", "Unable to find the requested track - 'secret-track'", missing, track),
+            ("supply", google + "Track not found: secret-track", missing, track),
+            ("supply", "More than one release found in this track. Please specify with the :version_code "
+             "option to select a release.", code, version),
+            ("supply", "Could not find release for version code '725441' to update changelog", code, version),
+            ("supply", "Cannot find changelog because no version code given - please specify :version_code", code, version),
+            ("supply", google + "The caller does not have permission", "action failed", permission),
+            ("supply", google + "forbidden", "forbidden", permission),
+            ("supply", google + "Unauthorized", "unauthorized", permission),
+            ("supply", "HTTP 401", "action failed", permission),
+            ("supply", "HTTP 403", "action failed", permission),
+            ("supply", google + "Package not found: com.acme.secret", "not found",
+             "Google Play could not find the app. Check --package-name."),
+            ("supply", google + "The edit has expired.", "action failed", expired),
+            ("supply", google + "This edit has been deleted.", "action failed", expired),
+            ("supply", google + "This edit has been invalidated by a subsequent edit.", "action failed", expired),
+            ("supply", google + "Conflicting edit", "action failed", expired),
+            ("supply", google + "Only releases with status draft may be created on draft app.", "action failed",
+             "Google Play requires a draft release for this app. Set the release status to draft in Play Console."),
+            ("deliver", "Could not find an edit version on App Store Connect. Try using '--use_live_version true'",
+             "action failed", editable),
+            ("deliver", "Cannot find edit app store version", "action failed", editable),
+            ("deliver", "Cannot update languages - could not find an editable version for 'IOS'", "action failed", editable),
+            ("deliver", "Spaceship::UnauthorizedAccessError", "unauthorized", key),
+            ("deliver", "Authentication credentials are missing or invalid", "action failed", key),
+            ("deliver", "Token has expired, issued-at-time is in the future, or has been revoked! Trying to refresh...",
+             "action failed", key),
+            ("deliver", "HTTP 401", "action failed", key),
+            ("supply", "unexpected private response for edit 794019403", "action failed", unknown),
+        ]
+        noise = 'DEBUG response body: {"password":"willow/Mint-42","notes":"private listing copy"}'
+        for command, error, reason, message in cases:
+            with self.subTest(command=command, error=error):
+                fixture = f"{noise}\n\x1b[31m[!] {error}\x1b[0m\n[12:34:56]: [!] private login willow / Mint-42"
+                remedy = {missing: "; rerun with --track <track>", code: "; rerun with --version-code <code>"}
+                self.check_diagnostic(command, fixture, reason, message, remedy.get(reason, ""))
+
+        for probe, message in [
+            ("[12:34:56]: [!] review login willow / Mint-42\n"
+             "client.rb:138:in 'call_google_api': [!] Edit expired (FastlaneCore::Interface::FastlaneError)", expired),
+            ("[!] Google Api Error: Invalid request - edit 4172 com.acme.secret: demo willow / Mint-42", unknown),
+            ("[!] GET https://example.test/r?access_token=abc%2Fdef&pin=7391", unknown),
+        ]:
+            with self.subTest(probe=probe):
+                self.check_diagnostic("supply", probe, "action failed", message)
+
+    def test_held_play_publish_failure(self):
+        shutil.copytree(FIXTURE / "example-fastlane/metadata/android", self.base / "remote/play/metadata")
+        self.assertEqual(self.command("pull", "--store", "play", "--package-name", "example.play")[0], 0)
+        local = self.app / "fastlane/metadata/android/en-US"
+        shutil.copytree(FIXTURE / "example-fastlane/metadata/android/en-US/images", local / "images", dirs_exist_ok=True)
+        (local / "title.txt").write_text("New title")
+        output = "VERBOSE review login willow / Mint-42\n[!] The query parameter changesNotSentForReview must not be set"
+        (self.base / "auto-review").write_text(output)
+        self.env["LK_PUBLISH_UNVERIFIED"] = "play:example.play"
+        self.check_diagnostic("supply", output, "action failed",
+                              "this app sends changes for review automatically; rerun with --send-for-review to accept that",
+                              publish=True)
+
+    def test_version_probe_keeps_child_digits_private(self):
+        self.env["FL_VERSION_OUTPUT"] = "fastlane 73917391.123456"
+        rc, out = self.command("pull", "--store", "apple", "--app-identifier", "example.apple")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("73917391", out)
 
     def test_pinned_download_uses_read_only_describe(self):
         sys.path.insert(0, str(KIT / "scripts/fastlane"))
