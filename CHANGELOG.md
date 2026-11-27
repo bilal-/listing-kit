@@ -7,6 +7,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Composition
 
+- Framed screenshots can place captions below the device with `caption-bottom` or over an edge-to-edge capture with `full-bleed`.
+
 - Apps can keep marketing templates, styles and assets in `.listing-kit/templates/`. Create a starter with `listing-kit template new <name>`. Plan checks include source locations, preview embeds the rendered PNG, and template edits use the existing restyle approval.
 
 ### Rules and validation

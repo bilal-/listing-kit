@@ -26,12 +26,14 @@ TABLET = (640, 480)
 LANDSCAPE_PHONE = (640, 360)
 SIZES = {
     "caption-top": (PHONE, TABLET),
+    "caption-bottom": (PHONE, TABLET, (480, 480)),
+    "full-bleed": (PHONE, TABLET, (480, 480)),
     "band": (PHONE, TABLET),
     "panel": (PHONE, TABLET),
     "feature": (LANDSCAPE_PHONE, (512, 250)),  # half-size Play graphic
     "header": (LANDSCAPE_PHONE, (672, 288)),  # Apple's 16:9 and 21:9
 }
-SHOTS = ("caption-top", "band")
+SHOTS = ("caption-top", "caption-bottom", "band", "full-bleed")
 CAPTURE_SIZE = (180, 400)
 FILL = bytes.fromhex("20b786")
 RIM = bytes.fromhex("1868ca")
@@ -47,6 +49,12 @@ def png_bytes(size, colour_type, scanlines):
     header = struct.pack(">IIBBBBB", *size, 8, colour_type, 0, 0, 0)
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
             + chunk(b"IDAT", zlib.compress(scanlines)) + chunk(b"IEND", b""))
+
+
+def monochrome_capture(channel):
+    w, h = CAPTURE_SIZE
+    scanline = b"\0" + bytes([channel]) * (3 * w)
+    return png_bytes(CAPTURE_SIZE, 2, scanline * h)
 
 
 def solid_capture(size):
@@ -241,7 +249,7 @@ class Layouts(unittest.TestCase):
         self.assertGreater(top, 0)
         self.assertAlmostEqual((left + right) / 2, (w - 1) / 2, delta=2)
         if fit == "contain":
-            if template == "caption-top":
+            if template in ("caption-top", "caption-bottom"):
                 self.assertTrue(left > 0 and right < w - 1 and bottom < h - 1, "frame outside canvas")
             # Compare the shorter axis in pixels so the rounding budget works at any aspect ratio.
             if source_size[0] < source_size[1]:
@@ -258,7 +266,7 @@ class Layouts(unittest.TestCase):
         def matches(x, y, colour):
             return near(rows[y][3 * x:3 * x + 3], colour, 16)
 
-        corner = round(.05 * min(size)) if template == "caption-top" else 0
+        corner = round(.05 * min(size)) if template in ("caption-top", "caption-bottom") else 0
         # Along each straight edge, allow a pixel of inward snapping at the boundary.
         horizontal = [(top, 1), (bottom, -1)] if fit == "contain" else [(top, 1)]
         for y, inward in horizontal:
@@ -284,9 +292,10 @@ class Layouts(unittest.TestCase):
         job = self.job(template, size, caption, locale, fonts)
         rows = self.build_rows(job)
         w, h = size
-        for row, hex_colour in zip((rows[0], rows[-1]), PALETTE["background"]):
-            for sample in (row[:3], row[-3:]):
-                self.assertTrue(near(sample, bytes.fromhex(hex_colour[1:]), 5), "wrong corner colour")
+        if template != "full-bleed":
+            for row, hex_colour in zip((rows[0], rows[-1]), PALETTE["background"]):
+                for sample in (row[:3], row[-3:]):
+                    self.assertTrue(near(sample, bytes.fromhex(hex_colour[1:]), 5), "wrong corner colour")
 
         ink = colour_spans(rows, bytes.fromhex(PALETTE["ink"][1:]), tolerance=45)
         secondary = colour_spans(rows, bytes.fromhex(PALETTE["detail"][1:]), tolerance=60)
@@ -316,7 +325,13 @@ class Layouts(unittest.TestCase):
         detail_bands = bands(secondary, round(.14 * detail_px) if locale == "ar" else 0)
         self.assertEqual(len(detail_bands), 1, "wrong number of detail or label lines")
         self.assert_line_height(*detail_bands[0], detail_px, cap_only=detail == "Notes")
-        if template in SHOTS:
+        if template == "caption-bottom":
+            # Measure the mirrored device from the caption side using the same rim checks.
+            device_bottom = h - 1 - self.assert_capture(rows[::-1], size, template)
+            self.assertLess(device_bottom, headline[0][0])
+        elif template == "full-bleed":
+            self.assertGreater(headline[0][0], h / 2)
+        elif template in SHOTS:
             self.assertLess(secondary[-1][0], self.assert_capture(rows, size, template))
         else:
             self.assertTrue(h * .15 < headline[0][0] <= headline[-1][1] < h * .85,
@@ -338,6 +353,8 @@ class Layouts(unittest.TestCase):
         for template, sizes in SIZES.items():
             long_caption = {
                 "caption-top": "Save all your favourite ideas in one place",
+                "caption-bottom": "Save all your favourite ideas in one place",
+                "full-bleed": "Save all your favourite ideas in one place",
                 "band": "Keep your ideas together wherever you happen to be",
             }.get(template, "A place for every idea worth keeping")
             captions = [(ARABIC, 1)] if locale == "ar" else [("Today", 1), (long_caption, 2)]
@@ -352,6 +369,26 @@ class Layouts(unittest.TestCase):
         top = self.assert_capture(self.build_rows(job), PHONE, "band", source)
         self.assertAlmostEqual(top, self.renderer.band_bottom, delta=2,
                                msg="gap between caption band and wide capture")
+
+    def test_full_bleed_edges_and_contrast(self):
+        for size in SIZES["full-bleed"]:
+            with self.subTest(size=size):
+                job = self.job("full-bleed", size)
+                w = size[0]
+                edges = []
+                for channel in (255, 0):
+                    Path(job.raw).write_bytes(monochrome_capture(channel))
+                    rows = self.build_rows(job)
+                    edges.append(rows[0] + rows[-1] + b"".join(row[:3] + row[-3:] for row in rows))
+                # Every edge pixel should change with the capture, even underneath the scrim.
+                self.assertTrue(all(a > b for a, b in zip(*edges)))
+                self.assertGreater(edges[0][0] - edges[1][0], edges[0][3 * w] - edges[1][3 * w])
+
+        job = self.job("full-bleed", PHONE)
+        job.style["palette"] = {"background": ["#ffffff"], "ink": "#ffffff", "detail": "#ffffff"}
+        Path(job.raw).write_bytes(monochrome_capture(255))
+        compose.build(job, self.renderer)
+        self.assertTrue(any("contrast" in p and "Today" in p for p in job.problems), job.problems)
 
     def test_empty_brand(self):
         for template in ("header", "feature", "panel"):
@@ -378,10 +415,10 @@ class Layouts(unittest.TestCase):
                                     "brand name missing")
 
     def test_cropped_fits(self):
-        for template, fit in (("band", "cover"), ("caption-top", "bleed")):
+        for template, fit in (("band", "cover"), ("caption-top", "bleed"), ("caption-bottom", "bleed")):
             with self.subTest(template=template, fit=fit):
                 rows = self.build_rows(self.job(template, TABLET, fit=fit))
-                self.assert_capture(rows, TABLET, template, fit=fit)
+                self.assert_capture(rows[::-1] if template == "caption-bottom" else rows, TABLET, template, fit=fit)
 
     def test_build_flattens_rgba(self):
         # Exercise the browser RGBA path even on Chromium builds that always emit RGB.

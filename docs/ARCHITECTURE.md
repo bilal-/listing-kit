@@ -16,7 +16,7 @@ An agent selects screens and writes copy with the user. The [launcher](../skills
 
 ## Composition and ownership
 
-`listing-kit compose` uses the resolved style. Framed phone shots normally use caption-top. Play tablet and Chromebook slots supply band as their template default. The plan can also request a panel, headers, a feature graphic or an icon derived from local artwork. Raw output bypasses the browser.
+`listing-kit compose` uses the resolved style. Framed phone shots normally use caption-top. Plans can also place the caption below the device with caption-bottom or over the capture with full-bleed. Play tablet and Chromebook slots supply band as their template default. The plan can also request a panel, headers, a feature graphic or an icon derived from local artwork. Raw output bypasses the browser.
 
 For template output, the renderer starts a Chromium-family browser over a debugging pipe. It intercepts page requests and serves the template and allowed assets from memory. Requests outside the allow-list fail the render. ImageMagick produces the final RGB screenshot. Preview writes a self-contained HTML page.
 

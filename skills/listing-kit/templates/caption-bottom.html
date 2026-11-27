@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/fonts.css">
+<style>
+  body{padding-inline:calc(6*var(--u));padding-block-end:calc(6.5*var(--u))}
+  .headline{font-size:calc(var(--headline-size,7)*var(--u))}
+  .detail{font-size:calc(var(--detail-size,3.6)*var(--u));margin-block-start:calc(2*var(--u))}
+  .stage{flex:1 1 0;min-height:0;width:100%;display:flex;justify-content:center;align-items:flex-end;
+    margin-block-end:calc(5*var(--u));padding-block-start:calc(5*var(--u))}
+  /* contain: the whole capture is visible. bleed: fixed width, runs off the top edge. */
+  body[data-fit="contain"] .stage{container-type:size}
+body[data-fit="contain"] .device{--border:calc(2*var(--bezel-w)*var(--u));box-sizing:content-box;
+ width:min(calc(100cqw - var(--border)),calc((100cqh - var(--border))*var(--shot-w)/var(--shot-h)));
+ aspect-ratio:var(--shot-w)/var(--shot-h);overflow:hidden}
+/* The frame has the capture's own aspect ratio, so nothing is cropped; only the corners
+   are rounded to the bezel's inner radius, as on a device. */
+body[data-fit="contain"] .device img{object-fit:contain;border-radius:calc((var(--radius) - var(--bezel-w))*var(--u))}
+  body[data-fit="bleed"] .stage{padding-block-start:0;align-items:flex-end;overflow:hidden}
+  body[data-fit="bleed"] .device{width:84%;aspect-ratio:var(--shot-w)/var(--shot-h);border-start-start-radius:0;border-start-end-radius:0}
+</style>
+<body data-fit="{{fit}}">
+  <div class="stage"><div class="device" data-check="device"><img src="/raw.png" alt=""></div></div>
+  <h1 class="headline" data-check="text">{{caption}}</h1>
+  <p class="detail" data-check="text">{{detail}}</p>
+</body>
+</html>

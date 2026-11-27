@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="{{lang}}" dir="{{dir}}">
+<meta charset="utf-8">
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/fonts.css">
+<style>
+body{position:relative;justify-content:flex-end}
+.capture{position:absolute;inset:0;inline-size:100%;block-size:100%;object-fit:cover}
+.caption{position:relative;inline-size:100%;padding-inline:calc(6*var(--u));padding-block:calc(8*var(--u)) calc(6.5*var(--u));
+  background:linear-gradient(transparent,color-mix(in srgb,var(--bg-b) 94%,transparent) calc(8*var(--u)),color-mix(in srgb,var(--bg-b) 96%,transparent))}
+.headline{font-size:calc(var(--headline-size,7)*var(--u))}
+.detail{font-size:calc(var(--detail-size,3.6)*var(--u));margin-block-start:calc(2*var(--u))}
+</style>
+<body data-fit="{{fit}}">
+<img class="capture" data-check="device" src="/raw.png" alt="">
+<div class="caption"><h1 class="headline" data-check="text">{{caption}}</h1>
+<p class="detail" data-check="text">{{detail}}</p></div>
+</body>
+</html>
