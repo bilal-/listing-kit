@@ -39,7 +39,7 @@ Validation requires the usual store credentials and approval. Supply stages the 
 
 Real uploads remain disabled for both stores. Play validation is allowed without `LK_PUBLISH_UNVERIFIED`. Keep that one-run, app-scoped upload override out of CI. Agents must never pass `--yes` or set the override.
 
-The preview lists each staged field and the store operations outside its scope. Apple text goes through the bundled Spaceship writer for existing localizations. An error reports how many fields the API acknowledged. Real Play publishes request a hold and fail when Google requires automatic review. A maintainer may explicitly accept review with `--send-for-review` in a new publish approval. The receipt records `sendForReview`. Serialize validation and publish jobs for the same Play app and account, since both open a store edit.
+The preview lists each staged field and the store operations outside its scope. Apple text goes through the bundled Spaceship writer for existing localizations. An error reports how many fields the API acknowledged. Real Play publishes request a hold and fail when Google requires automatic review. A maintainer may explicitly accept review with `--send-for-review` in a new publish approval. The receipt records `sendForReview`. To bind a CI publish to an approved preview, pass each approved `play send` or `apple send` line as `--expect-send '<sha256> <file>'`. The publish refuses before any upload if the files it would send differ, including when the live listing changed since the preview and nothing or something else would be sent. Serialize validation and publish jobs for the same Play app and account, since both open a store edit.
 
 ### Recover an interrupted upload
 

@@ -365,6 +365,7 @@ class Store:
     screenshots: tuple = ()
     validate_only: bool = False
     send_for_review: bool = False
+    expect_send: frozenset = None
     scratch: Path = field(init=False)
 
     @property
@@ -1178,6 +1179,13 @@ class Transfer:
     enabled: bool
 
     def confirm(self, yes):
+        expected = self.store.expect_send
+        if expected is not None:
+            actual = frozenset("%s %s" % (digest, key) for key, digest in self.approval["files"].items())
+            if actual != expected:
+                raise ValueError("The files to send differ from --expect-send; nothing was sent. "
+                                 "Review the summary above and approve the new list")
+            print("Files to send match --expect-send")
         if not self.enabled:
             print("publishing to %s is not enabled in this version of listing-kit until it has passed "
                   "a live test; use the hand-upload folder" % self.store.name)
@@ -1507,6 +1515,8 @@ def main(argv):
             sub.add_argument("--send-for-review", action="store_true", help="allow an approved Play publish to go to review")
             sub.add_argument("--validate-only", action="store_true", help="validate a Play edit without committing")
             sub.add_argument("--yes", action="store_true")
+            sub.add_argument("--expect-send", action="append", metavar="'SHA256 FILE'",
+                             help="refuse unless the files to send are exactly these (repeat per file)")
             sub.add_argument("--version-code", type=version_code)
     args = parser.parse_args(argv)
     if args.command == "publish":
@@ -1536,6 +1546,12 @@ def main(argv):
             selected_stores["play"].send_for_review = True
         if args.validate_only:
             selected_stores["play"].validate_only = True
+        if args.expect_send is not None:
+            if len(stores) != 1 or args.resolve:
+                parser.error("--expect-send requires exactly one selected store and no --resolve")
+            if not all(re.fullmatch(r"[0-9a-f]{64} [^\s].*", v) for v in args.expect_send):
+                parser.error("expected --expect-send '<sha256> <file>' as printed by the summary")
+            stores[0].expect_send = frozenset(args.expect_send)
         for value in args.screenshots:
             parts = value.split(":")
             if (len(parts) not in (2, 3) or parts[0] not in selected_stores
@@ -1627,6 +1643,8 @@ def main(argv):
                     transfer = preview(store, views[store.name], dest, remote, histories[store.name], pending)
                     if transfer:
                         transfers.append(transfer)
+                    elif store.expect_send:
+                        raise ValueError("Nothing to send, but --expect-send listed files; nothing was sent")
                 for transfer in transfers:
                     transfer.confirm(args.yes)
                 for transfer in transfers:

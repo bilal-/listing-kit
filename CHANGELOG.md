@@ -7,6 +7,8 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ### Store publishing
 
+- `publish --expect-send '<sha256> <file>'` (repeatable) refuses unless the files to send match an approved preview exactly.
+
 - Fastlane failures now print fixed Play and App Store Connect diagnostics. Verbose response bodies, URLs and fastlane error text stay out of CI logs.
 
 - Publish previews list every staged file and its SHA-256, with unified text diffs against the last pull. Play compares and stages text without trailing newlines.
