@@ -20,7 +20,7 @@ printf '%s\n' '{"key":"SECRET-stub-apple-material","issuer_id":"12345678-1234-12
 printf '%s\n' '{"type":"service_account","private_key":"SECRET-stub-play-material","client_email":"test@example.org"}' > "$fixture/play.json"
 cat > "$STUB_BIN/fastlane" <<'PY'
 #!/usr/bin/env python3
-import json, os, shutil, sys
+import hashlib, hmac, json, os, shutil, sys
 from pathlib import Path
 base = Path(os.environ["FL_FIXTURE"])
 args = sys.argv[1:]
@@ -56,16 +56,34 @@ def opt(key):
 apple_writer = Path(args[0]).name == "apple_text_upload.rb"
 if apple_writer:
     if args[1] == "describe":
-        assert len(args) == 4 and "LK_APPLE_WRITE_TOKEN" not in os.environ
+        assert len(args) == 4 and "LK_APPLE_WRITE_SECRET" not in os.environ
         if (base / "bad-description").exists():
             print("private-response-marker")
         version_id = "successor" if (base / "version-race").exists() and Path.cwd().name == "recheck" else "version-id"
         print("version 1.2.3", version_id, "PREPARE_FOR_SUBMISSION")
-        print("locale en-US")
+        info_id, version_loc, info_loc = "info-id", "version-localization", "info-localization"
+        if (Path.cwd() / "metadata").exists():
+            if (base / "info-race").exists():
+                info_id = "replacement"
+            if (base / "version-locale-race").exists():
+                version_loc = "replacement"
+            if (base / "info-locale-race").exists():
+                info_loc = "replacement"
+        print("appInfo", info_id, "DEVELOPER_REJECTED")
+        print("locale en-US", version_loc, info_loc)
         sys.exit(0)
-    script, mode, app_id, key_path, metadata, version_id, token = args
-    assert mode == "write" and version_id == "version-id"
-    assert token and token == os.environ["LK_APPLE_WRITE_TOKEN"]
+    script, mode, app_id, key_path, metadata, pins_path, token = args
+    assert mode == "write" and Path(pins_path) == Path.cwd() / "apple-target.json"
+    assert Path(pins_path).stat().st_mode & 0o077 == 0
+    pins = json.loads(Path(pins_path).read_text())
+    files = sorted([path.relative_to(Path.cwd()).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()]
+                   for path in Path(metadata).rglob("*") if path.is_file())
+    message = [app_id, pins["id"], pins["appInfoId"], pins["localizations"], files]
+    secret = os.environ["LK_APPLE_WRITE_SECRET"]
+    assert len(secret) == 64 and secret not in args
+    expected = hmac.new(secret.encode("ascii"), json.dumps(message, separators=(",", ":")).encode(),
+                        hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(token, expected)
     assert not (Path(metadata) / "review_information").exists()
     assert app_id == "example.apple" and key_path == str(base / "apple.json")
     args = ["apple_writer", "run", "--metadata_path", metadata]
@@ -337,7 +355,9 @@ assert_contains "$out" "apple_text_upload.rb"
 assert_contains "$out" "APP_IPHONE_67"
 assert_ne "$(test -e "$fixture/sent" && echo yes)" yes
 assert_file "$app/.listing-kit/publish.approved.json"
-assert_contains "$out" "version 1.2.3 version-id PREPARE_FOR_SUBMISSION"
+assert_contains "$out" "version 1.2.3 version-id PREPARE_FOR_SUBMISSION, AppInfo DEVELOPER_REJECTED"
+assert_not_contains "$out" "info-id"
+assert_not_contains "$out" "localization"
 python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" approval "$app/.listing-kit/publish.approved.json" && pass || fail "Apple approval target"
 [ ! -e "$app/.listing-kit/publish.receipt.json" ] && pass "gated preview has no upload receipt" || fail "gated preview wrote an upload receipt"
 

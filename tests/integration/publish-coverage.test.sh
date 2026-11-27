@@ -14,7 +14,8 @@ import os, sys
 from pathlib import Path
 args = sys.argv[1:]
 if args[1:2] == ["describe"] and Path(args[0]).name == "apple_text_upload.rb":
-    print("version 1.0 version-id PREPARE_FOR_SUBMISSION", "locale en-US", "locale fr-FR", sep="\n")
+    print("version 1.0 version-id PREPARE_FOR_SUBMISSION", "appInfo info-id PREPARE_FOR_SUBMISSION",
+          "locale en-US version-en info-en", "locale fr-FR version-fr info-fr", sep="\n")
     sys.exit(0)
 if args == ["--version"]:
     print("fastlane 2.242.0")

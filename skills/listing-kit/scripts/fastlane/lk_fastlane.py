@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import difflib
 import fcntl
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -328,17 +329,16 @@ class Store:
                 return ["bundle", "exec", executable], gemfile
         return [executable], None
 
-    def run(self, args, cwd, upload=False, apple_write_token=None):
+    def run(self, args, cwd, upload=False, apple_write_secret=None):
         prefix, gemfile = self.tool(args)
         # A clean cwd precludes implicit Deliverfile, Supplyfile and binary discovery.
         # Remove inherited tool overrides, including JSON objects and submission settings.
         env = {k: v for k, v in os.environ.items() if not k.startswith(
-            ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE"))}
+            ("DELIVER_", "SUPPLY_", "FASTLANE_", "APP_STORE_CONNECT_", "BUNDLE_GEMFILE", "LK_APPLE_WRITE_"))}
         # UNVERIFIED in S3: fastlane update-check and telemetry environment switches.
         env.update(TMPDIR=str(self.scratch), VERBOSE="1", FASTLANE_SKIP_UPDATE_CHECK="1", FASTLANE_OPT_OUT_USAGE="1")
-        env.pop("LK_APPLE_WRITE_TOKEN", None)
-        if apple_write_token is not None:
-            env["LK_APPLE_WRITE_TOKEN"] = apple_write_token
+        if apple_write_secret is not None:
+            env["LK_APPLE_WRITE_SECRET"] = apple_write_secret
         if gemfile:
             # UNVERIFIED in S3: Bundler resolves the selected project from BUNDLE_GEMFILE.
             env["BUNDLE_GEMFILE"] = str(gemfile)
@@ -358,6 +358,7 @@ class Store:
                 reason = "Apple text update failed"
                 diagnostic = re.search(
                     rb"(?m)^(editable version changed|editable version unavailable|download version differs from editable version|"
+                    rb"editable app info changed|editable app info unavailable|Apple localization changed|write approval mismatch|"
                     rb"Apple text writes refused in [A-Z_]{1,64}|unsupported fastlane [0-9][0-9A-Za-z.-]{0,63})$", result.stdout)
                 if diagnostic:
                     reason = diagnostic[1].decode("ascii")
@@ -452,16 +453,24 @@ def describe_apple(store, scratch):
     report = store.run([APPLE_TEXT_WRITER, "describe", store.app, str(store.key)], scratch)
     lines = report.splitlines()
     header = re.fullmatch(rb"version ([0-9]+(?:\.[0-9]+)*) ([a-zA-Z0-9-]{1,128}) ([A-Z_]{1,64})", lines[0]) if lines else None
-    locales = set()
-    if not header:
+    info = re.fullmatch(rb"appInfo ([a-zA-Z0-9-]{1,128}) ([A-Z_]{1,64})", lines[1]) if len(lines) > 1 else None
+    if not header or not info:
         raise ValueError("Invalid Apple version description")
-    for line in lines[1:]:
-        match = re.fullmatch(rb"locale ([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)", line)
+    localizations = {}
+    locale_row = re.compile(rb"locale ([a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*) "
+                            rb"([a-zA-Z0-9-]{1,128}|\.) ([a-zA-Z0-9-]{1,128}|\.)")
+    for line in lines[2:]:
+        match = locale_row.fullmatch(line)
         if not match:
-            raise ValueError("Invalid Apple version locale")
-        locales.add(match[1].decode("ascii"))
+            raise ValueError("Invalid Apple localization")
+        locale, version_loc, info_loc = (part.decode("ascii") for part in match.groups())
+        if locale in localizations or version_loc == info_loc == ".":
+            raise ValueError("Invalid Apple localization")
+        localizations[locale] = [None if value == "." else value for value in (version_loc, info_loc)]
     version, version_id, state = (part.decode("ascii") for part in header.groups())
-    return {"string": version, "id": version_id, "state": state, "locales": sorted(locales)}
+    return {"string": version, "id": version_id, "state": state, "appInfoId": info[1].decode("ascii"),
+            "appInfoState": info[2].decode("ascii"),
+            "localizations": [[locale, *ids] for locale, ids in sorted(localizations.items())]}
 
 
 def download(store, scratch, pin_apple=False):
@@ -1068,7 +1077,7 @@ def upload_args(store, send, folder, apple_version=None):
                 raise ValueError(APPLE_CONSOLE_HINT)
             if not apple_version:
                 raise ValueError("Apple text upload requires an approved version")
-            return [APPLE_TEXT_WRITER, "write", store.app, str(store.key), meta, apple_version["id"]]
+            return [APPLE_TEXT_WRITER, "write", store.app, str(store.key), meta, str(folder / "apple-target.json")]
         if not has_shots or any(not k.startswith("screenshots/") for k in send):
             raise ValueError(APPLE_CONSOLE_HINT)
         return ["deliver", "run", *store.key_args(), "--skip_binary_upload", "--skip_app_version_update",
@@ -1155,8 +1164,15 @@ class Transfer:
         save_operations(store, history)
         try:
             if self.args[0] == APPLE_TEXT_WRITER:
-                token = secrets.token_hex(32)
-                store.run([*self.args, token], self.folder, upload=True, apple_write_token=token)
+                version = self.approval["appleVersion"]
+                pins = {key: version[key] for key in ("id", "appInfoId", "localizations")}
+                write_json(Path(self.args[-1]), pins)
+                message = [self.approval["identity"]["app"], pins["id"], pins["appInfoId"], pins["localizations"],
+                           sorted(self.approval["files"].items())]
+                secret = secrets.token_hex(32)
+                canonical = json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                token = hmac.new(secret.encode("ascii"), canonical, hashlib.sha256).hexdigest()
+                store.run([*self.args, token], self.folder, upload=True, apple_write_secret=secret)
             else:
                 store.run(self.args, self.folder, upload=True)
         except (ChildTimeout, KeyboardInterrupt, ValueError, OSError, MissingFastlane) as exc:
@@ -1236,7 +1252,7 @@ def print_text_diff(store, key, staged, state, remote):
 def preview(store, local, scratch, remote, history, pending):
     state = baseline(store, history)
     if remote.apple_version:
-        print("Apple version {string} {id} {state}".format(**remote.apple_version))
+        print("Apple version {string} {id} {state}, AppInfo {appInfoState}".format(**remote.apple_version))
     if store.name == "apple" and (store.trees["metadata"] / "review_information").is_dir():
         print("Apple review_information/ excluded from staging and upload")
     send = summary(store, local, remote, state, pending)

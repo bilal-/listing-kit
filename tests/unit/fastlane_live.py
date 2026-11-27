@@ -41,12 +41,21 @@ class LivePull(unittest.TestCase):
         store = lk.Store("apple", "example.apple", self.app, {"fastlaneDir": self.app},
                          lk.specs.load(), {}, {}, "", None, FIXTURE / "apple.json")
         store.scratch = self.base
-        with patch.dict(os.environ, self.env, LK_APPLE_WRITE_TOKEN="inherited"):
+        with patch.dict(os.environ, self.env, LK_APPLE_WRITE_SECRET="inherited"):
             remote = lk.download(store, self.base / "before", pin_apple=True)
             self.assertEqual(remote.apple_version, {"id": "version-id", "string": "1.2.3",
-                                                    "state": "PREPARE_FOR_SUBMISSION", "locales": ["en-US"]})
+                                                    "state": "PREPARE_FOR_SUBMISSION", "appInfoId": "info-id",
+                                              "appInfoState": "DEVELOPER_REJECTED",
+                                              "localizations": [["en-US", "version-localization", "info-localization"]]})
             # Apple receipt baselines from before version pinning only hashed files.
             self.assertEqual(remote.snapshot_hash(), lk.fingerprint(dict(files=remote.hashes(), locales=[])))
+            for marker in ("info-race", "version-locale-race", "info-locale-race"):
+                with self.subTest(marker=marker):
+                    flag = self.base / marker
+                    flag.touch()
+                    with self.assertRaisesRegex(ValueError, "changed during download"):
+                        lk.download(store, self.base / (marker + "-download"), pin_apple=True)
+                    flag.unlink()
             (self.base / "bad-description").touch()
             with self.assertRaisesRegex(ValueError, "^Invalid Apple version description$"):
                 lk.download(store, self.base / "recheck", pin_apple=True)

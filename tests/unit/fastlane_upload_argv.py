@@ -9,11 +9,12 @@ calls = [json.loads(line) for line in Path(os.environ["STUB_LOG"]).read_text().s
 if sys.argv[1] == "approval":
     record = json.loads(Path(sys.argv[2]).read_text())["stores"]["apple"]
     assert record["appleVersion"] == {"id": "version-id", "string": "1.2.3", "state": "PREPARE_FOR_SUBMISSION",
-                                      "locales": ["en-US"]}
+                                      "appInfoId": "info-id", "appInfoState": "DEVELOPER_REJECTED",
+                                      "localizations": [["en-US", "version-localization", "info-localization"]]}
     assert all("review_information" not in key for key in record["files"])
 elif sys.argv[1] == "apple":
     assert not any(args[:2] == ["deliver", "run"] for args in calls)
-    assert any(Path(args[0]).name == "apple_text_upload.rb" and args[1] == "write" and args[-2] == "version-id" for args in calls)
+    assert any(Path(args[0]).name == "apple_text_upload.rb" and args[1] == "write" and Path(args[-2]).name == "apple-target.json" for args in calls)
 else:
     args = [args for args in calls if args[:2] == ["supply", "run"]][-1]
     assert {"--skip_upload_screenshots", "--skip_upload_images"} <= set(args)

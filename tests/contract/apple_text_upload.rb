@@ -2,6 +2,8 @@
 require "fastlane"
 require "spaceship"
 require "tmpdir"
+require "openssl"
+require "json"
 require "stringio"
 require "fileutils"
 require "minitest/autorun"
@@ -9,7 +11,15 @@ require_relative "../../skills/listing-kit/scripts/fastlane/apple_text_upload"
 
 class AppleTextContract < Minitest::Test
   def setup
-    @dir = File.realpath(Dir.mktmpdir)
+    @staging = File.realpath(Dir.mktmpdir)
+    @dir = File.join(@staging, "metadata")
+    Dir.mkdir(@dir)
+    @secret = "ab" * 32
+    @pins = {"id" => "version-id", "appInfoId" => "info-id",
+             "localizations" => [["en-US", "version-localization", "info-localization"]]}
+    @previous_secret = ENV["LK_APPLE_WRITE_SECRET"]
+    @previous_override = ENV["LK_PUBLISH_UNVERIFIED"]
+    ENV["LK_PUBLISH_UNVERIFIED"] = "apple:test.app"
     @writes = []
     @api = Spaceship::ConnectAPI
     @unexpected = []
@@ -22,9 +32,10 @@ class AppleTextContract < Minitest::Test
       @version.define_singleton_method(attribute) { model.public_send(attribute) }
     end
     @app = strict_double
-    info = strict_double
+    @app.define_singleton_method(:bundle_id) { "test.app" }
+    @info = info = @api::AppInfo.new("info-id", {"state" => "DEVELOPER_REJECTED"})
     local_info = resource(:info)
-    local_version = resource(:version)
+    @local_version = local_version = resource(:version)
     @version.define_singleton_method(:get_app_store_version_localizations) { [local_version] }
     @infos = [local_info]
     infos = @infos
@@ -42,7 +53,9 @@ class AppleTextContract < Minitest::Test
   end
 
   def teardown
-    FileUtils.remove_entry(@dir)
+    ENV["LK_APPLE_WRITE_SECRET"] = @previous_secret
+    ENV["LK_PUBLISH_UNVERIFIED"] = @previous_override
+    FileUtils.remove_entry(@staging)
     assert_empty @unexpected
   end
 
@@ -75,6 +88,7 @@ class AppleTextContract < Minitest::Test
       end
     end
     obj = strict_double
+    obj.define_singleton_method(:id) { model.id }
     obj.define_singleton_method(:locale) { "en-US" }
     obj.define_singleton_method(:update) { |attributes:| model.update(client: client, attributes: attributes) }
     obj
@@ -86,15 +100,27 @@ class AppleTextContract < Minitest::Test
     File.write(file, value)
   end
 
-  def upload(args = ["write", "test.app", "private-key-path", @dir, "version-id", "approved"], approval_token: "approved")
+  def approved_args
+    files = Dir.glob(File.join(@dir, "**/*.txt")).sort.map do |path|
+      [path.delete_prefix(@staging + "/"), Digest::SHA256.file(path).hexdigest]
+    end
+    message = JSON.generate(["test.app", @pins["id"], @pins["appInfoId"], @pins["localizations"], files])
+    token = OpenSSL::HMAC.hexdigest("SHA256", @secret, message)
+    pins_path = File.join(@staging, "apple-target.json")
+    File.write(pins_path, JSON.generate(@pins))
+    ["write", "test.app", "private-key-path", @dir, pins_path, token]
+  end
+
+  def upload(args = approved_args, approval_secret: @secret)
     token = Object.new
     loader = ->(hash:, filepath:) { raise unless hash.nil? && filepath == "private-key-path"; token }
-    finder = ->(identifier) { raise unless identifier == "test.app"; @app }
+    finder = ->(identifier) { raise unless %w[test.app other.app].include?(identifier); @app }
     @api::Token.stub(:from, loader) do
       @api.stub(:token=, ->(actual) { raise unless actual.equal?(token) }) do
         @api::App.stub(:find, finder) do
           output = StringIO.new
-          result = AppleTextUpload.run(args, output, approval_token: approval_token)
+          ENV["LK_APPLE_WRITE_SECRET"] = approval_secret
+          result = AppleTextUpload.run(args, output)
           return result, output.string
         end
       end
@@ -102,16 +128,25 @@ class AppleTextContract < Minitest::Test
   end
 
   def test_describe_is_read_only_and_needs_no_approval
-    status, output = upload(%w[describe test.app private-key-path], approval_token: nil)
+    status, output = upload(%w[describe test.app private-key-path], approval_secret: nil)
     assert_equal 0, status
-    assert_equal ["version 1.2.3 version-id PREPARE_FOR_SUBMISSION", "locale en-US"], output.lines.map(&:chomp)
+    assert_equal ["version 1.2.3 version-id PREPARE_FOR_SUBMISSION", "appInfo info-id DEVELOPER_REJECTED",
+                  "locale en-US version-localization info-localization"], output.lines.map(&:chomp)
+    assert_empty @writes
+  end
+
+  def test_describe_preserves_one_sided_localizations
+    @infos.first.define_singleton_method(:locale) { "fr-FR" }
+    status, output = upload(%w[describe test.app private-key-path], approval_secret: nil)
+    assert_equal 0, status
+    assert_equal ["locale en-US version-localization .", "locale fr-FR . info-localization"], output.lines.last(2).map(&:chomp)
     assert_empty @writes
   end
 
   def test_describe_refuses_to_compare_a_different_download_version
     latest = Struct.new(:id).new("other-id")
     @app.define_singleton_method(:get_latest_app_store_version) { |platform:| latest }
-    status, output = upload(%w[describe test.app private-key-path], approval_token: nil)
+    status, output = upload(%w[describe test.app private-key-path], approval_secret: nil)
     refute_equal 0, status
     assert_includes output, "download version differs from editable version"
     assert_empty @writes
@@ -119,10 +154,97 @@ class AppleTextContract < Minitest::Test
 
   def test_successor_refused_before_writing
     stage("en-US/name.txt", "private name")
-    status, output = upload(["write", "test.app", "private-key-path", @dir, "old-id", "approved"])
+    @pins["id"] = "old-id"
+    status, output = upload
     refute_equal 0, status
     assert_includes output, "editable version changed"
     assert_empty @writes
+  end
+
+  def test_replaced_resource_refused_before_any_patch
+    stage("copyright.txt", "private copyright")
+    stage("en-US/name.txt", "private name")
+    stage("en-US/description.txt", "private description")
+    [@info, @local_version, @infos.first].each do |resource|
+      args = approved_args
+      resource.stub(:id, "replacement") do
+        status, output = upload(args)
+        refute_equal 0, status
+        assert_includes output, "0 fields written"
+        refute_includes output, "replacement"
+        assert_empty @writes
+      end
+    end
+  end
+
+  def test_token_binds_raw_bytes_paths_and_file_set
+    path = File.join(@dir, "en-US/name.txt")
+    stage("en-US/name.txt", "private name")
+    args = approved_args
+    File.open(path, "a") { |file| file.write("\n") }
+    refute_equal 0, upload(args).first
+    stage("en-US/name.txt", "private name")
+    stage("copyright.txt", "private copyright")
+    refute_equal 0, upload(args).first
+    File.unlink(File.join(@dir, "copyright.txt"))
+    File.rename(path, File.join(@dir, "en-US/subtitle.txt"))
+    refute_equal 0, upload(args).first
+    assert_empty @writes
+  end
+
+  def test_extra_file_beside_metadata_invalidates_staging
+    stage("en-US/name.txt", "private name")
+    args = approved_args
+    File.write(File.join(@staging, "extra.txt"), "private text")
+    refute_equal 0, upload(args).first
+    assert_empty @writes
+  end
+
+  def test_loaded_app_must_match_the_approved_bundle
+    stage("en-US/name.txt", "private name")
+    @app.stub(:bundle_id, "other.app") do
+      status, output = upload
+      refute_equal 0, status
+      assert_includes output, "0 fields written"
+      refute_includes output, "other.app"
+      assert_empty @writes
+    end
+  end
+
+  def test_token_cannot_be_reused_for_another_bundle
+    stage("en-US/name.txt", "private name")
+    args = approved_args
+    args[1] = "other.app"
+    ENV["LK_PUBLISH_UNVERIFIED"] = "apple:other.app"
+    @app.define_singleton_method(:bundle_id) { "other.app" }
+    status, output = upload(args)
+    refute_equal 0, status
+    assert_includes output, "write approval mismatch"
+    assert_empty @writes
+  end
+
+  def test_token_cannot_be_reused_for_another_target
+    stage("en-US/name.txt", "private name")
+    args = approved_args
+    @pins["id"] = "replacement"
+    File.write(args[-2], JSON.generate(@pins))
+    @version.define_singleton_method(:id) { "replacement" }
+    refute_equal 0, upload(args).first
+    assert_empty @writes
+  end
+
+  def test_write_requires_scoped_override_and_consumes_approval
+    stage("en-US/name.txt", "private name")
+    args = approved_args
+    [nil, "apple:other"].each do |override|
+      ENV["LK_PUBLISH_UNVERIFIED"] = override
+      refute_equal 0, upload(args).first
+      assert_empty @writes
+    end
+    ENV["LK_PUBLISH_UNVERIFIED"] = "apple:test.app"
+    assert_equal 0, upload(args).first
+    refute_equal 0, upload(args).first
+    assert_equal 1, @writes.size
   end
 
   def test_state_allowlist
@@ -143,8 +265,8 @@ class AppleTextContract < Minitest::Test
 
   def test_write_requires_matching_nonempty_approval
     stage("en-US/name.txt", "private name")
-    [nil, "", "different"].each do |token|
-      refute_equal 0, upload(approval_token: token).first
+    [nil, "", "different", "cd" * 32].each do |secret|
+      refute_equal 0, upload(approval_secret: secret).first
     end
     refute_equal 0, upload(["test.app", "private-key-path", @dir]).first
     assert_empty @writes
@@ -153,9 +275,12 @@ class AppleTextContract < Minitest::Test
   def test_symlink_in_staging_path_refused
     Dir.mktmpdir do |parent|
       link = File.join(parent, "link")
-      File.symlink(@dir, link)
-      stage("metadata/en-US/name.txt", "private name")
-      status, = upload(["write", "test.app", "private-key-path", File.join(link, "metadata"), "version-id", "approved"])
+      File.symlink(@staging, link)
+      stage("en-US/name.txt", "private name")
+      args = approved_args
+      args[3] = File.join(link, "metadata")
+      args[4] = File.join(link, "apple-target.json")
+      status, = upload(args)
       refute_equal 0, status
       assert_empty @writes
     end
