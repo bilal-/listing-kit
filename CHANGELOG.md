@@ -5,6 +5,13 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ## Unreleased
 
+### Store publishing
+
+- Publish previews list every staged file and its SHA-256, with unified text diffs against the last pull. Play compares and stages text without trailing newlines.
+- Protected CI jobs and local runs can validate an approved Play edit with `publish --validate-only`. Its receipt records validation separately from publication. Real uploads remain gated for both stores.
+- Interrupted uploads accept an explicit `--resolve STORE applied|not-applied` outcome in CI. An unchanged readback after a failed fastlane command permits retry. Apple screenshot replacement waits through the normal timeout.
+- Uploads select Deliver and Supply's explicit `run` commands. Text-only uploads exclude images, Apple skips version updates and submission, and Supply retains its default review-parameter retry.
+
 ### Existing listings
 
 - Detect finds Android application modules directly in workspace app folders, shows both native siblings with a root plan example, and prints paths for configured or detected stores.

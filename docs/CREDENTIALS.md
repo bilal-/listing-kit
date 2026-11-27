@@ -31,6 +31,16 @@ Enter credentials yourself using the provider’s secure settings. Scope `APP_ST
 
 Store access alone does not enable uploads. Agents must never pass `--yes` to publish or set the maintainers' live-test switch, `LK_PUBLISH_UNVERIFIED`.
 
+### Supervised store tests
+
+Both real-upload gates are off. A maintainer testing a disposable app can set `LK_PUBLISH_UNVERIFIED=apple:<bundle-id>` or `LK_PUBLISH_UNVERIFIED=play:<package-name>` for one single-store invocation. Check the identifier, proposed command, file hashes and text diffs before approving. The receipt in `.listing-kit/publish.receipt.json` contains the staged manifest and outcome.
+
+For Play, first run `listing-kit publish --store play --validate-only` and approve the prompt. This uses the same service account and edit permissions. Supply validates the edit without committing it, so this mode works with the gate off and the override unset. The receipt says `validated, not applied`. Apple has no validate-only mode.
+
+A real Play commit requests `--changes_not_sent_for_review true`. Supply's default rescue retries without the parameter if Google requires it, which can send changes for review. Inspect Publishing overview after a real commit. [Supply commit behavior](https://github.com/fastlane/fastlane/blob/2.242.0/supply/lib/supply/client.rb#L204-L246).
+
+For Apple text changes, Deliver receives `--skip_screenshots`, `--skip_binary_upload`, and `--skip_app_version_update`. These exclude screenshots, a binary, and version-number updates. `--submit_for_review false` disables submission. `--run_precheck_before_submit false` skips the submission precheck. `--force` skips Deliver's HTML preview after kit approval. The kit stages only the approved metadata in a private directory, clears inherited Deliver options, and leaves automatic release, release date and phased release unspecified. Passing `--automatic_release false` would itself select a release policy. Verify the existing release settings and attached build in App Store Connect after the first supervised test.
+
 ## Rotate or revoke
 
 For a planned rotation, create a replacement key for the same scoped identity. Replace the local file or CI secret. Check authentication with a read-only operation against the intended app. Revoke the old Apple key or delete the old Google service account key. Remove old downloads and temporary copies. If the integration is retired, also remove the CI secret and the identity's store access. [Apple API key management](https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api/) and [Google service account key management](https://cloud.google.com/iam/docs/keys-create-delete).
@@ -70,4 +80,6 @@ The CLI loads each tool’s command generator and calls `start` directly. For bo
 
 If a file is created despite redirection, the kit checks only its private `TMPDIR`. Before spawning the child it opens the directory and snapshots its entry names. After the child exits it checks new names in the verified format for that child’s PID. It opens candidates without following symlinks, checks ownership and regular-file type, and verifies the inode in a private staging directory before unlinking. Home and shared temporary directories stay outside the scan. A failed check reports only the number of affected locations.
 
-During spawn, execution and log cleanup, the parent blocks SIGINT, SIGTERM, SIGHUP and SIGQUIT. An interrupt or timeout kills the active child process group and reaps the child before cleanup. A pending interrupt propagates after cleanup.
+During spawn, execution and log cleanup, the parent blocks SIGINT, SIGTERM, SIGHUP and SIGQUIT. An interrupt or hard timeout kills the active child process group and reaps the child before cleanup. A pending interrupt propagates after cleanup.
+
+During an Apple screenshot overwrite the upload time limit issues one warning and the adapter waits for Deliver to finish. Captured fastlane output can contain API bodies. Keep it out of job logs and receipts.

@@ -8,6 +8,10 @@ on:
 __LISTING_FILTERS__
   workflow_dispatch:
     inputs:
+      play_validate_only:
+        description: Validate the Play edit without committing it
+        type: boolean
+        default: false
       store:
         description: Store to publish
         required: true
@@ -73,6 +77,7 @@ jobs:
       - name: Publish listing
         id: publish
         env:
+          PLAY_VALIDATE_ONLY: ${{ inputs.play_validate_only }}
           STORE: ${{ inputs.store }}
           APP_STORE_CONNECT_API_KEY_JSON: ${{ inputs.store == 'apple' && secrets.APP_STORE_CONNECT_API_KEY_JSON || '' }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.store == 'play' && secrets.PLAY_SERVICE_ACCOUNT_JSON || '' }}
@@ -100,7 +105,13 @@ jobs:
           Path(sys.argv[2]).write_bytes(value.encode("utf-8"))
           PYKEY
           unset APP_STORE_CONNECT_API_KEY_JSON PLAY_SERVICE_ACCOUNT_JSON
-          listing-kit publish --store "$STORE" --yes "$APP_ROOT"
+          set --
+          case "${PLAY_VALIDATE_ONLY:-false}" in
+            true) [ "$STORE" = play ] || { echo "Apple has no validate-only mode" >&2; exit 2; }; set -- --validate-only ;;
+            false) ;;
+            *) echo "PLAY_VALIDATE_ONLY must be true or false" >&2; exit 2 ;;
+          esac
+          listing-kit publish --store "$STORE" --yes "$APP_ROOT" "$@"
       - name: Upload publish receipt
         if: always() && (steps.publish.outcome == 'success' || steps.publish.outcome == 'failure')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

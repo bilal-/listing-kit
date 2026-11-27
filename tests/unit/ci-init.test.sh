@@ -169,6 +169,11 @@ cat > "$STUB_BIN/listing-kit" <<'SH'
 set -eu
 [ "$1" = publish ] && [ "$2" = --store ] && [ "$4" = --yes ] && [ "$5" = "$APP_ROOT" ] || exit 11
 [ -z "${APP_STORE_CONNECT_API_KEY_JSON+x}${PLAY_SERVICE_ACCOUNT_JSON+x}" ] || exit 12
+if [ "${PLAY_VALIDATE_ONLY:-false}" = true ]; then
+  [ "$3" = play ] && [ "$#" = 6 ] && [ "$6" = --validate-only ] || exit 11
+else
+  [ "$#" = 5 ] || exit 11
+fi
 case "$3" in
   apple) key="$APP_STORE_CONNECT_API_KEY_PATH"; test -z "${SUPPLY_JSON_KEY+x}" ;;
   play) key="$SUPPLY_JSON_KEY"; test -z "${APP_STORE_CONNECT_API_KEY_PATH+x}" ;;
@@ -231,6 +236,13 @@ PYSCRIPT
     assert_eq 23 "$rc" "$provider $store propagates publish failure"
     assert_not_contains "$out" 'offline fixture'
     if [ -f "$KEY_RECORD" ] && [ ! -e "$(cat "$KEY_RECORD")" ]; then pass; else fail "credential handling"; fi
+    out="$(PLAY_VALIDATE_ONLY=true run_publish "$value" 2>&1)"; rc=$?
+    if [ "$store" = play ]; then
+      assert_eq 23 "$rc" "$provider passes --validate-only to Play"
+    else
+      assert_eq 2 "$rc" "$provider refuses Apple validation"
+    fi
+
     if [ "$provider" = gitlab ]; then
       it "$store rejects inline GitLab JSON without passing it to install or logging it"
       rm -f "$INSTALL_RECORD"
