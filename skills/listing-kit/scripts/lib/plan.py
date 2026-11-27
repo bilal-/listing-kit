@@ -927,6 +927,8 @@ def coverage(data, rules, outputs, publish_store=None, *, disk_apple=(), text_lo
         for code in set(text_locales) & (mapped - held):
             result["apple"].setdefault(code, {})
     for row in outputs:
+        if not publish_store and row["store"] == "apple" and row["rawPath"]:
+            result["apple"][row["storeCode"]].setdefault("rawCaptures", []).append(row["rawPath"])
         if row["kind"] == "graphic":
             store = row["store"]
             code = row["storeCode"]

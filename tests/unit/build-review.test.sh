@@ -2,12 +2,8 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../helpers.sh"
 
 SUT="$SCRIPTS/package/build-review.sh"
-# FIXTURE, not the example as shipped: a copy plus a synthetic medium-size iPhone
-# screenshot, so these tests have a valid tree to mutate. The example as committed is
-# checked without any addition in tests/structure/examples.test.sh.
 new_tempdir APP
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$APP/"
-fake_png "$APP/fastlane/screenshots/en-US/medium_01.png" 1206 2622
 
 it "exits 2 when there is no fastlane tree"
 new_tempdir T
@@ -30,7 +26,7 @@ assert_contains "$PAGE" 'onclick="cp(this)"'          # copy button
 
 it "renders char counts, screenshots, and graphics"
 assert_contains "$PAGE" '23/30'                        # name: "Recipe Box: Cook & Shop"
-assert_contains "$PAGE" 'fastlane/screenshots/en-US/'  # relative screenshot link (iOS)
+assert_contains "$PAGE" 'fastlane/screenshots/en-US/01_recipes_iphone-medium.png'  # relative screenshot link (iOS)
 assert_contains "$PAGE" 'phoneScreenshots'             # android screenshot link
 assert_contains "$PAGE" 'iPhone Dynamic Island (large display)' # device-class grouping
 assert_contains "$PAGE" 'iPad 13&quot;' # class labels are HTML-escaped
@@ -294,5 +290,21 @@ OUT="$(bash "$SUT" "$T" 2>&1)"; RC=$?
 assert_eq 0 "$RC"
 assert_contains "$(cat "$T/listing-review.html")" "2026 Studio"
 rm -rf "$T"
+
+it "links the available planned Apple raw captures for status-bar inspection"
+new_tempdir T
+cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
+mkdir -p "$T/.listing-kit/raw/ipad/en-US"
+example="$ROOT/examples/expo-recipe-box"
+cp -R "$example/.listing-kit/listing.json" "$example/.listing-kit/flows" "$T/.listing-kit/"
+cp -R "$example/assets" "$T/"
+raw=".listing-kit/raw/ipad/en-US/recipes.png"
+cp "$example/$raw" "$T/$raw"
+OUT="$(bash "$SUT" "$T" 2>&1)"
+assert_eq 0 "$?"
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" 'Inspect raw status bars'
+assert_contains "$PAGE" "src=\"$raw\""
+assert_not_contains "$PAGE" 'src=".listing-kit/raw/ipad/en-US/shopping.png"'
 
 summary

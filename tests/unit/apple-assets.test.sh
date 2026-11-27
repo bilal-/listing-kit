@@ -4,6 +4,7 @@ SUT="$SCRIPTS/validate/validate-listing.sh"
 new_tempdir T
 cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$ROOT/examples/expo-recipe-box/app.json" "$T/"
 SHOTS="$T/fastlane/screenshots/en-US"
+rm "$SHOTS/"*_iphone-medium.png
 HEADERS="$T/store-assets/apple/en-US"
 mkdir -p "$T/.listing-kit" "$HEADERS"
 
