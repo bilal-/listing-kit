@@ -111,12 +111,12 @@ def load_legacy(root, rules=None):
     return plan["apple"]
 
 
-def legacy_warning(root, rules, coverage):
-    prefix = "asset-plan.json is ignored"
+def legacy_advisory(root, rules, coverage):
+    prefix = "asset-plan.json is ignored for coverage. Other tooling in this repository may still use it."
     try:
         legacy = load_legacy(root, rules)
     except (OSError, ValueError) as exc:
-        return f"{prefix}; cannot compare its declarations: {exc}"
+        return "WARN", f"{prefix} Cannot compare declarations: {exc}"
     lost = []
     for locale, entry in legacy.items():
         modern = coverage.get(locale, {})
@@ -132,8 +132,8 @@ def legacy_warning(root, rules, coverage):
                    for key in deferred_slots(rules, [label])):
                 lost.append(f"{locale}/{label} (deferred: {reason})")
     if lost:
-        return prefix + "; listing.json does not cover: " + ", ".join(lost)
-    return prefix + " and safe to delete. Coverage comes from listing.json."
+        return "WARN", prefix + " listing.json does not cover: " + ", ".join(lost)
+    return "NOTE", prefix + " Its declarations are covered by listing.json."
 
 
 def display_name(rules, key, planned):

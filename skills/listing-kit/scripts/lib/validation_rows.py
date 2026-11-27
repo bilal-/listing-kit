@@ -52,7 +52,7 @@ def collect(root, as_of, ios_sdk, verbose=False, coverage_view=None):
     req.apply_inferred(coverage.get("inferred", {}))
     legacy = (root / apple_assets.LEGACY).is_file()
     if modern and legacy:
-        yield "WARN", apple_assets.legacy_warning(root, rules, targets)
+        yield apple_assets.legacy_advisory(root, rules, targets)
     locales = list(map(Path, apple_assets.apple_locales(root, rules, targets, apple_tree)))
     apple = apple_assets.has_apple_listing(root, rules, locales, apple_tree) or (legacy and not modern)
     play = play_tree["metadata"].is_dir() or bool(coverage.get("play"))

@@ -982,6 +982,10 @@ class PlanError(ValueError):
         super().__init__("\n".join(_line(p) for p in problems))
 
 
+class UnversionedPlan(PlanError):
+    """An app-owned JSON object without a kit format declaration."""
+
+
 def _line(fields):
     return "\t".join(json_input.diagnostic(s) for s in fields)
 
@@ -1001,7 +1005,8 @@ def read_listing(root):
     data = json_input.read(io.StringIO(raw.decode("utf-8")))
     message = _format_error(data)
     if message:
-        raise PlanError([("ERROR", "format", message)])
+        error = UnversionedPlan if "format" not in data else PlanError
+        raise error([("ERROR", "format", message)])
     return data
 
 
@@ -1024,12 +1029,16 @@ def load(app_root):
     return _read(app_root)[0]
 
 
-def listing_trees(app_root):
+def listing_trees(app_root, *, ignore_unversioned=False):
     """Resolve app-relative input directories for a planned or manual listing."""
     root = Path(app_root).resolve()
     try:
         data = read_listing(root)
     except FileNotFoundError:
+        data = {}
+    except UnversionedPlan:
+        if not ignore_unversioned:
+            raise
         data = {}
     except PlanError:
         raise

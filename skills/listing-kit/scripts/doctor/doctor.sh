@@ -45,13 +45,20 @@ if [ "$(uname -s)" = Darwin ]; then
 fi
 report adb 'install Android SDK Platform-Tools' command -v adb
 report 'fastlane (listing-kit fastlane setup|pull|publish)' 'gem install fastlane -v 2.242.0' command -v fastlane
-plan_ok() {
-  [ -f "$root/.listing-kit/listing.json" ] && python3 "$scripts/lib/plan.py" check "$root"
-}
-report .listing-kit/listing.json 'create the plan or run listing-kit plan check for details' plan_ok
+if [ ! -e "$root/.listing-kit/listing.json" ]; then
+  echo 'MISSING .listing-kit/listing.json (create a listing plan)'
+elif [ "$rc" != 0 ]; then
+  echo 'UNCHECKED .listing-kit/listing.json (see tool diagnostics above)'
+elif detail="$(python3 "$scripts/lib/plan.py" check "$root" 2>&1)"; then
+  echo 'OK .listing-kit/listing.json'
+elif [ "$detail" = $'ERROR\tformat\trequired key is missing' ]; then
+  echo 'found a plan in an older, unversioned layout; see references/plan-file.md for manual port steps'
+else
+  printf 'INVALID .listing-kit/listing.json (%s)\n' "${detail:-run listing-kit plan check for details}"
+fi
 if status="$(bash "$scripts/package/install-review-hook.sh" --status "$root" 2>&1)"; then
   printf 'OK hook (%s)\n' "${status%%$'\n'*}"
 else
-  printf 'MISSING hook (%s; run listing-kit hook install)\n' "${status%%$'\n'*}"
+  printf 'hook: %s (run listing-kit hook install)\n' "${status:-unknown status}"
 fi
 exit "$rc"

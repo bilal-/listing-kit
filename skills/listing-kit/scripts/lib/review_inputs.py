@@ -69,11 +69,11 @@ def write_view_plan(view, trees, data, preserve_errors=False):
     path.write_text(json.dumps(projected), encoding="utf-8")
 
 
-def prepare_view(view, trees, source, coverage_path, repo_root=None):
+def prepare_view(view, trees, source, coverage_path, repo_root=None, ignore_plan=False):
     """Keep coverage before replacing the source plan with its Git-free layout."""
     data = {}
     coverage = None
-    if (source / plan.LISTING).is_file():
+    if not ignore_plan and (source / plan.LISTING).is_file():
         data = plan.read_listing(source)
         try:
             rules = specs.load(source)
@@ -104,7 +104,13 @@ def run(script, root, args):
         status = set(scan(root / config, root, ignored | unsafe | demo_files, [root], follow_root=True))
         if status:
             return (3 if 1 in status else 2) if Path(script).name == "build-review.sh" else 1
-    resolved = plan.listing_trees(root)
+    unversioned = False
+    try:
+        resolved = plan.listing_trees(root)
+    except plan.UnversionedPlan:
+        unversioned = True
+        resolved = plan.listing_trees(root, ignore_unversioned=True)
+        print("listing.json ignored: unversioned plan (missing format). Checking the listing tree.", flush=True)
     trees = listing_roots(root, resolved)
     if Path(script).name == "build-review.sh" and not plan.has_listing_directory(root, resolved):
         print(f"No listing directories under: {root} (run Assemble first).", file=sys.stderr)
@@ -113,7 +119,7 @@ def run(script, root, args):
     cmd = ["bash", script, ".", "--prepared", *args]
     env = os.environ.copy()
     env.setdefault("LK_REVIEW_DISPLAY_ROOT", str(root))
-    if not (ignored or unsafe or demo_files or any((root / tree).is_symlink() for tree in trees)):
+    if not (unversioned or ignored or unsafe or demo_files or any((root / tree).is_symlink() for tree in trees)):
         return subprocess.call(cmd, cwd=root, env=env)
 
     # Only these trees and device declarations are consumed by listing tools.
@@ -135,7 +141,7 @@ def run(script, root, args):
             (view / path.parent).mkdir(exist_ok=True, parents=True)
             link_file(source, view / path)
         if "--coverage-view" not in args:
-            cmd.extend(prepare_view(view, resolved, root, Path(tmp) / "coverage.json"))
+            cmd.extend(prepare_view(view, resolved, root, Path(tmp) / "coverage.json", ignore_plan=unversioned))
         env["GIT_CEILING_DIRECTORIES"] = str(view.parent)
         if shutil.which("git"):
             for key in subprocess.check_output(["git", "rev-parse", "--local-env-vars"]).decode().split():
