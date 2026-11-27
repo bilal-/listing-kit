@@ -572,11 +572,26 @@ run_lk publish "${p[@]}" --yes
 assert_eq "$rc" 1
 assert_eq "$(cat "$fixture/sent")" "apple $name"
 rm "$fixture/fail-play"
+it "--expect-send refuses a publish whose files differ from the approved list"
+digest="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$new_title")"
+sent_before="$(cat "$fixture/sent")"
+run_lk publish "${p[@]}" --yes --expect-send "$digest metadata/en-US/full_description.txt"
+assert_eq "$rc" 1
+assert_contains "$out" "files to send differ from --expect-send"
+assert_eq "$(cat "$fixture/sent")" "$sent_before"
+assert_contains "$out" "baseline unchanged"
+run_lk publish "${p[@]}" --yes --expect-send "$digest metadata/en-US/title.txt" --expect-send "$digest metadata/en-US/short_description.txt"
+assert_eq "$rc" 1
+assert_contains "$out" "files to send differ from --expect-send"
+assert_eq "$(cat "$fixture/sent")" "$sent_before"
+run_lk publish "${p[@]}" --yes --expect-send "not-a-sha metadata/en-US/title.txt"
+assert_eq "$rc" 2
+assert_contains "$out" "expected --expect-send"
 it "a fresh unchanged baseline closes a failed Play upload and retries"
-run_lk publish "${p[@]}" --yes
+run_lk publish "${p[@]}" --yes --expect-send "$digest metadata/en-US/title.txt"
 assert_eq "$rc" 0
 assert_eq "$(cat "$fixture/sent")" "$(printf 'apple %s\nplay en-US/title.txt' "$name")"
-assert_contains "$out" "baseline unchanged"
+assert_contains "$out" "Files to send match --expect-send"
 assert_contains "$out" "--- last pull/metadata/en-US/title.txt"
 assert_contains "$out" "-$pulled_title"
 assert_contains "$out" "+$new_title"
@@ -587,6 +602,12 @@ assert_contains "$out" "play send $digest metadata/en-US/title.txt"
 assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-1]['files']['metadata/en-US/title.txt']")" "$digest"
 assert_eq "$(json_path "$app/.listing-kit/publish.receipt.json" "['stores']['play']['operations'][-2]['status']")" "not-applied"
 cmp -s "$title" "$fixture/local-play-title" && pass || fail "local Play bytes changed"
+for mode in publish validate; do
+  extra=(); [ "$mode" = validate ] && extra=(--validate-only)
+  run_lk publish "${p[@]}" ${extra[@]+"${extra[@]}"} --yes --expect-send "$digest metadata/en-US/title.txt"
+  assert_eq "$rc" 1
+  assert_contains "$out" "Nothing to send, but --expect-send listed files"
+done
 python3 "$HELPER_DIR/unit/fastlane_upload_argv.py" play && pass || fail "Play text-only command"
 for flag in skip_upload_apk skip_upload_aab skip_upload_images skip_upload_changelogs skip_upload_screenshots; do
   assert_contains "$(cat "$STUB_LOG")" "\"--$flag\""
