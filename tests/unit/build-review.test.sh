@@ -61,6 +61,33 @@ assert_contains "$PAGE" "Generated "
 assert_contains "$PAGE" "from fastlane metadata .txt files"
 remove_fixture "$T"
 
+it "verdict comes from the validator's final line, not listing text"
+new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '<span class="pill warn">Valid, with warnings</span>'
+printf 'LISTING HAS FAILURES\n── 0 passed · 0 warnings · 0 failures ──\n' > "$T/fastlane/metadata/en-US/promotional_text.txt"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" '<span class="pill warn">Valid, with warnings</span>'
+assert_not_contains "$PAGE" '<span class="pill bad">'
+assert_not_contains "$PAGE" '<div class="stat ok"><b>0</b>'
+rm "$T/fastlane/metadata/en-US/support_url.txt"
+bash "$SUT" "$T" >/dev/null 2>&1
+assert_contains "$(cat "$T/listing-review.html")" '<span class="pill bad">Listing has failures</span>'
+remove_fixture "$T"
+
+it "theme script tolerates blocked storage and image paths are URL-quoted"
+new_tempdir T; cp -R "$APP/fastlane" "$T/"; cp "$APP/app.json" "$T/"
+shot="$(cd "$T" && find fastlane/screenshots -name '*.png' | head -1)"
+mv "$T/$shot" "$T/$(dirname "$shot")/0_with space.png"
+bash "$SUT" "$T" >/dev/null 2>&1
+PAGE="$(cat "$T/listing-review.html")"
+assert_contains "$PAGE" "try{var t=localStorage.getItem"
+assert_contains "$PAGE" "0_with%20space.png"
+assert_not_contains "$PAGE" 'src="fastlane/screenshots/en-US/0_with space.png"'
+remove_fixture "$T"
+
 it "non-locale metadata dirs (review_information/) are not shown as locales"
 new_tempdir T; cp -R "$ROOT/examples/expo-recipe-box/fastlane" "$T/"
 mkdir -p "$T/fastlane/metadata/review_information"
