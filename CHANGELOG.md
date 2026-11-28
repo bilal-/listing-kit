@@ -5,6 +5,10 @@ Notable changes to listing-kit. Versions follow the plugin manifest
 
 ## Unreleased
 
+### Review page
+
+- `listing-review.html` is redesigned with listing-kit branding: a verdict and counts summary, a needs-attention list, App Store and Google Play preview cards per locale, length meters, a screenshot lightbox and dark mode. It is still one offline file, and the validator transcript is kept verbatim.
+
 ### Store publishing
 
 - `publish --expect-send '<sha256> <file>'` (repeatable) refuses unless the files to send match an approved preview exactly.
